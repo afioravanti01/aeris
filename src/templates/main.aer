@@ -1,0 +1,6 @@
+use io
+
+fn main(cap) -> result<unit> {
+  io.println("hello, aeris")
+  Ok(())
+}

@@ -1,0 +1,16 @@
+[package]
+name         = "aeris"
+version      = "0.2.0-dev"
+edition      = "2021"
+rust-version = "1.75"
+license      = "MIT OR Apache-2.0"
+description  = "Aeris — a small DSL for ops, governance, pipelines and AI agents"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+strip         = true
+lto           = "fat"
+codegen-units = 1
+opt-level     = 3

@@ -1,0 +1,11 @@
+[project]
+name  = "my-aeris-project"
+aeris = "0.2.0"
+
+[deps]
+
+[caps]
+# project-wide capability ceiling — see docs/language.md § 24.1
+# http.allow      = ["api.example.com"]
+# fs.allow_read   = ["./data/**"]
+# fs.allow_write  = ["./out/**"]
