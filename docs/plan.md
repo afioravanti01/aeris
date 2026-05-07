@@ -168,11 +168,11 @@ that the task realises.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M1.T1 | Lexer: all 47 reserved keywords | `tokenize` returns `Keyword(_)` for each; identifier collisions rejected | § 2.3 | pending |
-| M1.T2 | Lexer: literals (int / float / bool / string with `\(...)` / bytes / char / list / tuple / record) | 60 fixture snippets tokenize to expected stream | § 2.4 | pending |
-| M1.T3 | Lexer: date / timestamp / duration as primary tokens | `2026-05-07` is one `DateLit`, never `Int '-' Int '-' Int` | § 2.4 | pending |
-| M1.T4 | Lexer: comments (`//`, `/* */`, `///`) | Block-comment nesting handled; `///` retained for `aeris doc` | § 2.5 | pending |
-| M1.T5 | Parser: top-level decls (`fn`, `record`, `enum`, `model`, `type`, `const`, `pub`) | 30 fixture snippets parse to snapshot AST | § 4, § 7 | pending |
+| M1.T1 | Lexer: all 51 reserved keywords | `tokenize` returns `Keyword(_)` for each; identifier collisions rejected | § 2.3 | done |
+| M1.T2 | Lexer: literals (int / float / bool / string with `\(...)` / bytes / char) | fixture snippets tokenize to expected stream | § 2.4 | done |
+| M1.T3 | Lexer: date / timestamp / duration as primary tokens | `2026-05-07` is one `DateLit`, never `Int '-' Int '-' Int` | § 2.4 | done |
+| M1.T4 | Lexer: comments (`//`, `/* */`, `///`) | Block-comment nesting handled; `///` retained for `aeris doc` | § 2.5 | done |
+| M1.T5 | Parser: top-level decls (`fn`, `record`, `enum`, `model`, `type`, `const`, `pub`) | 30 fixture snippets parse to snapshot AST | § 4, § 7 | done |
 | M1.T6 | Parser: expressions (binary / unary / call / match / if / block / lambda / spawn / try) | Operator precedence per § 2.6; 40 expression fixtures | § 5, § 6 | pending |
 | M1.T7 | Parser: capability types `cap[<entry>, ...]` with `@` allow-lists | Both forms `@ "x"` and `@ ["x", "y"]` parse; `cap[*]` parses but flagged for M2 | § 8.3.1 | pending |
 | M1.T8 | Parser: `saga`, `step`, `do`/`undo`, `intent` block, `agent`, `agent_net`, `flow`, `until`, `policy` | One golden AST per construct | § 12, § 13, § 14, § 15 | pending |
