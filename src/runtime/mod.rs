@@ -4,3 +4,16 @@
 //! Realises `docs/language.md` §§ 11–14 (sequencing, sagas, agents,
 //! agent_net), § 19 (concurrency), § 20 (tracing/replay),
 //! §§ 22–23 (L1 / L2 modules).
+
+pub mod eval;
+pub mod http;
+pub mod json;
+pub mod replay;
+pub mod trace;
+pub mod value;
+
+pub use eval::{eval_expression, eval_module_env, run_main, Env, EvalError, EvalErrorKind};
+pub use trace::{TraceEvent, Tracer};
+pub use value::{
+    AgentInstance, AgentNetInstance, Closure, EnumValue, RecordValue, Value, VariantValue,
+};

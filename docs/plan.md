@@ -102,17 +102,17 @@ Module responsibilities (one-liners):
 | M | Title | Output | Weeks | Depends on | Status |
 |---|---|---|---|---|---|
 | M0 | Project bootstrap | Workspace, CI, `aeris version` runs | 1 | — | done |
-| M1 | Lexer & Parser | Tokens + AST for full `language.md` surface | 3 | M0 | pending |
+| M1 | Lexer & Parser | Tokens + AST for full `language.md` surface | 3 | M0 | done |
 | M2 | Static analysis | `aeris check` with exit codes 64–71 | 4 | M1 | pending |
-| M3 | Pure interpreter | `aeris run` for pure programs | 2 | M2 | pending |
-| M4 | Tracing + safe L1 effects | JSONL trace; `io`, `fs`, `env`, `clock` (N2), `random` (N2) | 3 | M3 | pending |
-| M5 | http + shell + contracts | N4 allow-list at runtime; `requires:` / `ensures:` checked | 3 | M4 | pending |
-| M6 | Sagas + idempotency (N1) | Forward / rollback / `PartialFailure`; golden saga traces | 3 | M5 | pending |
-| M7 | Lockset + content-addressing + surface (V3) | blake3-verified deps; `main` cap synthesised; `surface.lock` written | 3 | M0, M2 | pending |
-| M8 | Models + Policies | `@vN` validation at trust boundaries; deny / require / limit / audit | 3 | M2, M5 | pending |
-| M9 | L2 `ai` + LLM tape (N3) + Replay | Pluggable backend, `aeris replay` bit-identical | 4 | M4, M6, M7 | pending |
-| M10 | Agents + `agent_net` | Schema-validated agent calls; typed dataflow; `until:` iteration | 4 | M8, M9 | pending |
-| M11 | L2 native handlers (`audit`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`) | All L2 modules + mock backends + integration tests | 4 | M9 | pending |
+| M3 | Pure interpreter | `aeris run` for pure programs | 2 | M2 | done |
+| M4 | Tracing + safe L1 effects | JSONL trace; `io`, `fs`, `env`, `clock` (N2), `random` (N2) | 3 | M3 | done |
+| M5 | http + shell + contracts | N4 allow-list at runtime; `requires:` / `ensures:` checked | 3 | M4 | done |
+| M6 | Sagas + idempotency (N1) | Forward / rollback / `PartialFailure`; golden saga traces | 3 | M5 | done |
+| M7 | Lockset + content-addressing + surface (V3) | blake3-verified deps; `main` cap synthesised; `surface.lock` written | 3 | M0, M2 | done |
+| M8 | Models + Policies | `@vN` validation at trust boundaries; deny / require / limit / audit | 3 | M2, M5 | done |
+| M9 | L2 `ai` + LLM tape (N3) + Replay | Pluggable backend, `aeris replay` bit-identical | 4 | M4, M6, M7 | done |
+| M10 | Agents + `agent_net` | Schema-validated agent calls; typed dataflow; `until:` iteration | 4 | M8, M9 | done |
+| M11 | L2 native handlers (`audit`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`) | All L2 modules + mock backends + integration tests | 4 | M9 | done |
 | M12 | Tests + properties + `fmt` + V1 narrow-caps | `aeris test`, property shrinking, total `aeris fmt`, capability minimisation linter | 4 | M2, M3 | pending |
 | M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | pending |
 | M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | pending |
@@ -173,139 +173,139 @@ that the task realises.
 | M1.T3 | Lexer: date / timestamp / duration as primary tokens | `2026-05-07` is one `DateLit`, never `Int '-' Int '-' Int` | § 2.4 | done |
 | M1.T4 | Lexer: comments (`//`, `/* */`, `///`) | Block-comment nesting handled; `///` retained for `aeris doc` | § 2.5 | done |
 | M1.T5 | Parser: top-level decls (`fn`, `record`, `enum`, `model`, `type`, `const`, `pub`) | 30 fixture snippets parse to snapshot AST | § 4, § 7 | done |
-| M1.T6 | Parser: expressions (binary / unary / call / match / if / block / lambda / spawn / try) | Operator precedence per § 2.6; 40 expression fixtures | § 5, § 6 | pending |
-| M1.T7 | Parser: capability types `cap[<entry>, ...]` with `@` allow-lists | Both forms `@ "x"` and `@ ["x", "y"]` parse; `cap[*]` parses but flagged for M2 | § 8.3.1 | pending |
-| M1.T8 | Parser: `saga`, `step`, `do`/`undo`, `intent` block, `agent`, `agent_net`, `flow`, `until`, `policy` | One golden AST per construct | § 12, § 13, § 14, § 15 | pending |
-| M1.T9 | Parser: `requires:` / `ensures:` outside the body braces | Snapshot AST | § 9 | pending |
-| M1.T10 | Pretty-printer (round-trip `parse → format → parse`) | 100 fixtures round-trip to byte-identical output | § 25.2 | pending |
-| M1.T11 | Parse-error recovery for IDE / CLI usage | Malformed snippets produce one error per problem (no avalanche) | — | pending |
+| M1.T6 | Parser: expressions (binary / unary / call / match / if / block / lambda / spawn / try) | Operator precedence per § 2.6; 40 expression fixtures | § 5, § 6 | done |
+| M1.T7 | Parser: capability types `cap[<entry>, ...]` with `@` allow-lists | Both forms `@ "x"` and `@ ["x", "y"]` parse; `cap[*]` parses but flagged for M2 | § 8.3.1 | done |
+| M1.T8 | Parser: `saga`, `step`, `do`/`undo`, `intent` block, `agent`, `agent_net`, `flow`, `until`, `policy` | One golden AST per construct | § 12, § 13, § 14, § 15 | done |
+| M1.T9 | Parser: `requires:` / `ensures:` outside the body braces | Snapshot AST | § 9 | done |
+| M1.T10 | Pretty-printer (round-trip `parse → format → parse`) | 100 fixtures round-trip to byte-identical output | § 25.2 | done |
+| M1.T11 | Parse-error recovery for IDE / CLI usage | Malformed snippets produce one error per problem (no avalanche) | — | done |
 
 ### 5.2 M2 — Static analysis (4 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M2.T1 | Type checker: primitives, records, enums, generics, type aliases | 40 positive snippets type-check; 20 negative produce code 64 | § 4 | pending |
-| M2.T2 | Type checker: `match` exhaustiveness (structural, no SMT, guards excluded) | 15 exhaustiveness fixtures, including `int + only-guards` rejection | § 17.2 | pending |
-| M2.T3 | Capability checker: `cap[..]` narrowing in signatures | A function calling `fs.write_file` without it in `cap[..]` rejected with code 65 | § 8.3 | pending |
-| M2.T4 | Capability checker: body-resolution (§ 8.2) — `<module>.<op>(...)` binds to in-scope `cap` | Pure fn calling `http.get(...)` rejected with code 65 ("no cap in scope") | § 8.2 | pending |
-| M2.T5 | Capability checker: `cap[*]` rejected in user code | Sample with `cap[*]` returns code 65 | § 8.4, § 8.7 | pending |
+| M2.T1 | Type checker: primitives, records, enums, generics, type aliases | 40 positive snippets type-check; 20 negative produce code 64 | § 4 | done |
+| M2.T2 | Type checker: `match` exhaustiveness (structural, no SMT, guards excluded) | 15 exhaustiveness fixtures, including `int + only-guards` rejection | § 17.2 | done |
+| M2.T3 | Capability checker: `cap[..]` narrowing in signatures | A function calling `fs.write_file` without it in `cap[..]` rejected with code 65 | § 8.3 | done |
+| M2.T4 | Capability checker: body-resolution (§ 8.2) — `<module>.<op>(...)` binds to in-scope `cap` | Pure fn calling `http.get(...)` rejected with code 65 ("no cap in scope") | § 8.2 | done |
+| M2.T5 | Capability checker: `cap[*]` rejected in user code | Sample with `cap[*]` returns code 65 | § 8.4, § 8.7 | done |
 | M2.T6 | Capability checker: allow-list intersection with `lockset.toml [caps]` | A signature requesting `http.post @ ["evil.com"]` outside lockset rejected with code 71 | § 8.3.2 | pending |
-| M2.T7 | V2 enforcement: write-effectful call without enclosing `intent` rejected with code 66 | Negative fixtures for each write-classified op | § 10.1 | pending |
-| M2.T8 | Saga rule: `step` with write-`do` and `undo: noop` rejected with code 67 | Negative fixtures | § 12.2 | pending |
-| M2.T9 | `agent_net`: cycle rejected with code 70 | Negative fixture: `flow a -> b -> a` | § 14.1 | pending |
-| M2.T10 | `model` versioning: bare `Invoice` (no `@vN`) rejected with code 68 | Negative fixture | § 16.1 | pending |
-| M2.T11 | `cap` escape rules: stored in record / returned without cap-type / sent through channel — all rejected | 6 negative fixtures, one per escape vector | § 8.7 | pending |
-| M2.T12 | `aeris check` CLI: prints first hunk = surface diff when surface is stale | Tested with a stale `surface.lock` | § 8.6 | pending |
+| M2.T7 | V2 enforcement: write-effectful call without enclosing `intent` rejected with code 66 | Negative fixtures for each write-classified op | § 10.1 | done |
+| M2.T8 | Saga rule: `step` with write-`do` and `undo: noop` rejected with code 67 | Negative fixtures | § 12.2 | done |
+| M2.T9 | `agent_net`: cycle rejected with code 70 | Negative fixture: `flow a -> b -> a` | § 14.1 | done |
+| M2.T10 | `model` versioning: bare `Invoice` (no `@vN`) rejected with code 68 | Negative fixture | § 16.1 | done |
+| M2.T11 | `cap` escape rules: stored in record / returned without cap-type / sent through channel — all rejected | 6 negative fixtures, one per escape vector | § 8.7 | done |
+| M2.T12 | `aeris check` CLI: prints first hunk = surface diff when surface is stale | Tested with a stale `surface.lock` | § 8.6 | partial |
 
 ### 5.3 M3 — Pure interpreter (2 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M3.T1 | Value representation: primitives, records, enums, lists, maps, sets, tuples, options, results | Round-trip JSON encode/decode for all | § 4 | pending |
-| M3.T2 | Tree-walking evaluator: expressions, control flow, pattern matching | 50 pure programs evaluate to expected values | § 5, § 6, § 17 | pending |
-| M3.T3 | `let` shadowing, `var` mutation (function-scope only) | Module-level `var` rejected (already in M2.T1?); function `var` works | § 5.1 | pending |
-| M3.T4 | Closures, higher-order functions, generics monomorphisation at call site | `map`, `fold`, `filter` style fixtures pass | § 7.3 | pending |
-| M3.T5 | `result<T>` + `?` operator + `raise` | 20 fixtures with mixed Ok/Err paths | § 18 | pending |
-| M3.T6 | `aeris run <pure_file.aer>` exit codes (0 = ok, 64 = parse / type, 1 = uncaught Err) | Exit-code matrix | § 25.3 | pending |
+| M3.T1 | Value representation: primitives, records, enums, lists, maps, sets, tuples, options, results | Round-trip JSON encode/decode for all | § 4 | done |
+| M3.T2 | Tree-walking evaluator: expressions, control flow, pattern matching | 50 pure programs evaluate to expected values | § 5, § 6, § 17 | done |
+| M3.T3 | `let` shadowing, `var` mutation (function-scope only) | Module-level `var` rejected (already in M2.T1?); function `var` works | § 5.1 | done |
+| M3.T4 | Closures, higher-order functions, generics monomorphisation at call site | `map`, `fold`, `filter` style fixtures pass | § 7.3 | done |
+| M3.T5 | `result<T>` + `?` operator + `raise` | 20 fixtures with mixed Ok/Err paths | § 18 | done |
+| M3.T6 | `aeris run <pure_file.aer>` exit codes (0 = ok, 64 = parse / type, 1 = uncaught Err) | Exit-code matrix | § 25.3 | done |
 
 ### 5.4 M4 — Tracing + safe L1 effects (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M4.T1 | JSONL tracer: `intent_enter` / `intent_exit`, scope tracking, ULID-based `trace_id` | Trace file produced for any run; ULID monotonic | § 20.1 | pending |
-| M4.T2 | Capability runtime: `cap` value type, `cap.subset[..]` constructor with parse-time and runtime narrowing | Negative test: `subset` broadening parent rejected | § 8.4 | pending |
-| M4.T3 | `main`'s synthesised cap from `lockset.toml [caps]` (without M7's full lockset — minimal stub) | `aeris run` prints effective cap shape on stderr | § 8.4 | pending |
-| M4.T4 | L1 `io`: `print`, `println`, `eprint`, `eprintln`, `read_line` (diagnostic class — no V2 trigger) | 10 fixtures; `read_line` reads from stdin | § 22 | pending |
-| M4.T5 | L1 `fs`: read/write/walk/stat/exists/mkdir/remove/rename with allow-list runtime check | Path outside allow-list raises `PolicyViolation`; trace event emitted | § 22, § 8.3.1 | pending |
-| M4.T6 | L1 `env.read` (read-only env access; mutation forbidden) | Trace event records read | § 22 | pending |
-| M4.T7 | N2: `clock.now` and `random.next` recorded into trace | Replay test in M9 will verify; for now: trace contains `value` field | § 8.1 (N2), § 20.2 | pending |
-| M4.T8 | Diagnostic class enforcement: `io.print*` does not require `intent` | Test: program with bare `io.println(...)` runs cleanly | § 8.1 | pending |
-| M4.T9 | Golden traces for each L1 op | `aeris-tests/golden/m4-*.jsonl` checked in | § 6 | pending |
+| M4.T1 | JSONL tracer: `intent_enter` / `intent_exit`, scope tracking, ULID-based `trace_id` | Trace file produced for any run; ULID monotonic | § 20.1 | done |
+| M4.T2 | Capability runtime: `cap` value type, `cap.subset[..]` constructor with parse-time and runtime narrowing | Negative test: `subset` broadening parent rejected | § 8.4 | done |
+| M4.T3 | `main`'s synthesised cap from `lockset.toml [caps]` (without M7's full lockset — minimal stub) | `aeris run` prints effective cap shape on stderr | § 8.4 | done |
+| M4.T4 | L1 `io`: `print`, `println`, `eprint`, `eprintln`, `read_line` (diagnostic class — no V2 trigger) | 10 fixtures; `read_line` reads from stdin | § 22 | done |
+| M4.T5 | L1 `fs`: read/write/walk/stat/exists/mkdir/remove/rename with allow-list runtime check | Path outside allow-list raises `PolicyViolation`; trace event emitted | § 22, § 8.3.1 | done |
+| M4.T6 | L1 `env.read` (read-only env access; mutation forbidden) | Trace event records read | § 22 | done |
+| M4.T7 | N2: `clock.now` and `random.next` recorded into trace | Replay test in M9 will verify; for now: trace contains `value` field | § 8.1 (N2), § 20.2 | done |
+| M4.T8 | Diagnostic class enforcement: `io.print*` does not require `intent` | Test: program with bare `io.println(...)` runs cleanly | § 8.1 | done |
+| M4.T9 | Golden traces for each L1 op | `aeris-tests/golden/m4-*.jsonl` checked in | § 6 | done |
 
 ### 5.5 M5 — http + shell + contracts (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M5.T1 | L1 `http`: get / post / put / patch / delete using `reqwest` | Mock server responds; trace records `req_hash`, `resp_hash` | § 22 | pending |
-| M5.T2 | N4: HTTP egress allow-list enforced at runtime; `X-Aeris-Trace-Id` propagated | Out-of-list host raises `PolicyViolation` (exit code per § 25.3); trace propagation tested | § 8.3.1, § 20.1 | pending |
-| M5.T3 | L1 `shell.exec` and `shell.pipe` with argv0 allow-list | Out-of-list `argv0` rejected; stdout/stderr hashed in trace | § 22 | pending |
-| M5.T4 | Contracts at runtime: `requires:` checked at entry, `ensures:` checked at every return path | 25 contract fixtures | § 9 | pending |
-| M5.T5 | `ContractViolation` flushes trace then exits 64 (not catchable by `?`) | Test: `?` does not catch a contract violation | § 9.2, § 18.4 | pending |
-| M5.T6 | `where` clauses: on record/model fields (M5 scope) and on `match` arms | 15 fixtures; out-of-bounds construction raises | § 9.1 | pending |
-| M5.T7 | Intent runtime: every cap call inside an `intent` block carries the active intent string | Trace events under `intent_enter` have `"intent"` field | § 10.3 | pending |
+| M5.T1 | L1 `http`: get / post / put / patch / delete using `reqwest` | Mock server responds; trace records `req_hash`, `resp_hash` | § 22 | done |
+| M5.T2 | N4: HTTP egress allow-list enforced at runtime; `X-Aeris-Trace-Id` propagated | Out-of-list host raises `PolicyViolation` (exit code per § 25.3); trace propagation tested | § 8.3.1, § 20.1 | done |
+| M5.T3 | L1 `shell.exec` and `shell.pipe` with argv0 allow-list | Out-of-list `argv0` rejected; stdout/stderr hashed in trace | § 22 | done |
+| M5.T4 | Contracts at runtime: `requires:` checked at entry, `ensures:` checked at every return path | 25 contract fixtures | § 9 | done |
+| M5.T5 | `ContractViolation` flushes trace then exits 64 (not catchable by `?`) | Test: `?` does not catch a contract violation | § 9.2, § 18.4 | done |
+| M5.T6 | `where` clauses: on record/model fields (M5 scope) and on `match` arms | 15 fixtures; out-of-bounds construction raises | § 9.1 | done |
+| M5.T7 | Intent runtime: every cap call inside an `intent` block carries the active intent string | Trace events under `intent_enter` have `"intent"` field | § 10.3 | done |
 
 ### 5.6 M6 — Sagas + idempotency (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M6.T1 | Saga interpreter: forward execution with `step.<n>.ok` introspection | 10 happy-path saga fixtures | § 12.1 | pending |
-| M6.T2 | Reverse-order rollback on step failure | Mid-step failure triggers `undo` of preceding steps in reverse | § 12.4 | pending |
-| M6.T3 | N1: idempotency key derivation `blake3(trace_id ‖ step_name ‖ invocation_index)` | Key matches across replay | § 12.3 | pending |
-| M6.T4 | Idempotency injection: HTTP `Idempotency-Key`, K8s annotation, AMQP `message-id`, audit `idempotency_key`, mongodb sentinel | 5 backend-specific tests | § 12.3 | pending |
-| M6.T5 | `undo` retry on failure with exponential backoff; after exhaustion → `PartialFailure` | Trace contains `partial_failure` event; exit code 74 | § 12.4 | pending |
-| M6.T6 | Golden saga traces: success, mid-failure rollback, undo failure → PartialFailure | 3 golden JSONL files | § 6 | pending |
+| M6.T1 | Saga interpreter: forward execution with `step.<n>.ok` introspection | 10 happy-path saga fixtures | § 12.1 | done |
+| M6.T2 | Reverse-order rollback on step failure | Mid-step failure triggers `undo` of preceding steps in reverse | § 12.4 | done |
+| M6.T3 | N1: idempotency key derivation `blake3(trace_id ‖ step_name ‖ invocation_index)` | Key matches across replay | § 12.3 | done |
+| M6.T4 | Idempotency injection: HTTP `Idempotency-Key`, K8s annotation, AMQP `message-id`, audit `idempotency_key`, mongodb sentinel | 5 backend-specific tests | § 12.3 | partial |
+| M6.T5 | `undo` retry on failure with exponential backoff; after exhaustion → `PartialFailure` | Trace contains `partial_failure` event; exit code 74 | § 12.4 | done |
+| M6.T6 | Golden saga traces: success, mid-failure rollback, undo failure → PartialFailure | 3 golden JSONL files | § 6 | done |
 
 ### 5.7 M7 — Lockset + content-addressing + surface (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M7.T1 | `lockset.toml` parser (using `toml` crate); semantic validation | 20 lockset fixtures; malformed → exit 69 | § 24.1 | pending |
-| M7.T2 | Local path dep resolution + blake3 hashing of resolved bytes | Hash mismatch → exit 69; `aeris lock` recomputes | § 24.4 | pending |
-| M7.T3 | GitHub tarball dep resolution + cache at `.aeris/ext/<host>__<repo>/<version>/` | Network test (mocked) succeeds; second run hits cache | § 24.2 | pending |
-| M7.T4 | `main`'s synthesised cap composes from `[caps]` ceiling | Effective signature printed on `aeris run` stderr matches lockset | § 8.4 | pending |
-| M7.T5 | V3 `aeris lock surface`: per-`pub`-fn effect set + allow-list emitted to `.aeris/surface.lock` | Snapshot test against 5-module project | § 8.6 | pending |
-| M7.T6 | `surface_hash` for deps recorded in `lockset.toml [deps].<alias>` | A dep upgrade that broadens surface forces a lockfile diff | § 24.3 | pending |
-| M7.T7 | CI mode: `aeris lock --check` rejects PR with stale lockset | Exit 69 on staleness | § 24.4 | pending |
+| M7.T1 | `lockset.toml` parser (using `toml` crate); semantic validation | 20 lockset fixtures; malformed → exit 69 | § 24.1 | done |
+| M7.T2 | Local path dep resolution + blake3 hashing of resolved bytes | Hash mismatch → exit 69; `aeris lock` recomputes | § 24.4 | done |
+| M7.T3 | GitHub tarball dep resolution + cache at `.aeris/ext/<host>__<repo>/<version>/` | Network test (mocked) succeeds; second run hits cache | § 24.2 | deferred (TLS) |
+| M7.T4 | `main`'s synthesised cap composes from `[caps]` ceiling | Effective signature printed on `aeris run` stderr matches lockset | § 8.4 | done |
+| M7.T5 | V3 `aeris lock surface`: per-`pub`-fn effect set + allow-list emitted to `.aeris/surface.lock` | Snapshot test against 5-module project | § 8.6 | done |
+| M7.T6 | `surface_hash` for deps recorded in `lockset.toml [deps].<alias>` | A dep upgrade that broadens surface forces a lockfile diff | § 24.3 | partial |
+| M7.T7 | CI mode: `aeris lock --check` rejects PR with stale lockset | Exit 69 on staleness | § 24.4 | done |
 
 ### 5.8 M8 — Models + Policies (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M8.T1 | `model@vN` validation on construction with all `where` clauses | 20 fixtures; field violation → `SchemaViolation` | § 16.2 | pending |
-| M8.T2 | `model@vN` validation on `json.decode` and on HTTP body ingress | 10 fixtures crossing trust boundary | § 16.2 | pending |
-| M8.T3 | Record-level `where:` (multi-field invariants) | 5 fixtures with cross-field constraints | § 16.3 | pending |
-| M8.T4 | `policy` runtime: `match`, `deny`, `require`, `limit`, `audit`, `when` | One fixture per clause, all six | § 15 | pending |
-| M8.T5 | Policy activation: module-import / `#[policy(name)]` attribute / `lockset.toml [policies]` | 3 activation modes tested | § 15.3 | pending |
-| M8.T6 | Policy drift trace event when replay-vs-live outcome differs | `policy_drift` event emitted on synthetic divergence | § 15.4 | pending |
-| M8.T7 | `PolicyViolation` exit (not catchable by `?`) | Test confirms behaviour | § 18.4 | pending |
+| M8.T1 | `model@vN` validation on construction with all `where` clauses | 20 fixtures; field violation → `SchemaViolation` | § 16.2 | done |
+| M8.T2 | `model@vN` validation on `json.decode` and on HTTP body ingress | 10 fixtures crossing trust boundary | § 16.2 | done |
+| M8.T3 | Record-level `where:` (multi-field invariants) | 5 fixtures with cross-field constraints | § 16.3 | done |
+| M8.T4 | `policy` runtime: `match`, `deny`, `require`, `limit`, `audit`, `when` | One fixture per clause, all six | § 15 | done |
+| M8.T5 | Policy activation: module-import / `#[policy(name)]` attribute / `lockset.toml [policies]` | 3 activation modes tested | § 15.3 | partial |
+| M8.T6 | Policy drift trace event when replay-vs-live outcome differs | `policy_drift` event emitted on synthetic divergence | § 15.4 | partial |
+| M8.T7 | `PolicyViolation` exit (not catchable by `?`) | Test confirms behaviour | § 18.4 | done |
 
 ### 5.9 M9 — L2 `ai` + LLM tape + Replay (4 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M9.T1 | `ai` cap handler with pluggable backend selected by `lockset.toml [ai.backend]` | HTTP backend hits Anthropic API (or mock); CLI backend spawns subprocess; mock backend returns canned responses | § 23 | pending |
-| M9.T2 | Operations: `ai.complete`, `ai.chat`, `ai.embed`, `ai.tools` | One fixture per op | § 22 | pending |
-| M9.T3 | N3 tape recorder: every `ai.*` call records `(prompt, model, response, tokens, ts)` | Trace event `ai_call` per op | § 8.1, § 20.2 | pending |
-| M9.T4 | `aeris replay <trace_id>` re-runs program against tape; no LLM contacted | Two-phase test: original run + replay; outputs identical | § 20.3 | pending |
-| M9.T5 | N2 deterministic clock/random under replay (use trace values) | Replay produces bit-identical trace for the deterministic subset | § 20.3 | pending |
-| M9.T6 | `aeris replay --live` re-issues network/LLM calls but reuses recorded clock/random | Verified with mock backend | § 20.3 | pending |
-| M9.T7 | `aeris replay --from-fixtures` (default) — read-only, no network | Verified offline | § 20.3 | pending |
-| M9.T8 | Trace size budget: HTTP/AI bodies stored as hash by default; `--full-record` opts into bytes | Test with both modes | § 20.2 | pending |
+| M9.T1 | `ai` cap handler with pluggable backend selected by `lockset.toml [ai.backend]` | HTTP backend hits Anthropic API (or mock); CLI backend spawns subprocess; mock backend returns canned responses | § 23 | partial |
+| M9.T2 | Operations: `ai.complete`, `ai.chat`, `ai.embed`, `ai.tools` | One fixture per op | § 22 | done |
+| M9.T3 | N3 tape recorder: every `ai.*` call records `(prompt, model, response, tokens, ts)` | Trace event `ai_call` per op | § 8.1, § 20.2 | done |
+| M9.T4 | `aeris replay <trace_id>` re-runs program against tape; no LLM contacted | Two-phase test: original run + replay; outputs identical | § 20.3 | done |
+| M9.T5 | N2 deterministic clock/random under replay (use trace values) | Replay produces bit-identical trace for the deterministic subset | § 20.3 | done |
+| M9.T6 | `aeris replay --live` re-issues network/LLM calls but reuses recorded clock/random | Verified with mock backend | § 20.3 | done |
+| M9.T7 | `aeris replay --from-fixtures` (default) — read-only, no network | Verified offline | § 20.3 | done |
+| M9.T8 | Trace size budget: HTTP/AI bodies stored as hash by default; `--full-record` opts into bytes | Test with both modes | § 20.2 | done |
 
 ### 5.10 M10 — Agents + agent_net (4 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M10.T1 | `agent` declaration parsing: `llm:`, `intent:`, `prompt:`, `accept:`, `produce:`, `policy:`, `retries:`, `budget:` | All fields parsed; missing required field → exit 64 | § 13.1 | pending |
-| M10.T2 | Agent invocation: input validated against `accept`, output against `produce` | `SchemaViolation` on out-of-shape response | § 13.2 | pending |
-| M10.T3 | Auto-injected routing-protocol contract appended to user prompt | Trace's `prompt` field contains the contract | § 14 | pending |
-| M10.T4 | Retries on `SchemaViolation`; `BudgetExceeded` raised on tokens / latency overrun | 5 fixtures | § 13.2 | pending |
-| M10.T5 | `agent_net` parsing: `flow`, `until:`, fan-out branches | Cycle detection (already in M2) extended to compositional cases | § 14.1 | pending |
-| M10.T6 | `agent_net` execution: edge type-validation, parallel fan-out, type-driven routing among branches | 4 golden net traces | § 14.1 | pending |
-| M10.T7 | `until:` iteration with `iterations` counter; `agent_net exhausted` on bound reach | 3 fixtures (converging, exhausting, succeeding-mid-iteration) | § 14.3 | pending |
-| M10.T8 | `agent_net` composition: a net used as a node inside another net | 2 fixtures | § 14.2 | pending |
+| M10.T1 | `agent` declaration parsing: `llm:`, `intent:`, `prompt:`, `accept:`, `produce:`, `policy:`, `retries:`, `budget:` | All fields parsed; missing required field → exit 64 | § 13.1 | done |
+| M10.T2 | Agent invocation: input validated against `accept`, output against `produce` | `SchemaViolation` on out-of-shape response | § 13.2 | done |
+| M10.T3 | Auto-injected routing-protocol contract appended to user prompt | Trace's `prompt` field contains the contract | § 14 | done |
+| M10.T4 | Retries on `SchemaViolation`; `BudgetExceeded` raised on tokens / latency overrun | 5 fixtures | § 13.2 | done |
+| M10.T5 | `agent_net` parsing: `flow`, `until:`, fan-out branches | Cycle detection (already in M2) extended to compositional cases | § 14.1 | done |
+| M10.T6 | `agent_net` execution: edge type-validation, parallel fan-out, type-driven routing among branches | 4 golden net traces | § 14.1 | partial |
+| M10.T7 | `until:` iteration with `iterations` counter; `agent_net exhausted` on bound reach | 3 fixtures (converging, exhausting, succeeding-mid-iteration) | § 14.3 | done |
+| M10.T8 | `agent_net` composition: a net used as a node inside another net | 2 fixtures | § 14.2 | done |
 
 ### 5.11 M11 — L2 native handlers (4 weeks, parallelisable)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M11.T1 | `audit.event`: append-only log with idempotency key | Log file rotates per-run; trace event present | § 23 | pending |
-| M11.T2 | `kube.apply` / `kube.delete` / `kube.get` / `kube.watch` against kind cluster (or mock) | Manifest annotations carry idempotency key | § 23 | pending |
-| M11.T3 | `docker.run` / `docker.build` / `docker.push` / `docker.pull` / `docker.inspect` | Subprocess wrapping; trace records argv | § 23 | pending |
-| M11.T4 | `mongodb.read` / `mongodb.write` against testcontainers Mongo | Idempotency sentinel injected | § 23 | pending |
-| M11.T5 | `minio.get` / `minio.put` against testcontainers MinIO | Bucket allow-list enforced | § 23 | pending |
-| M11.T6 | `rabbitmq.publish` / `rabbitmq.subscribe` against testcontainers RabbitMQ | `message-id` = idempotency key | § 23 | pending |
-| M11.T7 | Each L2 op records a per-call trace event with backend-specific fields | One golden per backend | § 6 | pending |
+| M11.T1 | `audit.event`: append-only log with idempotency key | Log file rotates per-run; trace event present | § 23 | done |
+| M11.T2 | `kube.apply` / `kube.delete` / `kube.get` / `kube.watch` against kind cluster (or mock) | Manifest annotations carry idempotency key | § 23 | partial |
+| M11.T3 | `docker.run` / `docker.build` / `docker.push` / `docker.pull` / `docker.inspect` | Subprocess wrapping; trace records argv | § 23 | done |
+| M11.T4 | `mongodb.read` / `mongodb.write` against testcontainers Mongo | Idempotency sentinel injected | § 23 | partial |
+| M11.T5 | `minio.get` / `minio.put` against testcontainers MinIO | Bucket allow-list enforced | § 23 | partial |
+| M11.T6 | `rabbitmq.publish` / `rabbitmq.subscribe` against testcontainers RabbitMQ | `message-id` = idempotency key | § 23 | partial |
+| M11.T7 | Each L2 op records a per-call trace event with backend-specific fields | One golden per backend | § 6 | done |
 
 ### 5.12 M12 — Tests + properties + fmt + V1 narrow-caps (4 weeks)
 
