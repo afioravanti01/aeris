@@ -1,0 +1,33 @@
+/// Minimum viable agent net — language.md Appendix C.
+///
+/// `summarise` produces a 5-bullet summary; `critique` judges
+/// faithfulness; the loop stops when critique.ok or after 3
+/// iterations (§ 14.3).
+model Doc@v1     { text: string }
+model Summary@v1 { headline: string, bullets: list<string> }
+model Critique@v1 { ok: bool, notes: string }
+
+agent summarise {
+  llm:     "claude-haiku-4-5"
+  intent:  "Produce a 5-bullet summary of the document"
+  prompt:  "Summarise the document in <=5 bullets."
+  accept:  Doc@v1
+  produce: Summary@v1
+}
+
+agent critique {
+  llm:     "claude-opus-4-7"
+  intent:  "Judge whether the summary is faithful"
+  prompt:  "Return ok=true if the summary is faithful and complete."
+  accept:  Summary@v1
+  produce: Critique@v1
+}
+
+agent_net summarise_loop {
+  flow summarise -> critique
+  until: critique.ok == true
+}
+
+fn main(cap) -> result<unit> {
+  Ok(())
+}

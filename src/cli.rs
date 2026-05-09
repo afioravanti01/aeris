@@ -33,9 +33,27 @@ enum Command {
     /// Compile and run an .aer file
     Run { file: String },
     /// Type & capability check, no run
-    Check { file: String },
+    Check {
+        file: Option<String>,
+        /// Print a manpage-style description for the named exit code
+        /// (M13.T6). Codes 64–71 are documented; the file argument is
+        /// ignored when this flag is set.
+        #[arg(long)]
+        explain: Option<u8>,
+    },
     /// Format an .aer file or directory
-    Fmt { path: String },
+    Fmt {
+        path: String,
+        /// If set, do not rewrite — exit 1 if `path` is not formatted
+        /// (CI mode, M12.T7).
+        #[arg(long)]
+        check: bool,
+        /// V1 narrow-caps linter (M12.T6). Print a per-fn cap-narrowing
+        /// diff for every function whose declared `cap[...]` is broader
+        /// than its body actually uses. Linter only — never rewrites.
+        #[arg(long = "narrow-caps")]
+        narrow_caps: bool,
+    },
     /// Run tests
     Test { path: Option<String> },
     /// `aeris lock` — recompute `lockset.toml` / `.aeris/surface.lock`.
@@ -59,6 +77,21 @@ enum Command {
         #[arg(long)]
         live: bool,
     },
+    /// `aeris trace <subcommand>` — trace utilities. Today the only
+    /// subcommand is `diff` (M13.T1).
+    Trace {
+        #[command(subcommand)]
+        sub: TraceSub,
+    },
+    /// `aeris doc <file>` — extract `///` doc comments and emit one
+    /// JSONL line per documented top-level decl (M13.T2 / § 25.1).
+    Doc { file: String },
+}
+
+#[derive(Subcommand)]
+enum TraceSub {
+    /// Diff two recorded JSONL traces by `(scope, ordinal)`. § 20.4.
+    Diff { a: String, b: String },
 }
 
 pub fn run() -> ExitCode {
@@ -66,7 +99,14 @@ pub fn run() -> ExitCode {
     match cli.command {
         Command::Version => cmd_version(),
         Command::Init => cmd_init(),
-        Command::Check { file } => cmd_check(&file),
+        Command::Check { file, explain } => match (explain, file) {
+            (Some(code), _) => cmd_check_explain(code),
+            (None, Some(path)) => cmd_check(&path),
+            (None, None) => {
+                eprintln!("aeris: `aeris check <file>` or `aeris check --explain <code>`");
+                ExitCode::from(1)
+            }
+        },
         Command::Run { file } => cmd_run(&file),
         Command::Lock { check, file } => cmd_lock(&file, check),
         Command::Replay {
@@ -74,11 +114,291 @@ pub fn run() -> ExitCode {
             source,
             live,
         } => cmd_replay(&trace, &source, live),
-        Command::Fmt { .. } | Command::Test { .. } => {
-            eprintln!("aeris: command not yet implemented in this milestone");
+        Command::Test { path } => cmd_test(path.as_deref()),
+        Command::Trace { sub } => match sub {
+            TraceSub::Diff { a, b } => cmd_trace_diff(&a, &b),
+        },
+        Command::Doc { file } => cmd_doc(&file),
+        Command::Fmt {
+            path,
+            check,
+            narrow_caps,
+        } => {
+            if narrow_caps {
+                cmd_fmt_narrow_caps(&path)
+            } else {
+                cmd_fmt(&path, check)
+            }
+        }
+    }
+}
+
+/// `aeris fmt --narrow-caps <path>` (M12.T6 / § 8.5). Per-fn
+/// capability minimisation linter. Walks every `*.aer` under `path`,
+/// derives the actually-used `(module, op)` set + statically-extractable
+/// allow-list, and prints a unified diff for every function whose
+/// declared cap is broader than the body needs. Exits 0 when every
+/// signature is already minimal; exits 1 to flag suggestions in CI.
+fn cmd_fmt_narrow_caps(path: &str) -> ExitCode {
+    let mut targets: Vec<std::path::PathBuf> = Vec::new();
+    let p = Path::new(path);
+    if p.is_dir() {
+        collect_aer_paths(p, &mut targets);
+    } else if p.is_file() {
+        targets.push(p.to_path_buf());
+    } else {
+        eprintln!("aeris: cannot lint `{path}` — no such file or directory");
+        return ExitCode::from(1);
+    }
+    targets.sort();
+    let mut any_suggestion = false;
+    for target in &targets {
+        let src = match fs::read_to_string(target) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("aeris: cannot read {}: {e}", target.display());
+                return ExitCode::from(1);
+            }
+        };
+        let module = match crate::syntax::parse(&src) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "aeris: parse error in {} at line {}, col {}: {:?}",
+                    target.display(),
+                    e.span.line,
+                    e.span.col,
+                    e.kind
+                );
+                return ExitCode::from(64);
+            }
+        };
+        let diff = crate::check::render_narrowing_diff(&module);
+        if !diff.is_empty() {
+            any_suggestion = true;
+            println!("# {}", target.display());
+            print!("{diff}");
+        }
+    }
+    if any_suggestion {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `aeris fmt <path> [--check]` (M12.T5 / M12.T7). Formats the file
+/// (or every `*.aer` under `path` if it's a directory) using the
+/// canonical formatter. With `--check` it does not write — it exits 1
+/// if the formatted body differs from the on-disk content. The
+/// formatter is total and idempotent: `fmt(fmt(x)) == fmt(x)`.
+fn cmd_fmt(path: &str, check_only: bool) -> ExitCode {
+    let mut targets: Vec<std::path::PathBuf> = Vec::new();
+    let p = Path::new(path);
+    if p.is_dir() {
+        collect_aer_paths(p, &mut targets);
+    } else if p.is_file() {
+        targets.push(p.to_path_buf());
+    } else {
+        eprintln!("aeris: cannot fmt `{path}` — no such file or directory");
+        return ExitCode::from(1);
+    }
+    targets.sort();
+    let mut drift = false;
+    let mut errors = false;
+    for target in &targets {
+        let src = match fs::read_to_string(target) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("aeris: cannot read {}: {e}", target.display());
+                errors = true;
+                continue;
+            }
+        };
+        let module = match crate::syntax::parse(&src) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "aeris: parse error in {} at line {}, col {}: {:?}",
+                    target.display(),
+                    e.span.line,
+                    e.span.col,
+                    e.kind
+                );
+                errors = true;
+                continue;
+            }
+        };
+        let formatted = crate::syntax::fmt::format_module(&module, &src);
+        if check_only {
+            if formatted != src {
+                eprintln!("aeris: {} is not formatted", target.display());
+                drift = true;
+            }
+        } else if formatted != src {
+            if let Err(e) = fs::write(target, &formatted) {
+                eprintln!("aeris: cannot write {}: {e}", target.display());
+                errors = true;
+            } else {
+                eprintln!("aeris: formatted {}", target.display());
+            }
+        }
+    }
+    if errors || (check_only && drift) {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `aeris check --explain <code>` (M13.T6 / § 25.3). Print the
+/// manpage-style description for `code`. Exit 0 if the code is
+/// known; exit 1 with a hint otherwise.
+fn cmd_check_explain(code: u8) -> ExitCode {
+    match crate::check::explain(code) {
+        Some(body) => {
+            print!("{body}");
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!("aeris: no `--explain` entry for E{code} (try 64..71)");
             ExitCode::from(1)
         }
     }
+}
+
+/// `aeris doc <file>` (M13.T2 / § 25.1). Extract `///` doc comments
+/// preceding top-level decls and emit one JSONL line per documented
+/// decl on stdout.
+fn cmd_doc(file: &str) -> ExitCode {
+    let src = match fs::read_to_string(file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("aeris: cannot read {file}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    match crate::syntax::doc::extract_docs(&src) {
+        Ok(entries) => {
+            print!("{}", crate::syntax::doc::render_jsonl(&entries));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("aeris: doc extraction failed: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `aeris trace diff <a> <b>` (M13.T1 / § 20.4). Loads both JSONL
+/// traces, aligns them by `(scope, ordinal)`, and prints diverging
+/// fields plus missing / extra events. Exits 0 when the traces are
+/// equal under the alignment, 1 when they diverge.
+fn cmd_trace_diff(a_path: &str, b_path: &str) -> ExitCode {
+    let a_text = match fs::read_to_string(a_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("aeris: cannot read {a_path}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let b_text = match fs::read_to_string(b_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("aeris: cannot read {b_path}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let a_events = match crate::runtime::replay::parse_trace_jsonl(&a_text) {
+        Ok(es) => es,
+        Err(e) => {
+            eprintln!("aeris: invalid trace {a_path}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let b_events = match crate::runtime::replay::parse_trace_jsonl(&b_text) {
+        Ok(es) => es,
+        Err(e) => {
+            eprintln!("aeris: invalid trace {b_path}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let rows = crate::runtime::trace_diff::diff_traces(&a_events, &b_events);
+    if rows.is_empty() {
+        eprintln!("aeris: traces match");
+        return ExitCode::SUCCESS;
+    }
+    let report = crate::runtime::trace_diff::render_diff(&rows);
+    print!("{report}");
+    ExitCode::from(1)
+}
+
+/// Recursively gather every `*.aer` path under `dir`.
+fn collect_aer_paths(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    if let Ok(rd) = fs::read_dir(dir) {
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                collect_aer_paths(&p, out);
+            } else if p.extension().and_then(|s| s.to_str()) == Some("aer") {
+                out.push(p);
+            }
+        }
+    }
+}
+
+/// `aeris test [path]` (M12.T1). Without an argument: discover every
+/// `tests/**/*.test.aer` under the cwd. With an argument that names a
+/// directory: discover under it. With an argument that names a single
+/// `*.test.aer` file: run only that suite. With a *bare* suite name
+/// (e.g. `aeris test foo`): match `tests/foo.test.aer`. Exit 0 if all
+/// passed; exit 1 if any test failed or any suite failed to parse.
+fn cmd_test(path: Option<&str>) -> ExitCode {
+    let suites = match path {
+        None => crate::test_harness::discover_suites(Path::new("tests")),
+        Some(p) => {
+            let direct = Path::new(p);
+            if direct.is_file() {
+                let stem = direct
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .and_then(|s| s.strip_suffix(".test.aer"))
+                    .unwrap_or("suite")
+                    .to_string();
+                vec![(stem, direct.to_path_buf())]
+            } else if direct.is_dir() {
+                crate::test_harness::discover_suites(direct)
+            } else {
+                // Treat as a bare suite name resolved under `tests/`.
+                let candidate = Path::new("tests").join(format!("{p}.test.aer"));
+                if candidate.is_file() {
+                    vec![(p.to_string(), candidate)]
+                } else {
+                    eprintln!("aeris: no test file matching `{p}` (looked at {})", candidate.display());
+                    return ExitCode::from(1);
+                }
+            }
+        }
+    };
+    let report = crate::test_harness::run_suites_explicit(&suites);
+    for (suite, msg) in &report.parse_failures {
+        eprintln!("aeris: suite `{suite}` failed to parse: {msg}");
+    }
+    for o in &report.outcomes {
+        match &o.status {
+            crate::test_harness::TestStatus::Passed => {
+                println!("ok    {}::{}", o.suite, o.name);
+            }
+            crate::test_harness::TestStatus::Failed(reason) => {
+                println!("FAIL  {}::{} — {}", o.suite, o.name, reason);
+            }
+        }
+    }
+    let total = report.outcomes.len();
+    let passed = report.passed();
+    let failed = report.failed();
+    eprintln!("aeris: {passed}/{total} tests passed; {failed} failed");
+    ExitCode::from(report.exit_code())
 }
 
 fn cmd_version() -> ExitCode {
@@ -355,6 +675,17 @@ fn cmd_check(path: &str) -> ExitCode {
     };
     let outcome = crate::syntax::parse_recovering(&src);
     let mut max_exit: u8 = 0;
+    // M2.T12: surface drift is the first hunk — printed *before* any
+    // parse / type / cap diagnostics so reviewers see authority changes
+    // first (`thesis.md` § 13 / `language.md` § 8.6).
+    let project_root = Path::new(path).parent().unwrap_or(Path::new("."));
+    let lockset_path = project_root.join("lockset.toml");
+    let lockset_loaded = fs::read_to_string(&lockset_path)
+        .ok()
+        .and_then(|s| crate::lockset::parse_lockset(&s).ok());
+    if lockset_loaded.is_some() {
+        emit_surface_drift_hunk(project_root);
+    }
     for err in &outcome.errors {
         eprintln!(
             "aeris: parse error at line {}, col {}: {:?}",
@@ -362,15 +693,18 @@ fn cmd_check(path: &str) -> ExitCode {
         );
         max_exit = max_exit.max(64);
     }
-    let check_errs = crate::check::check_module(&outcome.module);
+    // M2.T6: when `lockset.toml` sits next to the source, run the
+    // allow-list intersection check (§ 8.3.2). Out-of-ceiling entries
+    // are surfaced with exit code 71. A missing lockset is not an
+    // error here — `aeris check` falls back to the standalone pass.
+    let check_errs = match lockset_loaded {
+        Some(l) => crate::check::check_module_with_lockset(&outcome.module, &l.caps),
+        None => crate::check::check_module(&outcome.module),
+    };
     for err in &check_errs {
-        eprintln!(
-            "aeris: check error at line {}, col {} (exit {}): {:?}",
-            err.span.line,
-            err.span.col,
-            err.exit_code(),
-            err.kind
-        );
+        // M13.T3 / M13.T4: human-grade renderer with section reference
+        // and Rust-style caret underline.
+        eprint!("{}", crate::check::render_diagnostic(&src, err));
         max_exit = max_exit.max(err.exit_code());
     }
     if max_exit == 0 {
@@ -444,6 +778,31 @@ fn cmd_lock(path: &str, check: bool) -> ExitCode {
         eprintln!("aeris: wrote {}", surface_path.display());
     }
     ExitCode::SUCCESS
+}
+
+/// M2.T12: when `aeris check` runs in a project (lockset.toml present),
+/// compute the live effect surface from `src/**/*.aer` and compare it
+/// to the committed `.aeris/surface.lock`. If the two differ, emit a
+/// unified diff to stderr as the very first output of the check pass.
+fn emit_surface_drift_hunk(project_root: &Path) {
+    let src_dir = project_root.join("src");
+    if !src_dir.exists() {
+        return;
+    }
+    let mut files: Vec<(String, String)> = Vec::new();
+    collect_aer_files(&src_dir, &mut files);
+    let surface = match crate::lockset::compute_surface(&files) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let computed = crate::lockset::surface::render_surface_lock(&surface);
+    let on_disk = fs::read_to_string(project_root.join(".aeris/surface.lock")).unwrap_or_default();
+    let diff = crate::lockset::diff_surface_bodies(&on_disk, &computed);
+    if !diff.is_empty() {
+        eprintln!("aeris: surface drift — run `aeris lock` to refresh:");
+        eprint!("{diff}");
+        eprintln!();
+    }
 }
 
 fn collect_aer_files(dir: &Path, out: &mut Vec<(String, String)>) {
@@ -548,6 +907,163 @@ mod tests {
         let path = std::env::temp_dir().join(format!("aeris-cli-test-{pid}-{id}.aer"));
         fs::write(&path, content).expect("write temp file");
         path
+    }
+
+    // ---- M2.T12: surface drift is the first hunk on `aeris check` ----
+
+    fn unique_dir(tag: &str) -> std::path::PathBuf {
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let p = std::env::temp_dir().join(format!("aeris-cli-{tag}-{pid}-{id}"));
+        let _ = fs::remove_dir_all(&p);
+        fs::create_dir_all(&p).expect("create temp dir");
+        p
+    }
+
+    /// Capture what `emit_surface_drift_hunk` writes to stderr by
+    /// rendering the same diff via the public helpers and comparing.
+    /// (Capturing process stderr from inside a unit test is awkward;
+    /// the helpers it composes are themselves tested in
+    /// `lockset::surface::tests`. Here we verify the project-wiring:
+    /// the diff is non-empty when the on-disk lock does not match the
+    /// computed one, and empty when they match.)
+    #[test]
+    fn surface_drift_diff_nonempty_when_committed_lock_is_stale() {
+        let dir = unique_dir("m2t12-stale");
+        let src_dir = dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("main.aer"),
+            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"{}\") } }",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("lockset.toml"),
+            "[project]\nname = \"x\"\naeris = \"0.2.0\"\n",
+        )
+        .unwrap();
+        // No .aeris/surface.lock on disk → committed body is empty,
+        // computed body is non-empty → diff fires.
+        let mut files: Vec<(String, String)> = Vec::new();
+        collect_aer_files(&src_dir, &mut files);
+        let surface = crate::lockset::compute_surface(&files).unwrap();
+        let computed = crate::lockset::surface::render_surface_lock(&surface);
+        let diff = crate::lockset::diff_surface_bodies("", &computed);
+        assert!(!diff.is_empty(), "expected drift diff, got empty");
+        assert!(diff.contains("settle"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn surface_drift_diff_empty_when_lock_matches() {
+        let dir = unique_dir("m2t12-fresh");
+        let src_dir = dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("main.aer"),
+            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"{}\") } }",
+        )
+        .unwrap();
+        let mut files: Vec<(String, String)> = Vec::new();
+        collect_aer_files(&src_dir, &mut files);
+        let surface = crate::lockset::compute_surface(&files).unwrap();
+        let computed = crate::lockset::surface::render_surface_lock(&surface);
+        let diff = crate::lockset::diff_surface_bodies(&computed, &computed);
+        assert!(diff.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn surface_drift_renders_first_hunk_format() {
+        // Sanity: when stale, the diff includes the unified-diff
+        // header (`---` / `+++`) and a `+`-prefixed "settle" entry.
+        let computed = "[\"src/main.aer::settle\"]\nfile = \"src/main.aer\"\nfn   = \"settle\"\ncaps = [\"http.post\"]\n\n";
+        let diff = crate::lockset::diff_surface_bodies("", computed);
+        assert!(diff.starts_with("--- .aeris/surface.lock (committed)"));
+        assert!(diff.contains("+++ .aeris/surface.lock (computed)"));
+        assert!(diff.contains("+[\"src/main.aer::settle\"]"));
+    }
+
+    // ---- M12.T5 / M12.T7 — `aeris fmt` and `aeris fmt --check` ----
+
+    #[test]
+    fn cmd_fmt_rewrites_an_unformatted_file() {
+        let unformatted = "record   R{x:int}";
+        let p = write_temp(unformatted);
+        let exit = cmd_fmt(p.to_str().unwrap(), false);
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS));
+        let got = fs::read_to_string(&p).unwrap();
+        // After fmt the body must round-trip; in particular the
+        // contents must equal the canonical form.
+        let module = crate::syntax::parse(&got).unwrap();
+        let canonical = crate::syntax::fmt::format_module(&module, &got);
+        assert_eq!(got, canonical);
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cmd_fmt_check_exits_one_when_drift_present() {
+        let p = write_temp("record   R{x:int}");
+        let exit = cmd_fmt(p.to_str().unwrap(), true);
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::from(1)));
+        // --check must NOT have rewritten the file.
+        let got = fs::read_to_string(&p).unwrap();
+        assert_eq!(got, "record   R{x:int}");
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cmd_fmt_check_exits_zero_on_already_formatted_file() {
+        // Compute the canonical form first, write that to disk, and
+        // verify --check reports clean.
+        let module = crate::syntax::parse("record R { x: int }").unwrap();
+        let canonical = crate::syntax::fmt::format_module(&module, "record R { x: int }");
+        let p = write_temp(&canonical);
+        let exit = cmd_fmt(p.to_str().unwrap(), true);
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS));
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cmd_fmt_narrow_caps_exits_one_on_broad_signature() {
+        let p = write_temp(r#"
+            fn pay(cap: cap[http]) {
+                intent "p" { http.post("https://api.acme.com/x", "{}") }
+            }
+        "#);
+        let exit = cmd_fmt_narrow_caps(p.to_str().unwrap());
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::from(1)));
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cmd_fmt_narrow_caps_exits_zero_on_already_minimal_signature() {
+        let p = write_temp(r#"
+            fn pay(cap: cap[http.post @ "api.acme.com"]) {
+                intent "p" { http.post("https://api.acme.com/x", "{}") }
+            }
+        "#);
+        let exit = cmd_fmt_narrow_caps(p.to_str().unwrap());
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS));
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cmd_fmt_handles_directories_recursively() {
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("aeris-fmt-dir-{pid}-{id}"));
+        let nested = dir.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(dir.join("a.aer"), "record   A{x:int}").unwrap();
+        fs::write(nested.join("b.aer"), "record   B{y:int}").unwrap();
+        let exit = cmd_fmt(dir.to_str().unwrap(), false);
+        assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS));
+        let a = fs::read_to_string(dir.join("a.aer")).unwrap();
+        let b = fs::read_to_string(nested.join("b.aer")).unwrap();
+        assert!(a.contains("record A"));
+        assert!(b.contains("record B"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

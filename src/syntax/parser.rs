@@ -350,11 +350,102 @@ impl Parser {
             TokenKind::Keyword(Keyword::Agent) => self.parse_agent(vis).map(Item::Agent),
             TokenKind::Keyword(Keyword::AgentNet) => self.parse_agent_net(vis).map(Item::AgentNet),
             TokenKind::Keyword(Keyword::Policy) => self.parse_policy(vis).map(Item::Policy),
+            TokenKind::Keyword(Keyword::Test) => self.parse_test().map(Item::Test),
+            TokenKind::Keyword(Keyword::Property) => self.parse_property().map(Item::Property),
             _ => Err(self.err(ParseErrorKind::Expected(
-                "fn / record / enum / model / type / const / saga / agent / agent_net / policy"
+                "fn / record / enum / model / type / const / saga / agent / agent_net / policy / test / property"
                     .into(),
             ))),
         }
+    }
+
+    /// `property "<name>" with (<param>, ...) { <body> }` (§ 21.3).
+    fn parse_property(&mut self) -> Result<crate::syntax::ast::PropertyDecl, ParseError> {
+        let start = self.expect_kw(Keyword::Property)?.span;
+        let name = match self.peek() {
+            TokenKind::Str(s) => {
+                let n = s.clone();
+                self.advance();
+                n
+            }
+            _ => {
+                return Err(self.err(ParseErrorKind::Expected(
+                    "string literal name after `property`".into(),
+                )))
+            }
+        };
+        self.expect_kw(Keyword::With)?;
+        self.expect_kind(&TokenKind::LParen)?;
+        let mut params = Vec::new();
+        if !matches!(self.peek(), TokenKind::RParen) {
+            params.push(self.parse_param()?);
+            while matches!(self.peek(), TokenKind::Comma) {
+                self.advance();
+                if matches!(self.peek(), TokenKind::RParen) {
+                    break;
+                }
+                params.push(self.parse_param()?);
+            }
+        }
+        self.expect_kind(&TokenKind::RParen)?;
+        let body = self.parse_block()?;
+        Ok(crate::syntax::ast::PropertyDecl {
+            name,
+            params,
+            body,
+            span: start,
+        })
+    }
+
+    /// `test "<name>" [with fixture: "<id>"] { <stmts> }` (§ 21.1 / § 21.4).
+    fn parse_test(&mut self) -> Result<crate::syntax::ast::TestDecl, ParseError> {
+        let start = self.expect_kw(Keyword::Test)?.span;
+        // The test name is a single string literal — `test foo` (bare
+        // ident) is rejected, matching the spec syntax `test "..."`.
+        let name = match self.peek() {
+            TokenKind::Str(s) => {
+                let n = s.clone();
+                self.advance();
+                n
+            }
+            _ => {
+                return Err(self.err(ParseErrorKind::Expected(
+                    "string literal name after `test`".into(),
+                )))
+            }
+        };
+        let mut fixture = None;
+        if self.eat_kw(Keyword::With) {
+            // Today we only recognise `fixture: "..."`. Leaving the
+            // door open for future `with cap.test_subset[...]` forms
+            // means erroring on unknown identifiers here is too eager;
+            // the fixture form is loud enough.
+            let (kw_name, _) = self.expect_ident()?;
+            if kw_name != "fixture" {
+                return Err(self.err(ParseErrorKind::Expected(
+                    "`fixture: \"<id>\"` after `with`".into(),
+                )));
+            }
+            self.expect_kind(&TokenKind::Colon)?;
+            match self.peek() {
+                TokenKind::Str(s) => {
+                    fixture = Some(s.clone());
+                    self.advance();
+                }
+                _ => {
+                    return Err(self.err(ParseErrorKind::Expected(
+                        "string literal fixture id".into(),
+                    )));
+                }
+            }
+        }
+        let body = self.parse_block()?;
+        Ok(crate::syntax::ast::TestDecl {
+            name,
+            fixture,
+            body,
+            span: start,
+        })
     }
 
     // -------- fn --------
@@ -423,12 +514,29 @@ impl Parser {
 
     fn parse_param(&mut self) -> Result<Param, ParseError> {
         let start = self.peek_token().span;
-        let name = if self.at_kw(Keyword::Cap) {
+        let was_cap_kw = self.at_kw(Keyword::Cap);
+        let name = if was_cap_kw {
             self.advance();
             "cap".to_string()
         } else {
             self.expect_ident()?.0
         };
+        // § 8.4: `fn main(cap)` is the one place a capability is
+        // received without writing its shape — `main`'s synthesised
+        // cap (M7.T4) is composed from `lockset.toml [caps]`. We let
+        // the bare `cap` parameter parse here; the static checker
+        // (M2.T5) carves out the same special case.
+        if was_cap_kw && !matches!(self.peek(), TokenKind::Colon) {
+            return Ok(Param {
+                name,
+                ty: Type::Cap {
+                    entries: Vec::new(),
+                    star: true,
+                    span: start,
+                },
+                span: start,
+            });
+        }
         self.expect_kind(&TokenKind::Colon)?;
         let ty = self.parse_type()?;
         Ok(Param {
@@ -2655,6 +2763,8 @@ mod tests {
             Item::Agent(_) => "agent",
             Item::AgentNet(_) => "agent_net",
             Item::Policy(_) => "policy",
+            Item::Test(_) => "test",
+            Item::Property(_) => "property",
         }
     }
 

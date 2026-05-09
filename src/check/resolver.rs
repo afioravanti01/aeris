@@ -226,6 +226,11 @@ impl Cx {
                     // M8 wires policy semantics; field-presence is
                     // forgiving for now.
                 }
+                Item::Test(_) | Item::Property(_) => {
+                    // M12.T1 / M12.T3: structural type-resolution for
+                    // test / property bodies is deferred to a follow-up
+                    // pass. The runner evaluates the body directly.
+                }
             }
         }
     }
@@ -398,7 +403,16 @@ impl Cx {
     fn check_fn_signature(&mut self, f: &crate::syntax::ast::FnDecl) {
         self.check_generics_unique(&f.name, &f.generics, f.span);
         for p in &f.params {
-            self.check_type(&p.ty, &f.generics);
+            // § 8.4 carve-out: `fn main(cap)` receives a capability
+            // without writing its shape — its `cap` parameter has the
+            // synthesised `cap[*]` placeholder, which would otherwise
+            // trip M2.T5. Skip the type check for that one position.
+            let is_main_bare_cap = f.name == "main"
+                && p.name == "cap"
+                && matches!(&p.ty, Type::Cap { star: true, entries, .. } if entries.is_empty());
+            if !is_main_bare_cap {
+                self.check_type(&p.ty, &f.generics);
+            }
         }
         if let Some(ret) = &f.return_ty {
             self.check_type(ret, &f.generics);
@@ -712,10 +726,19 @@ fn extract_cap_paths(
     f: &crate::syntax::ast::FnDecl,
 ) -> Option<std::collections::HashSet<(String, String)>> {
     let cap_param = f.params.iter().find(|p| p.name == "cap")?;
-    let entries = match &cap_param.ty {
-        Type::Cap { entries, .. } => entries,
+    let (entries, star) = match &cap_param.ty {
+        Type::Cap { entries, star, .. } => (entries, *star),
         _ => return Some(std::collections::HashSet::new()),
     };
+    // § 8.4: `fn main(cap)` carries the synthesised `cap[*]`
+    // placeholder. Body-resolution accepts any op via the wildcard
+    // sentinel; M2.T5's `cap[*]` rejection is carved out separately
+    // in `check_fn_signature`.
+    if star && f.name == "main" && entries.is_empty() {
+        let mut out = std::collections::HashSet::new();
+        out.insert(("*".to_string(), "*".to_string()));
+        return Some(out);
+    }
     let mut out: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     for e in entries {
         match e.path.segments.as_slice() {

@@ -10,6 +10,7 @@ pub mod http;
 pub mod json;
 pub mod replay;
 pub mod trace;
+pub mod trace_diff;
 pub mod value;
 
 pub use eval::{eval_expression, eval_module_env, run_main, Env, EvalError, EvalErrorKind};

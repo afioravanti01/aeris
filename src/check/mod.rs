@@ -15,10 +15,17 @@
 
 pub mod effects;
 mod error;
+mod lockset_caps;
+mod narrow_caps;
+mod render;
 mod resolver;
 
 pub use error::{CheckError, CheckErrorKind};
+pub use lockset_caps::check_module_against_lockset;
+pub use narrow_caps::{narrow_caps, render_narrowing_diff, CapNarrowing};
+pub use render::{explain, render_diagnostic};
 
+use crate::lockset::CapsCeiling;
 use crate::syntax::ast::Module;
 
 /// Run the static-analysis suite over a parsed module. The checker
@@ -26,6 +33,16 @@ use crate::syntax::ast::Module;
 /// `aeris check` can render a complete diagnostic batch in one pass.
 pub fn check_module(m: &Module) -> Vec<CheckError> {
     resolver::check_module(m)
+}
+
+/// Run the static-analysis suite together with the M2.T6 allow-list
+/// intersection check against the project's `lockset.toml [caps]`
+/// ceiling. The lockset-intersection errors are appended to the result
+/// of `check_module` so callers receive a single combined batch.
+pub fn check_module_with_lockset(m: &Module, caps: &CapsCeiling) -> Vec<CheckError> {
+    let mut out = resolver::check_module(m);
+    out.extend(lockset_caps::check_module_against_lockset(m, caps));
+    out
 }
 
 // ====================================================================

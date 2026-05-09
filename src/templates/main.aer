@@ -1,5 +1,8 @@
-use io
-
+/// Hello, Aeris.
+///
+/// `cap` here is the synthesised capability `main` receives from
+/// `lockset.toml [caps]` (§ 8.4). `io.println` is diagnostic-class
+/// — it bypasses the V2 mandatory-intent rule.
 fn main(cap) -> result<unit> {
   io.println("hello, aeris")
   Ok(())

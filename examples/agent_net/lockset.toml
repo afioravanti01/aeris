@@ -1,0 +1,11 @@
+[project]
+name  = "agent-net-demo"
+aeris = "0.2.0"
+
+[deps]
+
+[caps]
+ai.models = ["claude-haiku-4-5", "claude-opus-4-7"]
+
+[ai.backend]
+kind = "mock"

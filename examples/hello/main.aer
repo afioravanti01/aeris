@@ -1,0 +1,7 @@
+/// Minimum viable Aeris program — language.md Appendix A.
+///
+/// Run with `aeris run examples/hello/main.aer` from the repo root.
+fn main(cap) -> result<unit> {
+  io.println("hello, aeris")
+  Ok(())
+}

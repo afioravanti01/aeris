@@ -49,6 +49,7 @@ impl CheckError {
             CheckErrorKind::SagaStepUndoNoopWithWriteDo { .. } => 67,
             CheckErrorKind::BareModelWithoutVersion(_) => 68,
             CheckErrorKind::AgentNetCycle { .. } => 70,
+            CheckErrorKind::AllowListOutsideLockset { .. } => 71,
         }
     }
 }
@@ -120,6 +121,18 @@ pub enum CheckErrorKind {
     /// fields (`llm`, `intent`, `prompt`, `accept`, `produce`). Exit
     /// code 64.
     MissingAgentField { agent: String, field: String },
+    /// M2.T6 (§ 8.3.2): a function or saga signature requested an
+    /// allow-list entry that is not present in the project's
+    /// `lockset.toml [caps]` ceiling. Exit code 71. `op` is the
+    /// `<module>.<operation>` form (e.g. `http.post`); `entry` is the
+    /// concrete allow-list entry that lies outside the ceiling
+    /// (e.g. `"evil.com"`); `family` names the lockset section that
+    /// would have to authorise it (e.g. `"http.allow"`).
+    AllowListOutsideLockset {
+        op: String,
+        entry: String,
+        family: String,
+    },
     /// `match` exhaustiveness failure (§ 17.2). The structural form
     /// covers two cases the checker can prove without type
     /// information:

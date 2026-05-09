@@ -106,6 +106,17 @@ pub enum EvalErrorKind {
         limit: u64,
         observed: u64,
     },
+    /// M12.T2: `assert(<expr>)` with `<expr>` evaluating to a falsy
+    /// value. The `source` is the formatted expression text so the
+    /// runner can surface "what failed" without re-reading the file.
+    /// `detail` is populated when the asserted expression is a binary
+    /// equality — the renderer uses it to print `expected vs. actual`.
+    /// **Not** catchable by `?`. The detail is boxed to keep
+    /// `EvalError` small (clippy `result_large_err`).
+    AssertionFailed {
+        source: String,
+        detail: Option<Box<AssertionDetail>>,
+    },
     /// `raise e` or `?` propagated up to the evaluator boundary.
     Raised(Value),
     /// Wrapped parse error for the `eval_expression` convenience entry.
@@ -113,6 +124,24 @@ pub enum EvalErrorKind {
     /// Internal control-flow value escaping a block (e.g. `break`
     /// outside a loop).
     StrayControlFlow(&'static str),
+}
+
+/// Side-channel info for `AssertionFailed` (M12.T2). Holds the rendered
+/// values of an `lhs == rhs` (or `lhs != rhs`) comparison so the test
+/// runner can print "expected `<lhs>`, got `<rhs>`".
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssertionDetail {
+    pub lhs_source: String,
+    pub rhs_source: String,
+    pub lhs_value: String,
+    pub rhs_value: String,
+    pub op: AssertionCmpOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssertionCmpOp {
+    Eq,
+    Ne,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +194,10 @@ pub struct Env {
     /// queue handlers read this and inject the key into their request
     /// surface; absence means the call is not part of a saga step.
     idempotency_key: Option<std::rc::Rc<String>>,
+    /// M12.T4: events of a recorded trace loaded by `with fixture: ...`.
+    /// The body of a fixture-mode test queries this via the `trace()`
+    /// builtin and the `trace_has(<predicate>)` helper.
+    fixture_trace: Option<std::rc::Rc<Vec<super::trace::TraceEvent>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -187,7 +220,21 @@ impl Env {
             replay_tape: None,
             full_record: false,
             idempotency_key: None,
+            fixture_trace: None,
         }
+    }
+
+    /// M12.T4: attach the events of a trace loaded by `with fixture:`.
+    pub fn with_fixture_trace(
+        mut self,
+        events: std::rc::Rc<Vec<super::trace::TraceEvent>>,
+    ) -> Self {
+        self.fixture_trace = Some(events);
+        self
+    }
+
+    pub fn fixture_trace(&self) -> Option<&[super::trace::TraceEvent]> {
+        self.fixture_trace.as_deref().map(|v| v.as_slice())
     }
 
     /// Currently active idempotency key, if the env is inside a saga
@@ -347,6 +394,7 @@ impl Env {
             replay_tape,
             full_record,
             idempotency_key: None,
+            fixture_trace: None,
         };
         for s in scopes {
             let mut frame = HashMap::with_capacity(s.len());
@@ -837,6 +885,49 @@ pub fn run_main_with(m: &Module, tracer: Option<super::trace::Tracer>) -> Result
     }
     let v = flow?.into_value(Span::ZERO)?;
     Ok(v)
+}
+
+/// M12.T1 — evaluate a single `test "<name>" { ... }` block in the
+/// context of the given module's environment. The runner uses this
+/// per test in the suite. Returns `Ok(())` on a clean exit (any
+/// value returned by the body is treated as success), or the first
+/// `EvalError` raised. `assert` failure surfaces as `Raised(...)`.
+pub fn run_test(m: &Module, test: &crate::syntax::ast::TestDecl) -> Result<(), EvalError> {
+    let mut env = eval_module_env(m);
+    eval_block(&test.body, &mut env)?;
+    Ok(())
+}
+
+/// M12.T4 — evaluate a fixture-mode test. The recorded events are
+/// exposed to the body via `trace()` / `trace_has(...)`.
+pub fn run_test_with_fixture(
+    m: &Module,
+    test: &crate::syntax::ast::TestDecl,
+    events: std::rc::Rc<Vec<super::trace::TraceEvent>>,
+) -> Result<(), EvalError> {
+    let mut env = eval_module_env(m).with_fixture_trace(events);
+    eval_block(&test.body, &mut env)?;
+    Ok(())
+}
+
+/// M12.T3 — evaluate one case of a `property "<name>" with (...) { ... }`.
+/// `values` must align positionally with `prop.params`. The body is
+/// evaluated against a fresh module env so per-case side effects don't
+/// leak into subsequent samples.
+pub fn run_property_case(
+    m: &Module,
+    prop: &crate::syntax::ast::PropertyDecl,
+    values: &[Value],
+) -> Result<(), EvalError> {
+    let mut env = eval_module_env(m);
+    env.push_scope();
+    for (param, val) in prop.params.iter().zip(values.iter()) {
+        env.bind_let(&param.name, val.clone());
+    }
+    let result = eval_block(&prop.body, &mut env);
+    env.pop_scope();
+    result?;
+    Ok(())
 }
 
 /// M9 entry: build an `Env` for `m` with the full set of runtime
@@ -1956,6 +2047,32 @@ fn eval_call(
             }
         }
     }
+    // M12.T2: `assert(<expr>)` is a runtime builtin that captures the
+    // unevaluated argument AST so a failure can render `expected vs.
+    // actual` for `==` / `!=` comparisons. We intercept it before any
+    // user-defined function named `assert` is resolved — the name is
+    // reserved by the test framework.
+    if let Expr::Ident(name, _) = callee {
+        if name == "assert" {
+            return eval_assert_call(args, span, env);
+        }
+        // M12.T4: `trace()` returns the recorded events of the
+        // currently-loaded fixture as a `list<record>`. Outside a
+        // fixture-mode test it returns the empty list — callers that
+        // need the strict form should use `trace_has(...)`.
+        if name == "trace" && args.is_empty() {
+            return Ok(Flow::Value(fixture_trace_as_value(env)));
+        }
+        // M12.T4: `trace_has(<record>)` — convenience predicate that
+        // matches any event whose fields contain every key/value of
+        // the given record. Equivalent to `trace().has({...})` once
+        // list method dispatch lands.
+        if name == "trace_has" && args.len() == 1 {
+            let pred = eval_value(&args[0].value, env)?;
+            let ok = trace_has_event(env, &pred);
+            return Ok(Flow::Value(Value::Bool(ok)));
+        }
+    }
     // Constructor sugar resolves before the closure path so a
     // user-bound `Ok` doesn't shadow it. The constructors are
     // documented in `language.md` § 18 / § 4.
@@ -2003,6 +2120,185 @@ fn eval_call(
         .map(|a| eval_value(&a.value, env))
         .collect::<Result<_, _>>()?;
     invoke_value(&callee_value, &arg_values, span)
+}
+
+/// M12.T4 — render the env's fixture trace as a `Value::List` of
+/// records. Each event becomes a record with keys `kind`, `intent`,
+/// `scope`, plus every recorded field of the event as a string.
+fn fixture_trace_as_value(env: &Env) -> Value {
+    let events = match env.fixture_trace() {
+        Some(es) => es,
+        None => return Value::List(Vec::new()),
+    };
+    let mut out: Vec<Value> = Vec::with_capacity(events.len());
+    for e in events {
+        let mut fields: Vec<(String, Value)> = Vec::new();
+        fields.push(("kind".into(), Value::Str(e.kind.clone())));
+        fields.push((
+            "intent".into(),
+            match &e.intent {
+                Some(s) => Value::Option(Some(Box::new(Value::Str(s.clone())))),
+                None => Value::Option(None),
+            },
+        ));
+        fields.push((
+            "scope".into(),
+            match &e.scope {
+                Some(s) => Value::Option(Some(Box::new(Value::Str(s.clone())))),
+                None => Value::Option(None),
+            },
+        ));
+        for (k, v) in &e.fields {
+            fields.push((k.clone(), Value::Str(v.clone())));
+        }
+        out.push(Value::Record(super::value::RecordValue {
+            name: Some("TraceEvent".into()),
+            fields,
+        }));
+    }
+    Value::List(out)
+}
+
+/// M12.T4 — predicate: any event in the fixture trace whose fields
+/// match every key/value of `pred` (treated as a partial record).
+/// Comparison is structural — string equality on `kind`, `intent`,
+/// `scope`, and on each named additional field.
+fn trace_has_event(env: &Env, pred: &Value) -> bool {
+    let pred_fields = match pred {
+        Value::Record(r) => &r.fields,
+        _ => return false,
+    };
+    let events = match env.fixture_trace() {
+        Some(es) => es,
+        None => return false,
+    };
+    events.iter().any(|e| {
+        pred_fields.iter().all(|(k, v)| match k.as_str() {
+            "kind" => match v {
+                Value::Str(s) => &e.kind == s,
+                _ => false,
+            },
+            "intent" => match v {
+                Value::Str(s) => e.intent.as_deref() == Some(s.as_str()),
+                Value::Option(None) => e.intent.is_none(),
+                Value::Option(Some(inner)) => match inner.as_ref() {
+                    Value::Str(s) => e.intent.as_deref() == Some(s.as_str()),
+                    _ => false,
+                },
+                _ => false,
+            },
+            "scope" => match v {
+                Value::Str(s) => e.scope.as_deref() == Some(s.as_str()),
+                Value::Option(None) => e.scope.is_none(),
+                Value::Option(Some(inner)) => match inner.as_ref() {
+                    Value::Str(s) => e.scope.as_deref() == Some(s.as_str()),
+                    _ => false,
+                },
+                _ => false,
+            },
+            other => e.fields.iter().any(|(fk, fv)| {
+                fk == other && {
+                    // Field values come out of the wire JSON with their
+                    // own quoting — strings keep their `"..."` envelope,
+                    // numbers / bools land bare. Strip a single layer
+                    // of quotes when comparing against a `Value::Str`.
+                    let unwrapped = if fv.len() >= 2
+                        && fv.starts_with('"')
+                        && fv.ends_with('"')
+                    {
+                        &fv[1..fv.len() - 1]
+                    } else {
+                        fv.as_str()
+                    };
+                    match v {
+                        Value::Str(s) => unwrapped == s,
+                        Value::Int(n) => unwrapped == n.to_string(),
+                        Value::Bool(b) => unwrapped == b.to_string(),
+                        _ => false,
+                    }
+                }
+            }),
+        })
+    })
+}
+
+/// M12.T2 — `assert(<expr>)` builtin. Evaluates the (single) argument
+/// expression and, on a falsy result, raises `AssertionFailed` with
+/// the formatted source of `<expr>` so the test runner can render
+/// "what failed" without re-reading the source file. When the asserted
+/// expression is a `lhs == rhs` (or `lhs != rhs`) comparison the lhs
+/// and rhs values are evaluated separately and stashed into the error
+/// payload — the renderer prints them as `expected vs. actual`.
+fn eval_assert_call(args: &[CallArg], span: Span, env: &mut Env) -> Result<Flow, EvalError> {
+    if args.len() != 1 {
+        return Err(EvalError::new(
+            EvalErrorKind::Arity {
+                name: "assert".into(),
+                expected: 1,
+                found: args.len(),
+            },
+            span,
+        ));
+    }
+    let arg = &args[0].value;
+    if let Expr::Binary {
+        op: bop @ (BinOp::Eq | BinOp::Ne),
+        lhs,
+        rhs,
+        ..
+    } = arg
+    {
+        let lv = eval_value(lhs, env)?;
+        let rv = eval_value(rhs, env)?;
+        let equal = lv == rv;
+        let pass = match bop {
+            BinOp::Eq => equal,
+            BinOp::Ne => !equal,
+            _ => unreachable!(),
+        };
+        if pass {
+            return Ok(Flow::Value(Value::Unit));
+        }
+        let detail = AssertionDetail {
+            lhs_source: crate::syntax::fmt::format_expression(lhs),
+            rhs_source: crate::syntax::fmt::format_expression(rhs),
+            lhs_value: value_to_natural_json(&lv),
+            rhs_value: value_to_natural_json(&rv),
+            op: match bop {
+                BinOp::Eq => AssertionCmpOp::Eq,
+                BinOp::Ne => AssertionCmpOp::Ne,
+                _ => unreachable!(),
+            },
+        };
+        return Err(EvalError::new(
+            EvalErrorKind::AssertionFailed {
+                source: crate::syntax::fmt::format_expression(arg),
+                detail: Some(Box::new(detail)),
+            },
+            span,
+        ));
+    }
+    let v = eval_value(arg, env)?;
+    let truthy = match v {
+        Value::Bool(b) => b,
+        _ => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type("`assert` requires a `bool`".into()),
+                arg.span(),
+            ))
+        }
+    };
+    if truthy {
+        Ok(Flow::Value(Value::Unit))
+    } else {
+        Err(EvalError::new(
+            EvalErrorKind::AssertionFailed {
+                source: crate::syntax::fmt::format_expression(arg),
+                detail: None,
+            },
+            span,
+        ))
+    }
 }
 
 // ====================================================================

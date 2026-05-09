@@ -4,6 +4,7 @@
 //! values, control flow) and § 26 (grammar).
 
 pub mod ast;
+pub mod doc;
 pub mod fmt;
 pub mod lexer;
 pub mod parser;

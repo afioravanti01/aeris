@@ -758,7 +758,37 @@ fn fmt_item(i: &Item, out: &mut String, source: &str, indent: usize) {
         Item::Agent(a) => fmt_agent(a, out, indent),
         Item::AgentNet(n) => fmt_agent_net(n, out, indent),
         Item::Policy(p) => fmt_policy(p, out, indent),
+        Item::Test(t) => fmt_test(t, out, source, indent),
+        Item::Property(p) => fmt_property(p, out, source, indent),
     }
+}
+
+fn fmt_test(t: &crate::syntax::ast::TestDecl, out: &mut String, _source: &str, indent: usize) {
+    push_indent(out, indent);
+    out.push_str(&format!("test \"{}\" ", t.name));
+    fmt_block_inline(&t.body, out);
+    out.push('\n');
+}
+
+fn fmt_property(
+    p: &crate::syntax::ast::PropertyDecl,
+    out: &mut String,
+    _source: &str,
+    indent: usize,
+) {
+    push_indent(out, indent);
+    out.push_str(&format!("property \"{}\" with (", p.name));
+    for (i, param) in p.params.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&param.name);
+        out.push_str(": ");
+        fmt_type(&param.ty, out);
+    }
+    out.push_str(") ");
+    fmt_block_inline(&p.body, out);
+    out.push('\n');
 }
 
 fn fmt_use(u: &UseDecl, out: &mut String, source: &str) {
@@ -1346,6 +1376,256 @@ mod tests {
         // binops are left-assoc.
         let s = format_expression(&parse_expression("a + (b + c)").unwrap());
         assert_eq!(s, "a + (b + c)");
+    }
+
+    // ----------------- M12.T5: 200 module-level fmt idempotency -----------------
+
+    fn module_idempotent(src: &str) {
+        let m1 = match crate::syntax::parse(src) {
+            Ok(m) => m,
+            Err(e) => panic!("first parse failed for {src:?}: {e:?}"),
+        };
+        let s1 = format_module(&m1, src);
+        let m2 = match crate::syntax::parse(&s1) {
+            Ok(m) => m,
+            Err(e) => panic!("re-parse failed for {s1:?} (from {src:?}): {e:?}"),
+        };
+        let s2 = format_module(&m2, &s1);
+        assert_eq!(s1, s2, "fmt not idempotent for {src:?}\nS1=\n{s1}\nS2=\n{s2}");
+    }
+
+    /// 200 module-level fixtures. Each must satisfy `fmt(fmt(x)) ==
+    /// fmt(x)`. Categories cover every top-level item the parser
+    /// supports, plus mixed-decl modules and edge-case formatting.
+    const MODULE_FIXTURES: &[&str] = &[
+        // ---- records (20) ----
+        "record R { x: int }",
+        "record R { x: int, y: int }",
+        "record User { id: uuid, name: string }",
+        "record AllPrim { a: bool, b: int, c: f64, d: string }",
+        "record Wrapper<T> { value: T }",
+        "record Pair<A, B> { l: A, r: B }",
+        "record Box<T> { items: list<T> }",
+        "record Cache<K, V> { kv: map<K, V> }",
+        "record Empty {}",
+        "record Tuples { p: (int, string), q: (int, int, int) }",
+        "record OptIn { v: option<int> }",
+        "record Result1 { v: result<int> }",
+        "record Listy { xs: list<int> }",
+        "record Nested { xs: list<list<int>> }",
+        "record Setty { tags: set<string> }",
+        "record Mappy { kv: map<string, int> }",
+        "record FnField { f: fn(int) -> int }",
+        "record TupleField { p: (int, string) }",
+        "record UnitField { z: () }",
+        "pub record User { id: uuid }",
+        // ---- enums (15) ----
+        "enum Color { Red, Green, Blue }",
+        "enum E { A, B(int), C(string, int) }",
+        "enum E { A, B { x: int, y: int } }",
+        "enum Either<L, R> { Left(L), Right(R) }",
+        "enum Status { Pending, Active, Closed }",
+        "enum Tree<T> { Leaf, Node(Tree<T>, T, Tree<T>) }",
+        "enum E { A }",
+        "enum E { Single(int) }",
+        "enum Mix { A, B(int), C { x: int } }",
+        "pub enum Color { R, G, B }",
+        "enum O<T> { None, Some(T) }",
+        "enum Tag { OK, ERR }",
+        "enum One { Solo }",
+        "enum E { Recursive(list<int>) }",
+        "enum Many { A, B, C, D, E, F }",
+        // ---- models (10) ----
+        "model M@v1 { id: uuid }",
+        "model Doc@v42 { text: string }",
+        "model Order@v1 { lines: list<int> }",
+        "model Invoice@v1 { id: uuid, total: decimal }",
+        "model User@v1 { id: uuid, name: string }",
+        "model Order@v2 { id: uuid, lines: list<int>, total: decimal }",
+        "pub model M@v1 { id: uuid }",
+        "model Empty@v1 {}",
+        "model A@v1 { x: int } model A@v2 { x: int, y: int }",
+        "model Big@v3 { a: int, b: int, c: int, d: int, e: int }",
+        // ---- type aliases (10) ----
+        "type Email = string",
+        "type Ids = list<uuid>",
+        "type Pair<A, B> = (A, B)",
+        "type IntList = list<int>",
+        "type StrMap = map<string, string>",
+        "type Maybe<T> = option<T>",
+        "type Outcome<T> = result<T>",
+        "type Func = fn(int) -> int",
+        "pub type Email = string",
+        "type Box2<T> = list<list<T>>",
+        // ---- consts (10) ----
+        "const PI: decimal = 3.14",
+        "const MAX: int = 100",
+        "const NAME: string = \"aeris\"",
+        "const ENABLED: bool = true",
+        "const ZERO: int = 0",
+        "const NEG: int = -5",
+        "const HEX: int = 0xff",
+        "const BIN: int = 0b1010",
+        "pub const GREETING: string = \"hello\"",
+        "const D: duration = 3s",
+        // ---- fn signatures (30) ----
+        "fn add(a: int, b: int) -> int { a + b }",
+        "fn id<T>(x: T) -> T { x }",
+        "fn first<T>(xs: list<T>) -> option<T> { None }",
+        "fn map<T, U>(xs: list<T>, f: fn(T) -> U) -> list<U> { [] }",
+        "fn doit(x: int) {}",
+        "fn pure() {}",
+        "fn many(a: int, b: int, c: int) -> int { a + b + c }",
+        "fn ret_unit() -> () { () }",
+        "fn ret_tuple() -> (int, int) { (1, 2) }",
+        "fn ret_list() -> list<int> { [1, 2, 3] }",
+        "fn ret_opt() -> option<int> { Some(1) }",
+        "fn ret_res() -> result<int> { Ok(1) }",
+        "fn cap_param(cap: cap[fs.read_file]) {}",
+        "fn cap_param2(cap: cap[fs.read_file, audit.event]) {}",
+        "fn cap_alw(cap: cap[http.post @ \"api.acme.com\"]) {}",
+        "fn cap_alw2(cap: cap[http.post @ [\"api.acme.com\", \"api.stripe.com\"]]) {}",
+        "fn nested(cap: cap[fs.read_file], n: int) -> int { n }",
+        "pub fn add(a: int, b: int) -> int { a + b }",
+        "fn f(x: int) -> int { x }",
+        "fn g(x: int, y: int) -> int { x + y }",
+        "fn double(x: int) -> int { x * 2 }",
+        "fn neg(x: int) -> int { -x }",
+        "fn flag(b: bool) -> bool { not b }",
+        "fn empty() -> string { \"\" }",
+        "fn dash(s: string) -> string { s }",
+        "fn lst(xs: list<int>) -> int { 0 }",
+        "fn mp(m: map<string, int>) -> int { 0 }",
+        "fn pair(p: (int, int)) -> int { 0 }",
+        "fn opt(x: option<int>) -> int { 0 }",
+        "fn rs(x: result<int>) -> int { 0 }",
+        // ---- fn bodies (30) ----
+        "fn f() { let x = 1 }",
+        "fn f() { let x = 1; let y = 2 }",
+        "fn f() { let x = 1; x }",
+        "fn f() { var x = 1; x = 2 }",
+        "fn f() -> int { 1 + 2 }",
+        "fn f() -> int { if true { 1 } else { 0 } }",
+        "fn f(x: int) -> int { match x { 0 -> 0, _ -> 1 } }",
+        "fn f() { for i in 0..10 { } }",
+        "fn f() { while false { } }",
+        "fn f() -> int { (1 + 2) * 3 }",
+        "fn f(xs: list<int>) -> int { xs[0] }",
+        "fn f() { let f2 = fn(x: int) -> int { x + 1 } }",
+        "fn f() -> int { return 1 }",
+        "fn f() -> int { 1 }",
+        "fn f() { intent \"x\" { } }",
+        "fn f(cap: cap[io.println]) { intent \"x\" { io.println(\"hi\") } }",
+        "fn f() -> result<int> { Ok(1) }",
+        "fn f() -> result<int> { Err(\"x\") }",
+        "fn f() -> option<int> { None }",
+        "fn f() -> option<int> { Some(1) }",
+        "fn f() -> int { match true { true -> 1, false -> 0 } }",
+        "fn f(x: int) -> int { match x { n if n > 0 -> 1, _ -> 0 } }",
+        "fn f() -> int { let xs = [1, 2, 3]; xs[0] }",
+        "fn f() -> int { let p = (1, 2); 0 }",
+        "fn f() -> int { let r = User { id: 1, name: \"x\" }; 0 }",
+        "fn f() -> int { let mp = { a: 1, b: 2 }; 0 }",
+        "fn f() -> bool { 1 == 1 }",
+        "fn f() -> bool { 1 != 2 }",
+        "fn f() -> bool { 1 < 2 and 2 < 3 }",
+        "fn f() -> bool { 1 < 2 or 3 < 4 }",
+        // ---- contracts (10) ----
+        "fn pos(x: int) -> int requires: x > 0 ensures: result > 0 { x }",
+        "fn nn(x: int) -> int requires: x >= 0 { x }",
+        "fn p(x: int) -> int ensures: result == x { x }",
+        "fn p2(x: int) -> int requires: x > 0 ensures: result > 0 ensures: result == x { x }",
+        "fn r(x: int) requires: x > 0 { }",
+        "fn small(x: int) -> int requires: x < 10 { x }",
+        "fn even(x: int) -> int requires: x % 2 == 0 { x }",
+        "fn rng(x: int) -> int requires: x >= 0 requires: x <= 100 { x }",
+        "fn dbl(x: int) -> int ensures: result == x + x { x + x }",
+        "fn id(x: int) -> int ensures: result == x { x }",
+        // ---- saga (10) ----
+        "saga s(cap: cap[http.post]) { intent \"x\" step a { do { } undo noop } }",
+        "saga charge(cap: cap[http.post @ \"api.acme.com\"]) { intent \"charge\" step pay { do { } undo noop } }",
+        "saga two(cap: cap[http.post]) { intent \"x\" step a { do { } undo noop } step b { do { } undo noop } }",
+        "saga full(cap: cap[http.post]) { intent \"full\" step a { do { } undo { } } }",
+        "saga inv(cap: cap[fs.read_file]) { intent \"read\" step r { do { } undo noop } }",
+        "saga noisy(cap: cap[io.println]) { intent \"noise\" step say { do { } undo noop } }",
+        "pub saga p(cap: cap[http.post]) { intent \"x\" step a { do { } undo noop } }",
+        "saga audit_only(cap: cap[audit.event]) { intent \"x\" step a { do { } undo { } } }",
+        "saga peek(cap: cap[fs.read_file]) { intent \"peek\" step look { do { } undo noop } }",
+        "saga nested(cap: cap[fs.read_file]) { intent \"nested\" step a { do { } undo noop } step b { do { } undo noop } step c { do { } undo noop } }",
+        // ---- agent / agent_net / policy / test / property (15) ----
+        "agent a { llm: \"x\" intent: \"x\" prompt: \"p\" accept: inv produce: cat }",
+        "agent_net p { flow a -> b }",
+        "agent_net p { flow a -> b -> c }",
+        "agent_net p { flow a -> { b, c } }",
+        "agent_net p { flow a -> b flow b -> c }",
+        "agent_net p { flow a -> b until: a }",
+        "policy p { match: http.post }",
+        "policy p { match: http.* deny: true }",
+        "policy p { match: fs.* require: false }",
+        "test \"trivial\" { let x = 1 }",
+        "test \"with assert\" { assert(true) }",
+        "test \"with fixture\" with fixture: \"f1\" { assert(true) }",
+        "property \"pure\" with (a: int) { assert(a == a) }",
+        "property \"two\" with (a: int, b: int) { assert(a + b == b + a) }",
+        "property \"bool\" with (b: bool) { assert(b == b) }",
+        // ---- mixed multi-item modules (20) ----
+        "record R { x: int } record S { y: int }",
+        "record R { x: int } enum E { A }",
+        "type T = int fn f() -> T { 1 }",
+        "const X: int = 1 fn f() -> int { X }",
+        "model M@v1 { id: uuid } record Batch { items: list<M@v1> }",
+        "fn a() {} fn b() {}",
+        "record User { id: uuid } fn id() -> uuid { todo() }",
+        "enum Status { A, B } record S { st: Status }",
+        "type Email = string record User { e: Email }",
+        "fn a() {} fn b() {} fn c() {}",
+        "record R { x: int } enum E { A } type T = int",
+        "const A: int = 1 const B: int = 2",
+        "fn helper(x: int) -> int { x } fn run(c: cap[fs.read_file]) -> result<unit> { Ok(()) }",
+        "model Doc@v1 { id: uuid } fn save(d: Doc@v1) -> result<unit> { Ok(()) }",
+        "record A { x: int } record B { y: int } record C { z: int }",
+        "enum E { A } enum F { B } enum G { C }",
+        "type X = int type Y = string type Z = bool",
+        "test \"a\" { } test \"b\" { } test \"c\" { }",
+        "agent_net p { flow a -> b } fn main() {}",
+        "policy p { match: http.* } fn use_p() {}",
+        // ---- edge cases (20) ----
+        "fn f() { let _ = 1 }",
+        "fn f() { let x: int = 1 }",
+        "fn f() -> int { let x: int = 1; x }",
+        "fn f() { let p: (int, int) = (1, 2) }",
+        "fn f(x: int, y: int, z: int) -> int { x + y + z }",
+        "fn f(a: int, b: int, c: int, d: int) -> int { 0 }",
+        "fn f<T>(x: T) -> T { x }",
+        "fn f<T, U>(x: T, y: U) -> (T, U) { (x, y) }",
+        "fn f<T, U, V>(x: T, y: U, z: V) -> int { 0 }",
+        "fn f() -> int { 1 + 2 + 3 + 4 + 5 }",
+        "fn f() -> bool { 1 < 2 < 3 }",
+        "fn f() { if true { } }",
+        "fn f() { if true { } else { } }",
+        "fn f() { if true { } else if false { } else { } }",
+        "fn f(x: int) -> int { match x { 0 -> 0, 1 -> 1, _ -> 2 } }",
+        "fn f(x: int) -> int { match x { n -> n } }",
+        "fn f(xs: list<int>) -> int { match xs { [] -> 0, [x] -> x, _ -> 0 } }",
+        "fn f() { let _ = [1, 2, 3, 4, 5] }",
+        "fn f() { let _ = (1, 2, 3) }",
+        "fn f() { let r = User { id: 1, name: \"x\", age: 10 } }",
+    ];
+
+    #[test]
+    fn module_fixture_count_is_at_least_200() {
+        assert!(
+            MODULE_FIXTURES.len() >= 200,
+            "got {} module fixtures",
+            MODULE_FIXTURES.len()
+        );
+    }
+
+    #[test]
+    fn all_module_fixtures_are_idempotent() {
+        for src in MODULE_FIXTURES {
+            module_idempotent(src);
+        }
     }
 
     #[test]

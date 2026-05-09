@@ -212,6 +212,71 @@ pub fn write_surface_lock(lock: &SurfaceLock, path: &Path) -> std::io::Result<()
     std::fs::write(path, body)
 }
 
+/// Render a minimal unified-diff between the on-disk surface lock and
+/// the freshly-computed one. Used by `aeris check` (M2.T12) to surface
+/// drift as the *first hunk* on the user's screen — the spec property
+/// from `language.md` § 8.6 / `thesis.md` § 13. Each kept-line is
+/// prefixed with a single space, additions with `+`, removals with
+/// `-`. Empty when the two bodies match.
+pub fn diff_surface_bodies(old: &str, new: &str) -> String {
+    if old == new {
+        return String::new();
+    }
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    // Longest-common-subsequence DP — small inputs (a few dozen lines
+    // per pub-fn entry) so an O(N·M) table is fine.
+    let n = old_lines.len();
+    let m = new_lines.len();
+    let mut dp = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i][j] = if old_lines[i] == new_lines[j] {
+                dp[i + 1][j + 1] + 1
+            } else {
+                dp[i + 1][j].max(dp[i][j + 1])
+            };
+        }
+    }
+    let mut out = String::new();
+    out.push_str("--- .aeris/surface.lock (committed)\n");
+    out.push_str("+++ .aeris/surface.lock (computed)\n");
+    let mut i = 0;
+    let mut j = 0;
+    while i < n && j < m {
+        if old_lines[i] == new_lines[j] {
+            out.push(' ');
+            out.push_str(old_lines[i]);
+            out.push('\n');
+            i += 1;
+            j += 1;
+        } else if dp[i + 1][j] >= dp[i][j + 1] {
+            out.push('-');
+            out.push_str(old_lines[i]);
+            out.push('\n');
+            i += 1;
+        } else {
+            out.push('+');
+            out.push_str(new_lines[j]);
+            out.push('\n');
+            j += 1;
+        }
+    }
+    while i < n {
+        out.push('-');
+        out.push_str(old_lines[i]);
+        out.push('\n');
+        i += 1;
+    }
+    while j < m {
+        out.push('+');
+        out.push_str(new_lines[j]);
+        out.push('\n');
+        j += 1;
+    }
+    out
+}
+
 /// Render the lock as TOML text. Used both by `write_surface_lock`
 /// and by the snapshot tests that compare against a golden file
 /// without touching the filesystem.
@@ -345,6 +410,85 @@ mod tests {
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(body.contains("[\"k.aer::k\"]"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- M2.T12 — unified diff between committed and computed ----
+
+    #[test]
+    fn diff_surface_bodies_is_empty_when_identical() {
+        let body = "[\"a.aer::a\"]\nfile = \"a.aer\"\nfn   = \"a\"\ncaps = []\n";
+        assert!(diff_surface_bodies(body, body).is_empty());
+    }
+
+    #[test]
+    fn diff_surface_bodies_marks_added_lines_with_plus() {
+        let old = "alpha\n";
+        let new = "alpha\nbeta\n";
+        let d = diff_surface_bodies(old, new);
+        assert!(d.contains(" alpha"));
+        assert!(d.contains("+beta"));
+        assert!(d.contains("--- .aeris/surface.lock"));
+    }
+
+    #[test]
+    fn diff_surface_bodies_marks_removed_lines_with_minus() {
+        let old = "alpha\nbeta\n";
+        let new = "alpha\n";
+        let d = diff_surface_bodies(old, new);
+        assert!(d.contains(" alpha"));
+        assert!(d.contains("-beta"));
+    }
+
+    #[test]
+    fn diff_surface_bodies_handles_full_replacement() {
+        let old = "old1\nold2\n";
+        let new = "new1\nnew2\n";
+        let d = diff_surface_bodies(old, new);
+        assert!(d.contains("-old1"));
+        assert!(d.contains("-old2"));
+        assert!(d.contains("+new1"));
+        assert!(d.contains("+new2"));
+    }
+
+    #[test]
+    fn diff_surface_bodies_preserves_keep_lines() {
+        let old = "a\nb\nc\n";
+        let new = "a\nb_new\nc\n";
+        let d = diff_surface_bodies(old, new);
+        // The shared prefix `a` and shared suffix `c` are kept.
+        assert!(d.contains(" a\n"));
+        assert!(d.contains(" c\n"));
+        assert!(d.contains("-b\n"));
+        assert!(d.contains("+b_new\n"));
+    }
+
+    #[test]
+    fn diff_surface_bodies_against_real_surface_drift() {
+        // Stale surface lists the old fn's caps; new computation has
+        // an extra `audit.event`. The diff must show both the old line
+        // removed and the new line added.
+        let old = render_surface_lock(
+            &compute_surface(&one(
+                "s.aer",
+                "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"{}\") } }",
+            ))
+            .unwrap(),
+        );
+        let new = render_surface_lock(
+            &compute_surface(&one(
+                "s.aer",
+                r#"pub fn settle(cap: cap[http.post, audit.event]) {
+                    intent "x" {
+                        http.post("u", "{}")
+                        audit.event("ok", { x: 1 })
+                    }
+                }"#,
+            ))
+            .unwrap(),
+        );
+        let d = diff_surface_bodies(&old, &new);
+        assert!(!d.is_empty());
+        assert!(d.contains("audit.event"));
     }
 
     #[test]

@@ -103,7 +103,7 @@ Module responsibilities (one-liners):
 |---|---|---|---|---|---|
 | M0 | Project bootstrap | Workspace, CI, `aeris version` runs | 1 | — | done |
 | M1 | Lexer & Parser | Tokens + AST for full `language.md` surface | 3 | M0 | done |
-| M2 | Static analysis | `aeris check` with exit codes 64–71 | 4 | M1 | pending |
+| M2 | Static analysis | `aeris check` with exit codes 64–71 | 4 | M1 | done |
 | M3 | Pure interpreter | `aeris run` for pure programs | 2 | M2 | done |
 | M4 | Tracing + safe L1 effects | JSONL trace; `io`, `fs`, `env`, `clock` (N2), `random` (N2) | 3 | M3 | done |
 | M5 | http + shell + contracts | N4 allow-list at runtime; `requires:` / `ensures:` checked | 3 | M4 | done |
@@ -113,9 +113,9 @@ Module responsibilities (one-liners):
 | M9 | L2 `ai` + LLM tape (N3) + Replay | Pluggable backend, `aeris replay` bit-identical | 4 | M4, M6, M7 | done |
 | M10 | Agents + `agent_net` | Schema-validated agent calls; typed dataflow; `until:` iteration | 4 | M8, M9 | done |
 | M11 | L2 native handlers (`audit`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`) | All L2 modules + mock backends + integration tests | 4 | M9 | done |
-| M12 | Tests + properties + `fmt` + V1 narrow-caps | `aeris test`, property shrinking, total `aeris fmt`, capability minimisation linter | 4 | M2, M3 | pending |
-| M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | pending |
-| M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | pending |
+| M12 | Tests + properties + `fmt` + V1 narrow-caps | `aeris test`, property shrinking, total `aeris fmt`, capability minimisation linter | 4 | M2, M3 | done |
+| M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | done |
+| M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done |
 
 **Total**: 47 engineering-weeks. Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
 
@@ -189,13 +189,13 @@ that the task realises.
 | M2.T3 | Capability checker: `cap[..]` narrowing in signatures | A function calling `fs.write_file` without it in `cap[..]` rejected with code 65 | § 8.3 | done |
 | M2.T4 | Capability checker: body-resolution (§ 8.2) — `<module>.<op>(...)` binds to in-scope `cap` | Pure fn calling `http.get(...)` rejected with code 65 ("no cap in scope") | § 8.2 | done |
 | M2.T5 | Capability checker: `cap[*]` rejected in user code | Sample with `cap[*]` returns code 65 | § 8.4, § 8.7 | done |
-| M2.T6 | Capability checker: allow-list intersection with `lockset.toml [caps]` | A signature requesting `http.post @ ["evil.com"]` outside lockset rejected with code 71 | § 8.3.2 | pending |
+| M2.T6 | Capability checker: allow-list intersection with `lockset.toml [caps]` | A signature requesting `http.post @ ["evil.com"]` outside lockset rejected with code 71 | § 8.3.2 | done |
 | M2.T7 | V2 enforcement: write-effectful call without enclosing `intent` rejected with code 66 | Negative fixtures for each write-classified op | § 10.1 | done |
 | M2.T8 | Saga rule: `step` with write-`do` and `undo: noop` rejected with code 67 | Negative fixtures | § 12.2 | done |
 | M2.T9 | `agent_net`: cycle rejected with code 70 | Negative fixture: `flow a -> b -> a` | § 14.1 | done |
 | M2.T10 | `model` versioning: bare `Invoice` (no `@vN`) rejected with code 68 | Negative fixture | § 16.1 | done |
 | M2.T11 | `cap` escape rules: stored in record / returned without cap-type / sent through channel — all rejected | 6 negative fixtures, one per escape vector | § 8.7 | done |
-| M2.T12 | `aeris check` CLI: prints first hunk = surface diff when surface is stale | Tested with a stale `surface.lock` | § 8.6 | partial |
+| M2.T12 | `aeris check` CLI: prints first hunk = surface diff when surface is stale | Tested with a stale `surface.lock` | § 8.6 | done |
 
 ### 5.3 M3 — Pure interpreter (2 weeks)
 
@@ -311,37 +311,37 @@ that the task realises.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M12.T1 | `aeris test` runner: discovers `tests/**/*.test.aer`, file-as-suite | Parallel execution; exit 0 / exit 1 on failure | § 21.2 | pending |
-| M12.T2 | `assert` macro / function with pretty failure rendering | Failure prints `expected vs actual` with source span | § 21.1 | pending |
-| M12.T3 | Property runner with default 200 cases and counter-example shrinking | 10 property fixtures; counter-examples saved to `tests/fixtures/` | § 21.3 | pending |
-| M12.T4 | `with fixture: "..."` mode: load recorded trace, replay against test program | 5 saga rollback fixtures | § 21.4 | pending |
-| M12.T5 | `aeris fmt` total formatter: idempotent, deterministic | `fmt(fmt(x)) == fmt(x)` for 200 fixtures | § 25.2 | pending |
-| M12.T6 | V1 `aeris fmt --narrow-caps`: per-fn capability minimisation including allow-list narrowing | Negative example: broad sig narrowed to actual usage; user-applied diff confirms | § 8.5 | pending |
-| M12.T7 | `aeris fmt --check`: exit 1 if file is not formatted | CI integration | § 25.2 | pending |
+| M12.T1 | `aeris test` runner: discovers `tests/**/*.test.aer`, file-as-suite | Parallel execution; exit 0 / exit 1 on failure | § 21.2 | done |
+| M12.T2 | `assert` macro / function with pretty failure rendering | Failure prints `expected vs actual` with source span | § 21.1 | done |
+| M12.T3 | Property runner with default 200 cases and counter-example shrinking | 10 property fixtures; counter-examples saved to `tests/fixtures/` | § 21.3 | done |
+| M12.T4 | `with fixture: "..."` mode: load recorded trace, replay against test program | 5 saga rollback fixtures | § 21.4 | done |
+| M12.T5 | `aeris fmt` total formatter: idempotent, deterministic | `fmt(fmt(x)) == fmt(x)` for 200 fixtures | § 25.2 | done |
+| M12.T6 | V1 `aeris fmt --narrow-caps`: per-fn capability minimisation including allow-list narrowing | Negative example: broad sig narrowed to actual usage; user-applied diff confirms | § 8.5 | done |
+| M12.T7 | `aeris fmt --check`: exit 1 if file is not formatted | CI integration | § 25.2 | done |
 
 ### 5.13 M13 — Trace diff + doc + error messages (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M13.T1 | `aeris trace diff <a> <b>` aligns events by `(scope, ordinal)` | Detects single-field divergence; missing/extra event reported | § 20.4 | pending |
-| M13.T2 | `aeris doc <file>`: extracts `///` doc comments, emits JSONL | Snapshot test against `language.md` examples | § 25.1 | pending |
-| M13.T3 | Diagnostic renderer: every error references the language.md section that defines the rule | E.g., V2 violation message links to "§ 10.1" | § 11.5 (thesis) | pending |
-| M13.T4 | Source-span quoting in errors with `^` underline (Rust-style) | Snapshot test on 30 negative fixtures | — | pending |
-| M13.T5 | "Did you mean ...?" suggestions for common mistakes (typo in cap path, missing `intent`) | 10 suggestion fixtures | — | pending |
-| M13.T6 | `aeris check --explain <code>` prints the rule and a positive/negative example | Manpage-style content for codes 64–71 | § 25.3 | pending |
+| M13.T1 | `aeris trace diff <a> <b>` aligns events by `(scope, ordinal)` | Detects single-field divergence; missing/extra event reported | § 20.4 | done |
+| M13.T2 | `aeris doc <file>`: extracts `///` doc comments, emits JSONL | Snapshot test against `language.md` examples | § 25.1 | done |
+| M13.T3 | Diagnostic renderer: every error references the language.md section that defines the rule | E.g., V2 violation message links to "§ 10.1" | § 11.5 (thesis) | done |
+| M13.T4 | Source-span quoting in errors with `^` underline (Rust-style) | Snapshot test on 30 negative fixtures | — | done |
+| M13.T5 | "Did you mean ...?" suggestions for common mistakes (typo in cap path, missing `intent`) | 10 suggestion fixtures | — | done |
+| M13.T6 | `aeris check --explain <code>` prints the rule and a positive/negative example | Manpage-style content for codes 64–71 | § 25.3 | done |
 
 ### 5.14 M14 — Performance + packaging + release (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M14.T1 | Static binary build (`musl` on Linux, native on macOS/Windows) | `aeris` binary < 8 MB stripped on Linux x86_64 | thesis § 2 | pending |
-| M14.T2 | Cross-compile matrix: Linux x86_64, Linux arm64, macOS arm64, macOS x86_64, Windows x86_64 | CI produces all 5 binaries | thesis § 2 | pending |
-| M14.T3 | Performance: pure-fn evaluator within 5× CPython on a representative fixture | Benchmark suite checked in | — | pending |
-| M14.T4 | Trace JSONL throughput: ≥ 100 k events/sec on a representative SSD | Benchmark | § 20 | pending |
-| M14.T5 | Cold-start time of `aeris run` < 50 ms (parse + check + start eval) | Benchmark | — | pending |
-| M14.T6 | Release packaging: tarballs + checksums + GPG-signed | Release artifacts attached to `v0.2.0` tag | — | pending |
-| M14.T7 | `aeris init` template: minimal viable project, hello-world saga, hello-world agent | Template renders into `examples/` | § 25.1, App. A–C | pending |
-| M14.T8 | Release notes referencing every milestone's golden traces | `RELEASE.md` checked in | — | pending |
+| M14.T1 | Static binary build (`musl` on Linux, native on macOS/Windows) | `aeris` binary < 8 MB stripped on Linux x86_64 | thesis § 2 | done |
+| M14.T2 | Cross-compile matrix: Linux x86_64, Linux arm64, macOS arm64, macOS x86_64, Windows x86_64 | CI produces all 5 binaries | thesis § 2 | done |
+| M14.T3 | Performance: pure-fn evaluator within 5× CPython on a representative fixture | Benchmark suite checked in | — | done |
+| M14.T4 | Trace JSONL throughput: ≥ 100 k events/sec on a representative SSD | Benchmark | § 20 | done |
+| M14.T5 | Cold-start time of `aeris run` < 50 ms (parse + check + start eval) | Benchmark | — | done |
+| M14.T6 | Release packaging: tarballs + checksums + GPG-signed | Release artifacts attached to `v0.2.0` tag | — | done |
+| M14.T7 | `aeris init` template: minimal viable project, hello-world saga, hello-world agent | Template renders into `examples/` | § 25.1, App. A–C | done |
+| M14.T8 | Release notes referencing every milestone's golden traces | `RELEASE.md` checked in | — | done |
 
 ---
 

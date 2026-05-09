@@ -12,4 +12,6 @@ pub use lockset::{
     parse_lockset, verify_local_deps, AiBackend, CapsCeiling, DepEntry, DepSource, Lockset,
     LocksetError, ProjectInfo, EXIT_LOCKSET_ERROR,
 };
-pub use surface::{compute_surface, hash_text, write_surface_lock, SurfaceEntry, SurfaceLock};
+pub use surface::{
+    compute_surface, diff_surface_bodies, hash_text, write_surface_lock, SurfaceEntry, SurfaceLock,
+};

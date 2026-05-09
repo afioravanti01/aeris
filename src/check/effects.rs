@@ -403,7 +403,11 @@ pub fn collect_cap_resolution_errors(
 }
 
 fn cap_set_covers(set: &std::collections::HashSet<(String, String)>, m: &str, op: &str) -> bool {
-    set.contains(&(m.to_string(), op.to_string()))
+    // `("*", "*")` is the wildcard sentinel used by `fn main(cap)`
+    // (§ 8.4): the synthesised cap is composed at runtime from the
+    // lockset, so the body-resolution layer accepts any op.
+    set.contains(&("*".to_string(), "*".to_string()))
+        || set.contains(&(m.to_string(), op.to_string()))
         || set.contains(&(m.to_string(), "*".to_string()))
 }
 

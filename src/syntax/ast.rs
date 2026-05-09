@@ -42,6 +42,39 @@ pub enum Item {
     Agent(AgentDecl),
     AgentNet(AgentNetDecl),
     Policy(PolicyDecl),
+    Test(TestDecl),
+    Property(PropertyDecl),
+}
+
+/// Top-level `test "<name>" { <body> }` declaration (§ 21.1).
+/// File-as-suite discovery is handled by the runner (M12.T1):
+/// every `test` in `tests/foo.test.aer` belongs to the suite `foo`.
+///
+/// `fixture` — § 21.4 / M12.T4: an optional recording id. When set
+/// the runner loads `tests/fixtures/<id>.jsonl` before evaluating
+/// the body and exposes it via the `trace()` builtin so the test
+/// can assert against the recorded events (e.g. saga rollback).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestDecl {
+    pub name: String,
+    pub fixture: Option<String>,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// Top-level `property "<name>" with (<a>: <T>, ...) { <body> }`
+/// declaration (§ 21.3). The runner samples values for the named
+/// generators (200 cases by default), evaluates the body, and on the
+/// first counter-example shrinks the input and persists the seed to
+/// `tests/fixtures/<id>.json` (M12.T3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyDecl {
+    pub name: String,
+    /// Generator parameters — `name: type`. The type drives the
+    /// generator selection at runtime.
+    pub params: Vec<Param>,
+    pub body: Block,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
