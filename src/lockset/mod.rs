@@ -13,5 +13,6 @@ pub use lockset::{
     LocksetError, ProjectInfo, EXIT_LOCKSET_ERROR,
 };
 pub use surface::{
-    compute_surface, diff_surface_bodies, hash_text, write_surface_lock, SurfaceEntry, SurfaceLock,
+    compute_dep_surface_hash, compute_surface, diff_surface_bodies, hash_text, write_surface_lock,
+    SurfaceEntry, SurfaceLock,
 };

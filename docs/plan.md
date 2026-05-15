@@ -241,7 +241,7 @@ that the task realises.
 | M6.T1 | Saga interpreter: forward execution with `step.<n>.ok` introspection | 10 happy-path saga fixtures | § 12.1 | done |
 | M6.T2 | Reverse-order rollback on step failure | Mid-step failure triggers `undo` of preceding steps in reverse | § 12.4 | done |
 | M6.T3 | N1: idempotency key derivation `blake3(trace_id ‖ step_name ‖ invocation_index)` | Key matches across replay | § 12.3 | done |
-| M6.T4 | Idempotency injection: HTTP `Idempotency-Key`, K8s annotation, AMQP `message-id`, audit `idempotency_key`, mongodb sentinel | 5 backend-specific tests | § 12.3 | partial |
+| M6.T4 | Idempotency injection: HTTP `Idempotency-Key`, K8s annotation, AMQP `message-id`, audit `idempotency_key`, mongodb sentinel | 5 backend-specific tests | § 12.3 | done |
 | M6.T5 | `undo` retry on failure with exponential backoff; after exhaustion → `PartialFailure` | Trace contains `partial_failure` event; exit code 74 | § 12.4 | done |
 | M6.T6 | Golden saga traces: success, mid-failure rollback, undo failure → PartialFailure | 3 golden JSONL files | § 6 | done |
 
@@ -254,7 +254,7 @@ that the task realises.
 | M7.T3 | GitHub tarball dep resolution + cache at `.aeris/ext/<host>__<repo>/<version>/` | Network test (mocked) succeeds; second run hits cache | § 24.2 | deferred (TLS) |
 | M7.T4 | `main`'s synthesised cap composes from `[caps]` ceiling | Effective signature printed on `aeris run` stderr matches lockset | § 8.4 | done |
 | M7.T5 | V3 `aeris lock surface`: per-`pub`-fn effect set + allow-list emitted to `.aeris/surface.lock` | Snapshot test against 5-module project | § 8.6 | done |
-| M7.T6 | `surface_hash` for deps recorded in `lockset.toml [deps].<alias>` | A dep upgrade that broadens surface forces a lockfile diff | § 24.3 | partial |
+| M7.T6 | `surface_hash` for deps recorded in `lockset.toml [deps].<alias>` | A dep upgrade that broadens surface forces a lockfile diff | § 24.3 | done |
 | M7.T7 | CI mode: `aeris lock --check` rejects PR with stale lockset | Exit 69 on staleness | § 24.4 | done |
 
 ### 5.8 M8 — Models + Policies (3 weeks)
@@ -265,8 +265,8 @@ that the task realises.
 | M8.T2 | `model@vN` validation on `json.decode` and on HTTP body ingress | 10 fixtures crossing trust boundary | § 16.2 | done |
 | M8.T3 | Record-level `where:` (multi-field invariants) | 5 fixtures with cross-field constraints | § 16.3 | done |
 | M8.T4 | `policy` runtime: `match`, `deny`, `require`, `limit`, `audit`, `when` | One fixture per clause, all six | § 15 | done |
-| M8.T5 | Policy activation: module-import / `#[policy(name)]` attribute / `lockset.toml [policies]` | 3 activation modes tested | § 15.3 | partial |
-| M8.T6 | Policy drift trace event when replay-vs-live outcome differs | `policy_drift` event emitted on synthetic divergence | § 15.4 | partial |
+| M8.T5 | Policy activation: module-import / `#[policy(name)]` attribute / `lockset.toml [policies]` | 3 activation modes tested | § 15.3 | done |
+| M8.T6 | Policy drift trace event when replay-vs-live outcome differs | `policy_drift` event emitted on synthetic divergence | § 15.4 | done |
 | M8.T7 | `PolicyViolation` exit (not catchable by `?`) | Test confirms behaviour | § 18.4 | done |
 
 ### 5.9 M9 — L2 `ai` + LLM tape + Replay (4 weeks)
