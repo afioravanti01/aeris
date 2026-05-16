@@ -20,10 +20,11 @@ the path is given so the reader can `aeris replay` it bit-identically.
   allow-list still applies). `required = true` — *strict mode*,
   re-enables every static check; recommended once a project becomes
   mission-critical. The narrow-caps linter helps the conversion.
-- **Single static binary** (`aeris`), < 8 MB stripped on Linux x86_64
-  (M14.T1).
-- **Five release targets**: Linux x86_64 / arm64 (musl), macOS x86_64
-  / arm64, Windows x86_64 (M14.T2 / `.github/workflows/release.yml`).
+- **Single static binary** (`aeris`), built locally with
+  `cargo build --release` against the developer's host target. The
+  release profile in `Cargo.toml` already enables `strip`, `lto`,
+  and `codegen-units = 1`. Multi-target cross-compilation is left to
+  the contributor; see § 9 of `docs/plan.md` for the rationale.
 - **Trace-first determinism**: `aeris replay <trace> <source>` is
   bit-identical for the deterministic subset (M9.T4, M9.T5).
 - **Capabilities are values**: `cap[*]` rejected outside `main`'s
@@ -48,7 +49,7 @@ the path is given so the reader can `aeris replay` it bit-identically.
 
 | Milestone | Output | Acceptance artefact |
 |---|---|---|
-| **M0** Bootstrap | workspace, CI, `aeris version` | `Cargo.toml`, `.github/workflows/ci.yml` |
+| **M0** Bootstrap | workspace, `aeris version` | `Cargo.toml` |
 | **M1** Lexer & parser | full `language.md` surface | 100+ round-trip fixtures (`syntax::fmt::tests::FIXTURES`) |
 | **M2** Static analysis | `aeris check` exit codes 64 / 65 / 66 / 67 / 68 / 70 / 71 | 200 module-level idempotency fixtures + 30 negative-fixture diagnostic snapshots |
 | **M3** Pure interpreter | `aeris run <pure_file>` | tree-walk evaluator over `runtime::eval` |
@@ -62,7 +63,7 @@ the path is given so the reader can `aeris replay` it bit-identically.
 | **M11** L2 native handlers | audit / kube / docker / mongodb / minio / rabbitmq | `runtime::eval::lookup_builtin` per backend |
 | **M12** Tests + properties + fmt + V1 narrow-caps | `aeris test` / `assert` / `property` / `aeris fmt` / `--narrow-caps` | 200 fmt fixtures, 10 property fixtures, 5 fixture-mode fixtures |
 | **M13** Trace diff + `aeris doc` + diagnostics | `aeris trace diff`, `aeris doc`, human-grade errors | `runtime::trace_diff`, `syntax::doc`, `check::render` |
-| **M14** Performance + packaging + release | static binary, cross-compile, benches, `aeris init` template | `tests/bench_*.rs`, `examples/`, `.github/workflows/release.yml` |
+| **M14** Performance + packaging + release | static binary, benches, `aeris init` template | `tests/bench_*.rs`, `examples/` (CI-driven multi-target packaging deferred — § 9) |
 
 ---
 
@@ -108,15 +109,21 @@ None — this is the first published version.
 
 ---
 
-## Verifying a release
+## Building from the tag
 
 ```sh
-shasum -a 256 -c aeris-v0.2.0-x86_64-unknown-linux-musl.tar.gz.sha256
-gpg --verify aeris-v0.2.0-x86_64-unknown-linux-musl.tar.gz.asc
+git clone https://github.com/afioravanti01/aeris-v02
+cd aeris-v02
+git checkout v0.2.0
+cargo build --release
+./target/release/aeris version    # → aeris 0.2.0
 ```
 
-GPG signing is opt-in: the workflow signs only when the
-`GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` repo secrets are set.
+Cross-compilation to another platform is supported by the standard
+`cargo build --release --target <triple>` recipe; install the matching
+toolchain (e.g. `rustup target add x86_64-unknown-linux-musl`) and
+the right linker. No binaries are pre-built — this is intentional, see
+`docs/plan.md` § 9.
 
 ---
 

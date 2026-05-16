@@ -101,7 +101,7 @@ Module responsibilities (one-liners):
 
 | M | Title | Output | Weeks | Depends on | Status |
 |---|---|---|---|---|---|
-| M0 | Project bootstrap | Workspace, CI, `aeris version` runs | 1 | — | done |
+| M0 | Project bootstrap | Workspace, CI, `aeris version` runs | 1 | — | done (CI deferred, § 9) |
 | M1 | Lexer & Parser | Tokens + AST for full `language.md` surface | 3 | M0 | done |
 | M2 | Static analysis | `aeris check` with exit codes 64–71 | 4 | M1 | done |
 | M3 | Pure interpreter | `aeris run` for pure programs | 2 | M2 | done |
@@ -115,7 +115,7 @@ Module responsibilities (one-liners):
 | M11 | L2 native handlers (`audit`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`) | All L2 modules + mock backends + integration tests | 4 | M9 | done |
 | M12 | Tests + properties + `fmt` + V1 narrow-caps | `aeris test`, property shrinking, total `aeris fmt`, capability minimisation linter | 4 | M2, M3 | done |
 | M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | done |
-| M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done |
+| M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done (CI-driven packaging deferred, § 9) |
 | M15 | Capability prototype mode | `[caps] required` flag in lockset; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
 
 **Total**: 48 engineering-weeks. Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
@@ -164,7 +164,7 @@ that the task realises.
 |---|---|---|---|---|
 | M0.T1 | Cargo package with 6 modules per § 2 | `cargo build` succeeds | § 2 | done |
 | M0.T2 | `cli` module skeleton: `aeris version`, `aeris init` | `aeris version` prints `0.2.0`; `aeris init` scaffolds a project | § 25.1 | done |
-| M0.T3 | CI pipeline (GitHub Actions): fmt, clippy, build, test | PR fails on clippy warnings | — | done |
+| M0.T3 | CI pipeline (GitHub Actions): fmt, clippy, build, test | PR fails on clippy warnings | — | deferred (no CI in this repo, § 9) |
 | M0.T4 | License (MIT or Apache-2.0), README scaffold | `LICENSE` and `README.md` present at root | — | done |
 | M0.T5 | Test harness skeleton: `test_harness` module compiles and is reachable from `cargo test` | `cargo test` reports `0 passed` cleanly across lib + doc-tests | § 6 | done |
 
@@ -338,12 +338,12 @@ that the task realises.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M14.T1 | Static binary build (`musl` on Linux, native on macOS/Windows) | `aeris` binary < 8 MB stripped on Linux x86_64 | thesis § 2 | done |
-| M14.T2 | Cross-compile matrix: Linux x86_64, Linux arm64, macOS arm64, macOS x86_64, Windows x86_64 | CI produces all 5 binaries | thesis § 2 | done |
+| M14.T1 | Static binary build (`musl` on Linux, native on macOS/Windows) | `aeris` binary < 8 MB stripped on Linux x86_64 | thesis § 2 | deferred (no CI in this repo, § 9) |
+| M14.T2 | Cross-compile matrix: Linux x86_64, Linux arm64, macOS arm64, macOS x86_64, Windows x86_64 | CI produces all 5 binaries | thesis § 2 | deferred (no CI in this repo, § 9) |
 | M14.T3 | Performance: pure-fn evaluator within 5× CPython on a representative fixture | Benchmark suite checked in | — | done |
 | M14.T4 | Trace JSONL throughput: ≥ 100 k events/sec on a representative SSD | Benchmark | § 20 | done |
 | M14.T5 | Cold-start time of `aeris run` < 50 ms (parse + check + start eval) | Benchmark | — | done |
-| M14.T6 | Release packaging: tarballs + checksums + GPG-signed | Release artifacts attached to `v0.2.0` tag | — | done |
+| M14.T6 | Release packaging: tarballs + checksums + GPG-signed | Release artifacts attached to `v0.2.0` tag | — | deferred (no CI in this repo, § 9) |
 | M14.T7 | `aeris init` template: minimal viable project, hello-world saga, hello-world agent | Template renders into `examples/` | § 25.1, App. A–C | done |
 | M14.T8 | Release notes referencing every milestone's golden traces | `RELEASE.md` checked in | — | done |
 
@@ -399,10 +399,13 @@ Three nested levels of completion. A higher level subsumes the lower.
 
 ### 7.2 Milestone-level done
 
-- Every task in the milestone is `done`.
-- The milestone's full acceptance suite passes on CI on all five
-  target platforms (M14.T2 matrix; for milestones before M14, on at
-  least Linux x86_64 + macOS arm64).
+- Every task in the milestone is `done` (or explicitly deferred to
+  § 9 with the milestone status flagged accordingly).
+- The milestone's full acceptance suite passes locally on the
+  contributor's host platform: `cargo build`, `cargo test --lib`,
+  `cargo test --tests`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo fmt --check`. Multi-platform validation is the contributor's
+  responsibility (no CI in this repo — see § 9).
 - Updated `RELEASE.md` section for the milestone listing breaking
   changes (none expected within v0.2.x).
 
@@ -426,7 +429,9 @@ Three nested levels of completion. A higher level subsumes the lower.
      execute (M7.T2 attack vector).
   6. An LLM-generated PR adding a network call fails review because
      the surface diff appears as the first hunk (M7.T5 + M2.T12).
-- Release tag `v0.2.0` pushed; static binaries published.
+- Release tag `v0.2.0` pushed. Static-binary publication is deferred
+  (§ 9); the source at the tag is the canonical artifact and any
+  consumer builds locally with `cargo build --release`.
 - `docs/` contains exactly four files: `thesis.md`, `language.md`,
   `project.md`, `plan.md`. No `// TODO`, no orphan sections.
 
@@ -439,13 +444,13 @@ that is itself implementable.
 
 | # | Risk | L | I | Mitigation |
 |---|---|---|---|---|
-| R1 | LLM backend instability invalidates N3 replay (Anthropic API changes) | M | H | Backend abstraction (M9.T1) + mock backend by default in CI; HTTP backend behind a feature flag |
+| R1 | LLM backend instability invalidates N3 replay (Anthropic API changes) | M | H | Backend abstraction (M9.T1) + mock backend by default; HTTP / CLI backends opt-in via `[ai.backend]` in `lockset.toml` |
 | R2 | Effect-surface analysis (V3) becomes intractable for large projects | L | H | Per-pub-fn computation only; cache by AST hash; benchmark on 1000-fn synthetic project before M11 |
 | R3 | Saga undo cascade hits backend rate limits | M | M | M6.T5 retries with exponential backoff; PartialFailure surfacing is the safety valve |
 | R4 | `aeris fmt --narrow-caps` produces noisy diffs that overwhelm review | L | M | Linter mode emits diffs only on opt-in; default `aeris fmt` does not narrow |
 | R5 | Object-capability theory does not match thesis § 8.1 prose under Strada Z (body-resolution rule) | L | H | Explicitly addressed in language.md § 8.2; thesis prose preserved literally; if drift is observed, raise to a thesis-revision PR before M2 closes |
 | R6 | `model@vN` migrations create combinatorial test burden | M | M | One migration per `(v, v+1)` pair; transitive composition is the user's responsibility, not the language's |
-| R7 | Cross-compilation matrix (M14.T2) fails on Windows | M | M | Plan a Windows VM in CI from M0; flag musl-only deps early |
+| R7 | Cross-compilation matrix (M14.T2) fails on Windows | M | M | Mooted: M14.T2 deferred (§ 9). Per-target builds are produced on demand by the contributor; Windows users compile natively with the standard `cargo build --release` recipe |
 | R8 | Single-binary size > 8 MB stripped (thesis § 2 violated) | L | H | Audit dep tree at M9 (LLM backend is the heaviest); fall back to feature-gated http backend |
 | R9 | Performance regression after M9 (tape recording overhead) | M | M | M14.T3 / T4 / T5 benchmarks gate every PR after M9 |
 | R10 | Documentation drift: `language.md` evolves but `plan.md` references stale sections | M | L | CI link-checker for `§ X.Y` references in `plan.md` against `language.md` headings |
@@ -469,6 +474,7 @@ would have to change* if a v0.3 wanted to admit them.
 | Self-hosted compiler | Not a v0.2 goal; Rust hosting suffices | Stable AST + bytecode VM (post-v0.3) make it feasible |
 | Web playground | Not a v0.2 goal; static binary is the deployment | Add a `wasm32-wasi` target post-M14 |
 | LSP / IDE integration | Plan focuses on CLI + LLM authoring | Reuse `syntax` and `check` modules behind a `tower-lsp` shell |
+| CI / release automation (`M0.T3`, `M14.T1`, `M14.T2`, `M14.T6`) | Project intentionally ships without GitHub Actions; `cargo fmt --check` / `clippy` / `test` are local developer discipline; binaries are built on demand for the contributor's own target | Re-introduce `.github/workflows/{ci,release}.yml` from the v0.1 history if a future fork wants automated multi-target tarballs |
 
 ---
 
