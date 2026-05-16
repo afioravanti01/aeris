@@ -9,12 +9,22 @@ This document maps each milestone in `docs/plan.md` to the artefacts
 that prove it landed. Where a milestone produced a *golden trace*,
 the path is given so the reader can `aeris replay` it bit-identically.
 
+> **v0.3 addendum.** See the `v0.3 highlights` section below for the
+> three-mode enforcement (`enforce = "off" | "loose" | "strict"`),
+> the script-friendly surface (`loop`, `??`, `strings.*`, value
+> methods, natural JSON, `ai.chat(dir)` + `chat.ask` + `kb_size`),
+> the inline-error sugar (`catch` / `error()` / `defer`), the
+> time-control sugar (`every` / `retry` / `timeout`), and
+> `model X@v2 extends X@v1`. The manifest is now called `aeris.toml`
+> (the in-memory type is `Manifest`); `lockset.toml` from prior
+> drafts is renamed.
+
 ---
 
 ## Highlights
 
-- **Two capability modes** (post-v0.2.0 / M15): `lockset.toml [caps]
-  required = false` — *prototype mode*, default for `aeris init`,
+- **Two capability modes** (post-v0.2.0 / M15, superseded by M15B in
+  v0.3): `aeris.toml [caps] required = false` — *prototype mode*,
   suppresses `NoCapInScope` so functions without a `cap` parameter
   may freely call capability operations (the lockset's runtime
   allow-list still applies). `required = true` — *strict mode*,
@@ -67,6 +77,208 @@ the path is given so the reader can `aeris replay` it bit-identically.
 
 ---
 
+## v0.3 highlights — script-friendly without losing the audit story
+
+v0.3 closes the v0.1 → v0.2 ergonomic gap that surfaced during
+dogfooding. The cap discipline survives intact for production use,
+but a project can opt into a relaxed surface where audit is not a
+concern.
+
+### M15B — three-mode enforcement
+
+`[caps]` now accepts `enforce = "off" | "loose" | "strict"`. Legacy
+`required = true | false` stays as an alias.
+
+| mode | static cap check | runtime allow-list | `cap[*]` in `main` | intended use |
+|---|---|---|---|---|
+| `strict` | full v0.2 (E65/E66/E67/E68/E70/E71) | enforced | no | production / regulated workloads |
+| `loose` | E65 relaxed for fn without `cap` | enforced | no | prototype mode (M15) |
+| `off`   | E65 / E66 / E67 / E71 relaxed | bypassed | yes | single-author scripts |
+
+`aeris init` defaults to `enforce = "off"`. The migration ladder is
+single-step in either direction (`off` → `loose` → `strict`).
+
+### M24 — script-friendly surface
+
+Land the v0.1 ergonomics without touching the cap story:
+
+- **`loop { }`** — keyword, desugars to `while true { }`.
+- **`??`** — null-coalesce on `Result`/`Option`/`Unit`. Right-
+  associative. `a ?? b ?? c` ≡ `a ?? (b ?? c)`.
+- **`strings.*`** — `trim`, `lower`, `upper`, `contains`,
+  `starts_with`, `ends_with`, `split`, `join`, `replace`,
+  `parse_int`. All pure helpers, no `cap`.
+- **Method-call sugar** on `list<T>` (`.len`, `.empty`, `.first`,
+  `.last`, `.slice`, `.contains`, `.join`), `string` (full
+  `strings.*` set), `map<K,V>` (`.len`, `.get`).
+- **Global `len(x)`** — works on list, set, tuple, map, string,
+  bytes.
+- **`json.encode`, `json.stringify`, `json.parse`, `json.pretty`**
+  — natural (untagged) JSON for user code. The self-tagging
+  encoder stays the *trace* serialiser only.
+- **`date.today() -> date`, `date.timestamp() -> int`**.
+- **`io.println` natural display** — `Ok(v)` / `Some(v)` unwrap;
+  records and lists become natural JSON.
+- **`ai.chat(system, dir) -> Chat`** (M19.T6 reified): loads
+  `*.md / .txt / .rst / .adoc / .yaml / .yml` from a directory
+  into the system prompt. `chat.ask(prompt) -> string` calls the
+  backend. `chat.kb_size() -> int` reports loaded files.
+
+### M16 — string interpolation
+
+`"x = {expr}"` replaces the legacy `\(expr)` form. `\{` / `\}`
+escape literal braces. `aeris fmt --migrate-strings` rewrites
+existing fixtures.
+
+### M17 — inline error sugar
+
+- `<expr> catch err { handler }` — block-style fallback on `Err(_)`.
+- `error(msg)` — constructs `err.user(msg)`. `raise error("…")` is
+  the throw form.
+- `defer <stmt>` — LIFO at function exit, also on `?`, `raise`, and
+  contract violation. Trace events `defer_enter` / `defer_exit`.
+
+### M18 — time-control sugar
+
+- `clock.sleep(d)` — L1 cap; trace event `clock_sleep`; no-op
+  under replay.
+- `every <d> { body }` — `loop { clock.sleep(d); body }`.
+- `retry <n>, delay: <d> { body }` — bounded retry with exponential
+  backoff; first `Ok` wins, last `Err` propagates.
+- `timeout <d> { body }` — emits `timeout_fired` when the budget is
+  exceeded; cancellation is cooperative on the next cap call.
+
+### M19 (partial) — AI builtins
+
+- `ai.session(system, model) -> session`,
+  `ai.session_ask(session, prompt) -> (session', reply)`,
+  `ai.decide(prompt, choices, retries) -> string`,
+  `ai.usage() -> { total_tokens, cost_usd, calls }`.
+- Deferred: `ai.extract<T>`, `ai.generate<T>`, `ai.ensemble`,
+  `ai.eval`, `ai.guard`, `ai.cache`, `aeris chat` REPL.
+
+### M23 — model extends
+
+`model X@v2 extends X@v1 { …added fields… }` — sugar over the
+explicit migration function; parent fields and `where` clauses are
+merged.
+
+### Renames
+
+- The project manifest file is now **`aeris.toml`** (was
+  `lockset.toml`). The in-memory type is **`Manifest`** (was
+  `Lockset`); functions follow (`parse_manifest`,
+  `ManifestError`, `EXIT_MANIFEST_ERROR`,
+  `check_module_with_manifest`).
+- The `lockset` Rust module is renamed to `manifest`. The "lockset"
+  concept survives as a synonym for the deps section in older
+  prose.
+
+### M20 — minimal HTTP server
+
+`net.http(port: int) -> HttpServer` binds a TCP listener and returns
+a server value. `server.accept()` blocks for the next connection and
+returns an `HttpReq` record with `method`, `path`, `query_raw`,
+`headers`, `body`, `remote_addr`. `req.reply(status, body,
+content_type?)` and `req.reply_json(status, body)` write the
+response. Concurrency is the caller's job — wrap handlers in
+`spawn { … }` to multiplex.
+
+```aeris
+let server = net.http(port: 8080)
+loop {
+  let req = server.accept()
+  spawn {
+    if req.path == "/health" {
+      req.reply_json(200, json.encode({ status: "ok" }))
+    } else {
+      req.reply(404, "not found")
+    }
+  }
+}
+```
+
+TCP / UDP listeners and `net.resolve` remain deferred to v0.4.
+
+### M25 — kwargs + untyped parameters
+
+- `fn f(x)` and `fn f(x, y)` parse without explicit types (treated
+  as dynamic, the resolver pseudo-type `any` skips the check).
+- `f(name: value)` resolves to the parameter `name` for both
+  user-defined closures and L1 / L2 builtins (kwarg table in
+  `runtime/eval::builtin_param_names`).
+- Reserved keywords (`match`, `until`, `policy`, `agent`, …) are
+  admissible as argument names: `network.run(until: "DONE")` works.
+
+### M26 — top-level effectful statements
+
+A `.aer` module may contain `let`, expression-statements, and
+`for` / `while` / `loop` / `if` blocks outside any `fn`. They run
+in declaration order before `main` (or as the program body when
+`main` is absent). Module-level `var` remains forbidden — only
+immutable `let` binds at module scope.
+
+```aeris
+let CLAUDE_ARGS = "--print --model claude-sonnet-4-6"
+env.set(key: "AERIS_LLM_CLI", value: "claude {CLAUDE_ARGS}")
+fs.mkdir("./out")
+
+fn main() { … }
+```
+
+### M27 — script builtins
+
+- `env.set(key, value)` + `env.must_read(key)`.
+- `date.now() -> timestamp`, `date.format(t, fmt) -> string`
+  (`%Y %m %d %H %M %S`).
+- `list.push(x) -> int`, `list.pop() -> option<T>` — mutating
+  methods on `var` bindings.
+- `yaml.parse(s)`, `yaml.parse_file(path)` — v0.1-compatible
+  subset: indented mappings, sequences, scalars, inline flow
+  sequences. Comments and quoted strings supported.
+
+### M28 — programmatic agent network
+
+`ai.network(max_rounds: int) -> AiNetwork` is a free-form sibling
+of the declarative `agent_net`. The runtime drives a text-based
+loop: each round picks the current agent, sends the message,
+records the reply in the trace, and hands off either via a
+`>>NAME:` prefix in the reply or by round-robin. Termination is
+the `until` sentinel match (default `"DONE"`).
+
+```aeris
+fn main() {
+  var net = ai.network(max_rounds: 10)
+  net.agent(name: "geologist",     system: fs.read_text("agents/geo.md"))
+  net.agent(name: "risk_assessor", system: fs.read_text("agents/risk.md"))
+  net.agent(name: "reporter",      system: fs.read_text("agents/rep.md"))
+  let r = net.run(
+    entry:   "geologist",
+    message: "Analyse today's events",
+    until:   "DONE",
+  )
+  io.println("{r.rounds} rounds")
+}
+```
+
+### Deferred to v0.4+
+
+- **TCP / UDP listeners** + `net.resolve` (parity with v0.1's
+  `net.tcp.listen`).
+- **M22** — full L2 handler parity with v0.1 (docker / kube /
+  mongodb / minio / rabbitmq full surfaces).
+- **Pipeline DSL** (`pipeline X { steps: … on_step … on_failure …
+  }`) — only the `crypto-pipeline` scenario uses it.
+
+### Acceptance
+
+`cargo test --lib --release` → 899 / 899.
+`cargo test --tests --release` → 6 / 6 (six thesis criteria).
+Every example under `examples/` and every demo under `demo/`
+passes `aeris check` clean.
+
+---
+
 ## Performance baselines (M14.T3 / T4 / T5)
 
 Measured on the v0.2.0 dev workstation (macOS arm64, release build):
@@ -98,7 +310,7 @@ The `examples/` tree ships three minimum-viable programs that mirror
 | `examples/saga/main.aer` | `saga` with `intent`, `do` / `undo`, `cap.subset[...]` (App. B) |
 | `examples/agent_net/main.aer` | `model@vN`, `agent`, `agent_net` with `until:` (App. C) |
 
-Each example carries its own `lockset.toml` so `aeris check` and
+Each example carries its own `aeris.toml` so `aeris check` and
 `aeris run` resolve `main`'s synthesised cap end-to-end.
 
 ---

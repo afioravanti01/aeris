@@ -1,8 +1,8 @@
-//! M2.T6 — allow-list intersection with `lockset.toml [caps]`.
+//! M2.T6 — allow-list intersection with `aeris.toml [caps]`.
 //!
 //! Realises `docs/language.md` § 8.3.2: every `cap[...]` entry that
 //! carries an `@ <allow-list>` clause must be a strict subset of the
-//! corresponding family ceiling declared in `lockset.toml [caps]`.
+//! corresponding family ceiling declared in `aeris.toml [caps]`.
 //! Out-of-ceiling entries are rejected with exit code 71 (§ 25.3).
 //!
 //! The check fires on every cap-typed parameter of every `fn` and
@@ -11,10 +11,10 @@
 //! accepted at this layer (§ 8.3.2 last bullet).
 
 use super::error::{CheckError, CheckErrorKind};
-use crate::lockset::CapsCeiling;
+use crate::manifest::CapsCeiling;
 use crate::syntax::ast::{CapEntry, Item, Module, Param, Type};
 
-pub fn check_module_against_lockset(m: &Module, caps: &CapsCeiling) -> Vec<CheckError> {
+pub fn check_module_against_manifest(m: &Module, caps: &CapsCeiling) -> Vec<CheckError> {
     let mut out: Vec<CheckError> = Vec::new();
     for item in &m.items {
         match item {
@@ -66,7 +66,7 @@ fn check_entry(entry: &CapEntry, caps: &CapsCeiling, out: &mut Vec<CheckError>) 
     }
 }
 
-/// Map a `(module, op)` pair to the lockset ceiling it must intersect
+/// Map a `(module, op)` pair to the manifest ceiling it must intersect
 /// against. Modules without a ceiling dimension in `[caps]` (e.g.
 /// `audit`, `clock`, `random`, `env`, `io`, `shell`, `mongodb`,
 /// `minio`, `rabbitmq`, `docker`) return `None` here — those families
@@ -108,19 +108,19 @@ fn is_fs_write(op: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lockset::parse_lockset;
+    use crate::manifest::parse_manifest;
     use crate::syntax::parse;
 
     fn ceiling(toml_src: &str) -> CapsCeiling {
-        parse_lockset(toml_src)
-            .expect("lockset parses")
+        parse_manifest(toml_src)
+            .expect("manifest parses")
             .caps
             .clone()
     }
 
     fn errs(toml_src: &str, aeris_src: &str) -> Vec<CheckError> {
         let m = parse(aeris_src).unwrap_or_else(|e| panic!("parse on {aeris_src:?}: {e:?}"));
-        check_module_against_lockset(&m, &ceiling(toml_src))
+        check_module_against_manifest(&m, &ceiling(toml_src))
     }
 
     fn project_with_http(allow: &[&str]) -> String {
@@ -361,8 +361,8 @@ mod tests {
     fn check_with(toml_src: &str, aeris_src: &str) -> Vec<crate::check::CheckError> {
         let m = crate::syntax::parse(aeris_src)
             .unwrap_or_else(|e| panic!("parse: {e:?}"));
-        let lockset = crate::lockset::parse_lockset(toml_src).expect("lockset");
-        crate::check::check_module_with_lockset(&m, &lockset.caps)
+        let manifest = crate::manifest::parse_manifest(toml_src).expect("manifest");
+        crate::check::check_module_with_manifest(&m, &manifest.caps)
     }
 
     fn fixture_strict() -> &'static str {
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn prototype_mode_keeps_allow_list_intersection_active() {
         // E71 still fires: prototype mode is about the *signature*
-        // requirement, not about the lockset ceiling enforcement.
+        // requirement, not about the manifest ceiling enforcement.
         let toml = r#"
             [project]
             name = "x"
@@ -474,9 +474,9 @@ mod tests {
     }
 
     #[test]
-    fn lockset_required_default_is_true() {
-        // Absence of `required` defaults to strict mode, preserving
-        // M0–M14 behaviour for legacy locksets.
+    fn manifest_required_default_is_true() {
+        // Absence of `enforce` defaults to strict mode, preserving
+        // M0–M14 behaviour for legacy manifests.
         let toml = r#"
             [project]
             name = "x"
@@ -484,12 +484,13 @@ mod tests {
             [caps]
             http.allow = ["x"]
         "#;
-        let lockset = crate::lockset::parse_lockset(toml).unwrap();
-        assert!(lockset.caps.required);
+        let manifest = crate::manifest::parse_manifest(toml).unwrap();
+        assert_eq!(manifest.caps.enforce, crate::manifest::EnforceMode::Strict);
+        assert!(manifest.caps.required());
     }
 
     #[test]
-    fn lockset_required_explicit_false_parses() {
+    fn manifest_required_explicit_false_parses() {
         let toml = r#"
             [project]
             name = "x"
@@ -497,12 +498,13 @@ mod tests {
             [caps]
             required = false
         "#;
-        let lockset = crate::lockset::parse_lockset(toml).unwrap();
-        assert!(!lockset.caps.required);
+        let manifest = crate::manifest::parse_manifest(toml).unwrap();
+        assert_eq!(manifest.caps.enforce, crate::manifest::EnforceMode::Loose);
+        assert!(!manifest.caps.required());
     }
 
     #[test]
-    fn lockset_required_non_bool_is_rejected() {
+    fn manifest_required_non_bool_is_rejected() {
         let toml = r#"
             [project]
             name = "x"
@@ -510,8 +512,34 @@ mod tests {
             [caps]
             required = "yes"
         "#;
-        let err = crate::lockset::parse_lockset(toml).unwrap_err();
+        let err = crate::manifest::parse_manifest(toml).unwrap_err();
         assert!(err.message.contains("caps.required"));
+    }
+
+    #[test]
+    fn manifest_enforce_off_parses() {
+        let toml = r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            enforce = "off"
+        "#;
+        let manifest = crate::manifest::parse_manifest(toml).unwrap();
+        assert_eq!(manifest.caps.enforce, crate::manifest::EnforceMode::Off);
+    }
+
+    #[test]
+    fn manifest_enforce_invalid_rejected() {
+        let toml = r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            enforce = "paranoid"
+        "#;
+        let err = crate::manifest::parse_manifest(toml).unwrap_err();
+        assert!(err.message.contains("caps.enforce"));
     }
 
     #[test]

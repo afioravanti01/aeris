@@ -8,6 +8,7 @@
 pub mod eval;
 pub mod http;
 pub mod json;
+pub mod net_server;
 pub mod replay;
 pub mod trace;
 pub mod trace_diff;

@@ -77,7 +77,8 @@ pub fn format_module(m: &Module, source: &str) -> String {
 fn binop_prec(op: BinOp) -> u8 {
     match op {
         BinOp::Or => 2,
-        BinOp::And => 3,
+        BinOp::Coalesce => 3,
+        BinOp::And => 4,
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => 5,
         BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => 6,
         BinOp::Shl | BinOp::Shr => 7,
@@ -89,6 +90,7 @@ fn binop_prec(op: BinOp) -> u8 {
 fn binop_str(op: BinOp) -> &'static str {
     match op {
         BinOp::Or => "or",
+        BinOp::Coalesce => "??",
         BinOp::And => "and",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
@@ -820,6 +822,11 @@ fn fmt_item(i: &Item, out: &mut String, source: &str, indent: usize) {
         Item::Policy(p) => fmt_policy(p, out, indent),
         Item::Test(t) => fmt_test(t, out, source, indent),
         Item::Property(p) => fmt_property(p, out, source, indent),
+        Item::TopStmt(s) => {
+            push_indent(out, indent);
+            fmt_stmt(s, out);
+            out.push('\n');
+        }
     }
 }
 

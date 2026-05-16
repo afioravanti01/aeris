@@ -44,6 +44,7 @@ const WRITE_OPS: &[(&str, &str)] = &[
     ("minio", "put"),
     ("rabbitmq", "publish"),
     ("audit", "event"),
+    ("env", "set"),
 ];
 
 /// Whether `<module>.<op>` is a write-classified capability operation.
@@ -83,9 +84,22 @@ const ALL_CAPS: &[(&str, &str)] = &[
     ("shell", "exec"),
     ("shell", "pipe"),
     ("env", "read"),
+    ("env", "must_read"),
+    ("env", "set"),
     ("clock", "now"),
     ("clock", "sleep"),
     ("random", "next"),
+    ("date", "now"),
+    ("date", "today"),
+    ("date", "timestamp"),
+    ("date", "format"),
+    ("yaml", "parse"),
+    ("yaml", "parse_file"),
+    ("net", "http"),
+    ("net", "tcp"),
+    ("net", "udp"),
+    ("net", "resolve"),
+    ("ai", "network"),
     // L2 native handlers
     ("ai", "complete"),
     ("ai", "chat"),
@@ -419,7 +433,7 @@ pub fn collect_cap_resolution_errors(
 fn cap_set_covers(set: &std::collections::HashSet<(String, String)>, m: &str, op: &str) -> bool {
     // `("*", "*")` is the wildcard sentinel used by `fn main(cap)`
     // (§ 8.4): the synthesised cap is composed at runtime from the
-    // lockset, so the body-resolution layer accepts any op.
+    // manifest, so the body-resolution layer accepts any op.
     set.contains(&("*".to_string(), "*".to_string()))
         || set.contains(&(m.to_string(), op.to_string()))
         || set.contains(&(m.to_string(), "*".to_string()))

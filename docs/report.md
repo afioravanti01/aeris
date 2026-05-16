@@ -13,7 +13,7 @@ cd /Users/alessio/progetti/aeris-v02
 cargo build --release
 mkdir -p ~/playground/aeris && cd ~/playground/aeris
 
-# 1. Crea uno scheletro di progetto: lockset.toml + src/main.aer
+# 1. Crea uno scheletro di progetto: aeris.toml + src/main.aer
 /Users/alessio/progetti/aeris-v02/target/release/aeris init
 
 # 2. Esegui l'hello-world
@@ -82,7 +82,7 @@ Ordine consigliato di lettura della spec `docs/language.md`:
 | `cap.subset[...]` | restringe il `cap` ricevuto e lo passa più stretto | `cap.subset[http.post @ ["api.acme.com"]]` |
 | `cap[*]` | proibito nel codice utente; solo `main` sintetizza dal lockset | (parse error E65) |
 | Body resolution | dentro la fn, `<module>.<op>(...)` si lega al `cap` in scope | `http.post(url, body)` |
-| Prototype / strict | `[caps].required = false` in `lockset.toml` permette fn senza `cap` per E65; `true` rigoroso | (§ 8.4.1) |
+| Prototype / strict | `[caps].required = false` in `aeris.toml` permette fn senza `cap` per E65; `true` rigoroso | (§ 8.4.1) |
 
 ### 2.5 Intent — la regola del "perché"
 
@@ -171,7 +171,7 @@ fn main(cap: cap[ai.complete @ ["claude-haiku-4-5"]]) -> result<Cat@v1> {
 | `limit:` | quota su finestra (`tokens_per_minute = 60_000`) |
 | `audit:` | aggiunge campi al trace event |
 | `when:` | gate ambientale (`env == "production"`) |
-| Attivazione | per import del modulo, per attributo `#[policy(name)]`, o via `lockset.toml [policies] active = [...]` |
+| Attivazione | per import del modulo, per attributo `#[policy(name)]`, o via `aeris.toml [policies] active = [...]` |
 | Drift | quando replay e live divergono → evento `policy_drift` in trace |
 
 ### 2.11 Concorrenza, errori, tracing
@@ -195,10 +195,10 @@ fn main(cap: cap[ai.complete @ ["claude-haiku-4-5"]]) -> result<Cat@v1> {
 `ai` (complete, chat, embed, tools), `audit.event`, `kube` (apply, delete,
 get, watch), `docker` (run, build, push, pull, inspect), `mongodb`
 (read, write), `minio` (get, put), `rabbitmq` (publish, subscribe).
-Backend `ai` selezionabile da `lockset.toml [ai.backend]` con
+Backend `ai` selezionabile da `aeris.toml [ai.backend]` con
 `kind = mock | http | cli` (più `url`/`auth`/`cmd`).
 
-### 2.14 Lockset (`lockset.toml`)
+### 2.14 Lockset (`aeris.toml`)
 
 ```toml
 [project]

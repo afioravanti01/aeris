@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 
 const VERSION: &str = "0.2.0";
 
-const TEMPLATE_LOCKSET: &str = include_str!("templates/lockset.toml");
+const TEMPLATE_MANIFEST: &str = include_str!("templates/aeris.toml");
 const TEMPLATE_MAIN_AER: &str = include_str!("templates/main.aer");
 
 #[derive(Parser)]
@@ -61,13 +61,13 @@ enum Command {
     },
     /// Run tests
     Test { path: Option<String> },
-    /// `aeris lock` — recompute `lockset.toml` / `.aeris/surface.lock`.
+    /// `aeris lock` — recompute `aeris.toml` / `.aeris/surface.lock`.
     /// `--check` exits 69 if the lock is stale (CI mode, M7.T7).
     Lock {
         #[arg(long)]
         check: bool,
-        /// Optional `lockset.toml` path; defaults to the cwd.
-        #[arg(default_value = "lockset.toml")]
+        /// Optional `aeris.toml` path; defaults to the cwd.
+        #[arg(default_value = "aeris.toml")]
         file: String,
     },
     /// `aeris replay <trace_file> <source>` — re-run the program
@@ -580,20 +580,20 @@ fn cmd_run(path: &str) -> ExitCode {
             return ExitCode::from(64);
         }
     };
-    // M7.T4 + M15: when a `lockset.toml` sits next to the source file,
+    // M7.T4 + M15: when a `aeris.toml` sits next to the source file,
     // use its `[caps]` ceiling as `main`'s synthesised cap, and route
-    // the static checker through `check_module_with_lockset` so the
+    // the static checker through `check_module_with_manifest` so the
     // `required` flag (§ 8.4.1) is honoured. M8.T5 then filters the
     // module's declared policies through `[policies] active = [..]`.
-    let lockset_path = Path::new(path)
+    let manifest_path = Path::new(path)
         .parent()
         .unwrap_or(Path::new("."))
-        .join("lockset.toml");
-    let lockset_for_check = fs::read_to_string(&lockset_path)
+        .join("aeris.toml");
+    let manifest_for_check = fs::read_to_string(&manifest_path)
         .ok()
-        .and_then(|s| crate::lockset::parse_lockset(&s).ok());
-    let check_errs = match &lockset_for_check {
-        Some(l) => crate::check::check_module_with_lockset(&module, &l.caps),
+        .and_then(|s| crate::manifest::parse_manifest(&s).ok());
+    let check_errs = match &manifest_for_check {
+        Some(l) => crate::check::check_module_with_manifest(&module, &l.caps),
         None => crate::check::check_module(&module),
     };
     if !check_errs.is_empty() {
@@ -604,7 +604,7 @@ fn cmd_run(path: &str) -> ExitCode {
         }
         return ExitCode::from(max_exit);
     }
-    let composed = lockset_for_check.as_ref().map(|l| {
+    let composed = manifest_for_check.as_ref().map(|l| {
         eprint!("{}", l.describe_main_cap());
         let cap = l.synthesise_main_cap();
         let backend = l.ai_backend.clone().map(std::rc::Rc::new);
@@ -754,17 +754,17 @@ fn cmd_replay(trace_path: &str, source_path: &str, live: bool) -> ExitCode {
         crate::runtime::replay::ReplayMode::FromFixtures
     };
     let tape = crate::runtime::replay::handle_from_events(events, mode);
-    // Compose `main`'s cap from a co-located `lockset.toml` if any —
+    // Compose `main`'s cap from a co-located `aeris.toml` if any —
     // otherwise fall back to `cap[*]`. Replay does not require a
-    // lockset (the original run's recording stands in for it).
-    let lockset_path = Path::new(source_path)
+    // manifest (the original run's recording stands in for it).
+    let manifest_path = Path::new(source_path)
         .parent()
         .unwrap_or(Path::new("."))
-        .join("lockset.toml");
-    let cap = if lockset_path.exists() {
-        fs::read_to_string(&lockset_path)
+        .join("aeris.toml");
+    let cap = if manifest_path.exists() {
+        fs::read_to_string(&manifest_path)
             .ok()
-            .and_then(|s| crate::lockset::parse_lockset(&s).ok())
+            .and_then(|s| crate::manifest::parse_manifest(&s).ok())
             .map(|l| l.synthesise_main_cap())
             .unwrap_or_else(|| crate::runtime::value::CapValue {
                 entries: Vec::new(),
@@ -810,11 +810,11 @@ fn cmd_check(path: &str) -> ExitCode {
     // parse / type / cap diagnostics so reviewers see authority changes
     // first (`thesis.md` § 13 / `language.md` § 8.6).
     let project_root = Path::new(path).parent().unwrap_or(Path::new("."));
-    let lockset_path = project_root.join("lockset.toml");
-    let lockset_loaded = fs::read_to_string(&lockset_path)
+    let manifest_path = project_root.join("aeris.toml");
+    let manifest_loaded = fs::read_to_string(&manifest_path)
         .ok()
-        .and_then(|s| crate::lockset::parse_lockset(&s).ok());
-    if lockset_loaded.is_some() {
+        .and_then(|s| crate::manifest::parse_manifest(&s).ok());
+    if manifest_loaded.is_some() {
         emit_surface_drift_hunk(project_root);
     }
     for err in &outcome.errors {
@@ -824,12 +824,12 @@ fn cmd_check(path: &str) -> ExitCode {
         );
         max_exit = max_exit.max(64);
     }
-    // M2.T6: when `lockset.toml` sits next to the source, run the
+    // M2.T6: when `aeris.toml` sits next to the source, run the
     // allow-list intersection check (§ 8.3.2). Out-of-ceiling entries
-    // are surfaced with exit code 71. A missing lockset is not an
+    // are surfaced with exit code 71. A missing manifest is not an
     // error here — `aeris check` falls back to the standalone pass.
-    let check_errs = match lockset_loaded {
-        Some(l) => crate::check::check_module_with_lockset(&outcome.module, &l.caps),
+    let check_errs = match manifest_loaded {
+        Some(l) => crate::check::check_module_with_manifest(&outcome.module, &l.caps),
         None => crate::check::check_module(&outcome.module),
     };
     for err in &check_errs {
@@ -846,7 +846,7 @@ fn cmd_check(path: &str) -> ExitCode {
 }
 
 /// `aeris lock` / `aeris lock --check` (M7.T1 + M7.T7). Loads the
-/// lockset, validates the structure, and (in `--check`) compares the
+/// manifest, validates the structure, and (in `--check`) compares the
 /// computed `.aeris/surface.lock` against the committed file. Exit
 /// 69 on any drift / parse / validation failure.
 fn cmd_lock(path: &str, check: bool) -> ExitCode {
@@ -854,30 +854,30 @@ fn cmd_lock(path: &str, check: bool) -> ExitCode {
         Ok(s) => s,
         Err(e) => {
             eprintln!("aeris: cannot read {path}: {e}");
-            return ExitCode::from(crate::lockset::EXIT_LOCKSET_ERROR);
+            return ExitCode::from(crate::manifest::EXIT_MANIFEST_ERROR);
         }
     };
-    let lockset = match crate::lockset::parse_lockset(&src) {
+    let manifest = match crate::manifest::parse_manifest(&src) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("aeris: lockset error: {e}");
-            return ExitCode::from(crate::lockset::EXIT_LOCKSET_ERROR);
+            eprintln!("aeris: manifest error: {e}");
+            return ExitCode::from(crate::manifest::EXIT_MANIFEST_ERROR);
         }
     };
     eprintln!(
-        "aeris: lockset `{}` ok ({} deps, {} policies)",
-        lockset.project.name,
-        lockset.deps.len(),
-        lockset.policies.len()
+        "aeris: manifest `{}` ok ({} deps, {} policies)",
+        manifest.project.name,
+        manifest.deps.len(),
+        manifest.policies.len()
     );
     let project_root = Path::new(path).parent().unwrap_or(Path::new("."));
     // M7.T2: re-hash every `path = "..."` dep and compare against
     // the pinned `blake3:...`. Mismatch (or missing file) → exit 69.
-    if let Err(errs) = crate::lockset::verify_local_deps(&lockset, project_root) {
+    if let Err(errs) = crate::manifest::verify_local_deps(&manifest, project_root) {
         for e in errs {
             eprintln!("aeris: {e}");
         }
-        return ExitCode::from(crate::lockset::EXIT_LOCKSET_ERROR);
+        return ExitCode::from(crate::manifest::EXIT_MANIFEST_ERROR);
     }
     // Compute the surface lock from src/**/*.aer (best effort: we
     // walk the conventional `src/` tree if present).
@@ -886,32 +886,32 @@ fn cmd_lock(path: &str, check: bool) -> ExitCode {
     if src_dir.exists() {
         collect_aer_files(&src_dir, &mut files);
     }
-    let surface = match crate::lockset::compute_surface(&files) {
+    let surface = match crate::manifest::compute_surface(&files) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("aeris: surface compute failed: {e}");
-            return ExitCode::from(crate::lockset::EXIT_LOCKSET_ERROR);
+            return ExitCode::from(crate::manifest::EXIT_MANIFEST_ERROR);
         }
     };
     let surface_path = project_root.join(".aeris/surface.lock");
-    let new_body = crate::lockset::surface::render_surface_lock(&surface);
+    let new_body = crate::manifest::surface::render_surface_lock(&surface);
     if check {
         let on_disk = fs::read_to_string(&surface_path).unwrap_or_default();
         if on_disk != new_body {
             eprintln!("aeris: surface.lock is stale (run `aeris lock` to refresh)");
-            return ExitCode::from(crate::lockset::EXIT_LOCKSET_ERROR);
+            return ExitCode::from(crate::manifest::EXIT_MANIFEST_ERROR);
         }
         eprintln!("aeris: surface.lock matches");
-    } else if let Err(e) = crate::lockset::write_surface_lock(&surface, &surface_path) {
+    } else if let Err(e) = crate::manifest::write_surface_lock(&surface, &surface_path) {
         eprintln!("aeris: cannot write surface.lock: {e}");
-        return ExitCode::from(crate::lockset::EXIT_LOCKSET_ERROR);
+        return ExitCode::from(crate::manifest::EXIT_MANIFEST_ERROR);
     } else {
         eprintln!("aeris: wrote {}", surface_path.display());
     }
     ExitCode::SUCCESS
 }
 
-/// M2.T12: when `aeris check` runs in a project (lockset.toml present),
+/// M2.T12: when `aeris check` runs in a project (aeris.toml present),
 /// compute the live effect surface from `src/**/*.aer` and compare it
 /// to the committed `.aeris/surface.lock`. If the two differ, emit a
 /// unified diff to stderr as the very first output of the check pass.
@@ -922,13 +922,13 @@ fn emit_surface_drift_hunk(project_root: &Path) {
     }
     let mut files: Vec<(String, String)> = Vec::new();
     collect_aer_files(&src_dir, &mut files);
-    let surface = match crate::lockset::compute_surface(&files) {
+    let surface = match crate::manifest::compute_surface(&files) {
         Ok(s) => s,
         Err(_) => return,
     };
-    let computed = crate::lockset::surface::render_surface_lock(&surface);
+    let computed = crate::manifest::surface::render_surface_lock(&surface);
     let on_disk = fs::read_to_string(project_root.join(".aeris/surface.lock")).unwrap_or_default();
-    let diff = crate::lockset::diff_surface_bodies(&on_disk, &computed);
+    let diff = crate::manifest::diff_surface_bodies(&on_disk, &computed);
     if !diff.is_empty() {
         eprintln!("aeris: surface drift — run `aeris lock` to refresh:");
         eprint!("{diff}");
@@ -953,16 +953,16 @@ fn collect_aer_files(dir: &Path, out: &mut Vec<(String, String)>) {
 }
 
 fn scaffold_project(root: &Path) -> Result<(), String> {
-    let lockset = root.join("lockset.toml");
+    let manifest = root.join("aeris.toml");
     let src_dir = root.join("src");
     let main_aer = src_dir.join("main.aer");
 
-    if lockset.exists() || main_aer.exists() {
+    if manifest.exists() || main_aer.exists() {
         return Err("project files already exist; refusing to overwrite".into());
     }
 
     fs::create_dir_all(&src_dir).map_err(|e| format!("cannot create src/: {e}"))?;
-    fs::write(&lockset, TEMPLATE_LOCKSET).map_err(|e| format!("cannot write lockset.toml: {e}"))?;
+    fs::write(&manifest, TEMPLATE_MANIFEST).map_err(|e| format!("cannot write aeris.toml: {e}"))?;
     fs::write(&main_aer, TEMPLATE_MAIN_AER)
         .map_err(|e| format!("cannot write src/main.aer: {e}"))?;
     Ok(())
@@ -1055,7 +1055,7 @@ mod tests {
     /// rendering the same diff via the public helpers and comparing.
     /// (Capturing process stderr from inside a unit test is awkward;
     /// the helpers it composes are themselves tested in
-    /// `lockset::surface::tests`. Here we verify the project-wiring:
+    /// `manifest::surface::tests`. Here we verify the project-wiring:
     /// the diff is non-empty when the on-disk lock does not match the
     /// computed one, and empty when they match.)
     #[test]
@@ -1069,7 +1069,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            dir.join("lockset.toml"),
+            dir.join("aeris.toml"),
             "[project]\nname = \"x\"\naeris = \"0.2.0\"\n",
         )
         .unwrap();
@@ -1077,9 +1077,9 @@ mod tests {
         // computed body is non-empty → diff fires.
         let mut files: Vec<(String, String)> = Vec::new();
         collect_aer_files(&src_dir, &mut files);
-        let surface = crate::lockset::compute_surface(&files).unwrap();
-        let computed = crate::lockset::surface::render_surface_lock(&surface);
-        let diff = crate::lockset::diff_surface_bodies("", &computed);
+        let surface = crate::manifest::compute_surface(&files).unwrap();
+        let computed = crate::manifest::surface::render_surface_lock(&surface);
+        let diff = crate::manifest::diff_surface_bodies("", &computed);
         assert!(!diff.is_empty(), "expected drift diff, got empty");
         assert!(diff.contains("settle"));
         let _ = fs::remove_dir_all(&dir);
@@ -1097,9 +1097,9 @@ mod tests {
         .unwrap();
         let mut files: Vec<(String, String)> = Vec::new();
         collect_aer_files(&src_dir, &mut files);
-        let surface = crate::lockset::compute_surface(&files).unwrap();
-        let computed = crate::lockset::surface::render_surface_lock(&surface);
-        let diff = crate::lockset::diff_surface_bodies(&computed, &computed);
+        let surface = crate::manifest::compute_surface(&files).unwrap();
+        let computed = crate::manifest::surface::render_surface_lock(&surface);
+        let diff = crate::manifest::diff_surface_bodies(&computed, &computed);
         assert!(diff.is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1109,7 +1109,7 @@ mod tests {
         // Sanity: when stale, the diff includes the unified-diff
         // header (`---` / `+++`) and a `+`-prefixed "settle" entry.
         let computed = "[\"src/main.aer::settle\"]\nfile = \"src/main.aer\"\nfn   = \"settle\"\ncaps = [\"http.post\"]\n\n";
-        let diff = crate::lockset::diff_surface_bodies("", computed);
+        let diff = crate::manifest::diff_surface_bodies("", computed);
         assert!(diff.starts_with("--- .aeris/surface.lock (committed)"));
         assert!(diff.contains("+++ .aeris/surface.lock (computed)"));
         assert!(diff.contains("+[\"src/main.aer::settle\"]"));

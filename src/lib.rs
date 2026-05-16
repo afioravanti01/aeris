@@ -5,7 +5,7 @@
 
 pub mod check;
 pub mod cli;
-pub mod lockset;
+pub mod manifest;
 pub mod runtime;
 pub mod syntax;
 pub mod test_harness;

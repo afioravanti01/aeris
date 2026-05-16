@@ -44,6 +44,11 @@ pub enum Item {
     Policy(PolicyDecl),
     Test(TestDecl),
     Property(PropertyDecl),
+    /// M26 — top-level statement. Executes during module load,
+    /// before `main` (or as the program body when `main` is absent).
+    /// Allows `let X = ...`, `env.set(...)`, `fs.mkdir(...)` outside
+    /// any `fn`. Module-level `var` remains forbidden.
+    TopStmt(Box<crate::syntax::ast::Stmt>),
 }
 
 /// Top-level `test "<name>" { <body> }` declaration (§ 21.1).
@@ -366,6 +371,10 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    /// `lhs ?? rhs` — null-coalescing. `Ok(v)`/`Some(v)` evaluates to
+    /// `v`; `Err(_)`/`None` (and any "missing" value) evaluates to
+    /// the right-hand side. `rhs` is short-circuited like `||`.
+    Coalesce,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

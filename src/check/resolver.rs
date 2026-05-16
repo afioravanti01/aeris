@@ -231,6 +231,12 @@ impl Cx {
                     // test / property bodies is deferred to a follow-up
                     // pass. The runner evaluates the body directly.
                 }
+                Item::TopStmt(_) => {
+                    // M26 — top-level statements get their cap /
+                    // expression checks at run time (the dynamic
+                    // interpreter executes them in declaration order
+                    // before `main`). The resolver leaves them alone.
+                }
             }
         }
     }
@@ -581,6 +587,13 @@ impl Cx {
 
     fn check_named(&mut self, name: &str, span: Span, generics_in_scope: &[String]) {
         if PRIMITIVES.contains(&name) {
+            return;
+        }
+        // M25.T1 — the `any` pseudo-type is emitted by the parser for
+        // untyped function parameters (`fn f(x, y)`). The dynamic
+        // interpreter does not check parameter types, so we accept it
+        // here without complaint.
+        if name == "any" {
             return;
         }
         if generics_in_scope.iter().any(|g| g == name) {

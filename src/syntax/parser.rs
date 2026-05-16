@@ -352,10 +352,134 @@ impl Parser {
             TokenKind::Keyword(Keyword::Policy) => self.parse_policy(vis).map(Item::Policy),
             TokenKind::Keyword(Keyword::Test) => self.parse_test().map(Item::Test),
             TokenKind::Keyword(Keyword::Property) => self.parse_property().map(Item::Property),
+            // M26 — top-level effectful statements. `let X = ...` is
+            // always admissible. `for` / `while` / `loop` / `if`
+            // blocks are also admissible at module scope. An
+            // `<ident> ...` form is admitted only when it is
+            // unambiguously a function call or module call
+            // (`name(...)`, `mod.op(...)`, `mod.op{...}`) — bare
+            // idents next to bare idents stay rejected so the
+            // recovery path catches mis-spelled keywords (e.g.
+            // `strudel Bad {}`).
+            TokenKind::Keyword(Keyword::Let)
+            | TokenKind::Keyword(Keyword::If)
+            | TokenKind::Keyword(Keyword::For)
+            | TokenKind::Keyword(Keyword::While)
+            | TokenKind::Keyword(Keyword::Loop) => {
+                self.parse_top_stmt().map(|s| Item::TopStmt(Box::new(s)))
+            }
+            TokenKind::Ident(_) if self.ident_starts_top_stmt() => {
+                self.parse_top_stmt().map(|s| Item::TopStmt(Box::new(s)))
+            }
             _ => Err(self.err(ParseErrorKind::Expected(
                 "fn / record / enum / model / type / const / saga / agent / agent_net / policy / test / property"
                     .into(),
             ))),
+        }
+    }
+
+    /// M26 — disambiguation helper. Only accept an `Ident`-starting
+    /// top-level expression-stmt when the next token marks a clear
+    /// call/path/assignment, never `Ident Ident` (which is a typo
+    /// of an item keyword).
+    fn ident_starts_top_stmt(&self) -> bool {
+        matches!(
+            self.peek_at(1),
+            Some(
+                TokenKind::Dot
+                    | TokenKind::LParen
+                    | TokenKind::Eq
+                    | TokenKind::PlusEq
+                    | TokenKind::MinusEq
+                    | TokenKind::StarEq
+                    | TokenKind::SlashEq
+                    | TokenKind::PercentEq
+                    | TokenKind::QuestionQuestion
+                    | TokenKind::Question
+                    | TokenKind::LBracket
+            )
+        )
+    }
+
+    /// M26 — parse a single statement at module top level. Module-level
+    /// `var` and `return` are rejected at the parse site because they
+    /// have no sensible meaning outside a function.
+    fn parse_top_stmt(&mut self) -> Result<crate::syntax::ast::Stmt, ParseError> {
+        use crate::syntax::ast::Stmt;
+        match self.peek() {
+            TokenKind::Keyword(Keyword::Let) => {
+                let start = self.peek_token().span;
+                self.advance();
+                let (name, _name_span) = self.expect_ident()?;
+                let ty = if matches!(self.peek(), TokenKind::Colon) {
+                    self.advance();
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                self.expect_kind(&TokenKind::Eq)?;
+                let value = self.parse_expr()?;
+                let end = value.span();
+                self.eat_kind(&TokenKind::Semicolon);
+                Ok(Stmt::Let {
+                    name,
+                    ty,
+                    value,
+                    span: Self::span_join(start, end),
+                })
+            }
+            TokenKind::Keyword(Keyword::For) => {
+                let start = self.peek_token().span;
+                self.advance();
+                let (var, _) = self.expect_ident_or_underscore()?;
+                self.expect_kw(Keyword::In)?;
+                let no_struct = self.allow_struct_lit;
+                self.allow_struct_lit = false;
+                let iter = self.parse_expr()?;
+                self.allow_struct_lit = no_struct;
+                let body = self.parse_block()?;
+                let end = body.span;
+                self.eat_kind(&TokenKind::Semicolon);
+                Ok(Stmt::For {
+                    var,
+                    iter,
+                    body,
+                    span: Self::span_join(start, end),
+                })
+            }
+            TokenKind::Keyword(Keyword::While) => {
+                let start = self.peek_token().span;
+                self.advance();
+                let no_struct = self.allow_struct_lit;
+                self.allow_struct_lit = false;
+                let cond = self.parse_expr()?;
+                self.allow_struct_lit = no_struct;
+                let body = self.parse_block()?;
+                let end = body.span;
+                self.eat_kind(&TokenKind::Semicolon);
+                Ok(Stmt::While {
+                    cond,
+                    body,
+                    span: Self::span_join(start, end),
+                })
+            }
+            TokenKind::Keyword(Keyword::Loop) => {
+                let start = self.peek_token().span;
+                let loop_kw = self.advance();
+                let body = self.parse_block()?;
+                let end = body.span;
+                self.eat_kind(&TokenKind::Semicolon);
+                Ok(Stmt::While {
+                    cond: Expr::Bool(true, loop_kw.span),
+                    body,
+                    span: Self::span_join(start, end),
+                })
+            }
+            _ => {
+                let e = self.parse_expr()?;
+                self.eat_kind(&TokenKind::Semicolon);
+                Ok(Stmt::Expr(e))
+            }
         }
     }
 
@@ -523,15 +647,28 @@ impl Parser {
         };
         // § 8.4: `fn main(cap)` is the one place a capability is
         // received without writing its shape — `main`'s synthesised
-        // cap (M7.T4) is composed from `lockset.toml [caps]`. We let
-        // the bare `cap` parameter parse here; the static checker
-        // (M2.T5) carves out the same special case.
+        // cap (M7.T4) is composed from `aeris.toml [caps]`.
         if was_cap_kw && !matches!(self.peek(), TokenKind::Colon) {
             return Ok(Param {
                 name,
                 ty: Type::Cap {
                     entries: Vec::new(),
                     star: true,
+                    span: start,
+                },
+                span: start,
+            });
+        }
+        // M25.T1 — untyped parameters. `fn f(x, y)` is admissible at
+        // any enforcement level; the dynamic interpreter does not
+        // need the type to invoke the function. Parameter resolves
+        // to the pseudo-type `any` which the static checker (resolver)
+        // ignores.
+        if !matches!(self.peek(), TokenKind::Colon) {
+            return Ok(Param {
+                name,
+                ty: Type::Named {
+                    name: "any".into(),
                     span: start,
                 },
                 span: start,
@@ -1536,10 +1673,10 @@ impl Parser {
     // ------- logical -------
 
     fn parse_or(&mut self) -> Result<Expr, ParseError> {
-        let mut lhs = self.parse_and()?;
+        let mut lhs = self.parse_coalesce()?;
         while self.at_kw(Keyword::Or) {
             self.advance();
-            let rhs = self.parse_and()?;
+            let rhs = self.parse_coalesce()?;
             let span = Self::span_join(lhs.span(), rhs.span());
             lhs = Expr::Binary {
                 op: BinOp::Or,
@@ -1547,6 +1684,25 @@ impl Parser {
                 rhs: Box::new(rhs),
                 span,
             };
+        }
+        Ok(lhs)
+    }
+
+    /// `a ?? b` — null-coalescing. Binds tighter than `or` so that
+    /// `x ?? 0 or y` reads as `(x ?? 0) or y`. Right-associative so
+    /// `a ?? b ?? c` is `a ?? (b ?? c)`.
+    fn parse_coalesce(&mut self) -> Result<Expr, ParseError> {
+        let lhs = self.parse_and()?;
+        if matches!(self.peek(), TokenKind::QuestionQuestion) {
+            self.advance();
+            let rhs = self.parse_coalesce()?;
+            let span = Self::span_join(lhs.span(), rhs.span());
+            return Ok(Expr::Binary {
+                op: BinOp::Coalesce,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            });
         }
         Ok(lhs)
     }
@@ -1758,10 +1914,18 @@ impl Parser {
                     // Accept `*` as a wildcard suffix — used by the
                     // policy `match: http.*` surface (§ 15.1). Outside
                     // a policy this is just a field named `"*"` and
-                    // resolves to "no such field" at runtime.
+                    // resolves to "no such field" at runtime. We also
+                    // accept reserved keywords as field names after
+                    // `.` so `net.agent(...)`, `req.match(...)`, etc.
+                    // can refer to record methods even when the name
+                    // collides with a global keyword.
                     let (name, name_span) = if matches!(self.peek(), TokenKind::Star) {
                         let t = self.advance();
                         ("*".to_string(), t.span)
+                    } else if let TokenKind::Keyword(kw) = self.peek() {
+                        let s = kw.as_str().to_string();
+                        let t = self.advance();
+                        (s, t.span)
                     } else {
                         self.expect_ident()?
                     };
@@ -1847,6 +2011,12 @@ impl Parser {
                         span,
                     };
                 }
+                TokenKind::QuestionQuestion => {
+                    // `??` is the binary null-coalesce operator;
+                    // parse_coalesce in the precedence stack consumes
+                    // it as a regular infix. Leave the token here.
+                    break;
+                }
                 TokenKind::Keyword(Keyword::Catch) => {
                     // M17.T1 — `expr catch <name> { <handler> }`.
                     // Lower-precedence than `?`, so `expr? catch err {..}`
@@ -1870,19 +2040,29 @@ impl Parser {
 
     fn parse_call_arg(&mut self) -> Result<CallArg, ParseError> {
         let start = self.peek_token().span;
-        // Named argument form: `name: expr`.
-        if let TokenKind::Ident(_) = self.peek() {
-            if matches!(self.peek_at(1), Some(TokenKind::Colon)) {
-                let (name, _) = self.expect_ident()?;
-                self.advance(); // :
-                let value = self.parse_expr()?;
-                let span = Self::span_join(start, value.span());
-                return Ok(CallArg {
-                    name: Some(name),
-                    value,
-                    span,
-                });
+        // Named argument form: `name: expr`. The name may be a
+        // plain identifier or a reserved keyword (so common v0.1
+        // arguments like `until:` / `match:` / `policy:` work).
+        let name = match self.peek() {
+            TokenKind::Ident(_) if matches!(self.peek_at(1), Some(TokenKind::Colon)) => {
+                Some(self.expect_ident()?.0)
             }
+            TokenKind::Keyword(kw) if matches!(self.peek_at(1), Some(TokenKind::Colon)) => {
+                let s = kw.as_str().to_string();
+                self.advance();
+                Some(s)
+            }
+            _ => None,
+        };
+        if let Some(name) = name {
+            self.advance(); // consume `:`
+            let value = self.parse_expr()?;
+            let span = Self::span_join(start, value.span());
+            return Ok(CallArg {
+                name: Some(name),
+                value,
+                span,
+            });
         }
         let value = self.parse_expr()?;
         let span = Self::span_join(start, value.span());
@@ -2630,6 +2810,20 @@ impl Parser {
                     self.eat_kind(&TokenKind::Semicolon);
                     continue;
                 }
+                TokenKind::Keyword(Keyword::Loop) => {
+                    // `loop { body }` desugars to `while true { body }`.
+                    let loop_kw = self.advance();
+                    let body = self.parse_block()?;
+                    let end = body.span;
+                    let cond = Expr::Bool(true, loop_kw.span);
+                    stmts.push(Stmt::While {
+                        cond,
+                        body,
+                        span: Self::span_join(stmt_start, end),
+                    });
+                    self.eat_kind(&TokenKind::Semicolon);
+                    continue;
+                }
                 _ => {}
             }
             // expression-statement / tail
@@ -2895,6 +3089,7 @@ mod tests {
             Item::Policy(_) => "policy",
             Item::Test(_) => "test",
             Item::Property(_) => "property",
+            Item::TopStmt(_) => "top_stmt",
         }
     }
 
@@ -4077,6 +4272,7 @@ mod expr_tests {
             BinOp::Ge => ">=",
             BinOp::And => "and",
             BinOp::Or => "or",
+            BinOp::Coalesce => "??",
         }
     }
 

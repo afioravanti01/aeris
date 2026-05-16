@@ -10,8 +10,8 @@
 
 use std::path::Path;
 
-use aeris::check::{check_module, check_module_with_lockset};
-use aeris::lockset::{parse_lockset, surface, verify_local_deps};
+use aeris::check::{check_module, check_module_with_manifest};
+use aeris::manifest::{parse_manifest, surface, verify_local_deps};
 use aeris::runtime::eval::run_main_with;
 use aeris::runtime::Tracer;
 use aeris::syntax::parse;
@@ -109,7 +109,7 @@ fn criterion_4_saga_outcomes_are_one_of_three_clean_states() {
 /// confirm `verify_local_deps` returns an error pointing at the
 /// hash mismatch.
 #[test]
-fn criterion_5_lockset_byte_swap_blocks_execution() {
+fn criterion_5_manifest_byte_swap_blocks_execution() {
     let id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -125,7 +125,7 @@ fn criterion_5_lockset_byte_swap_blocks_execution() {
     std::fs::write(&dep_path, original).unwrap();
     let pinned = surface::hash_text(original);
 
-    let lockset_body = format!(
+    let manifest_body = format!(
         r#"
             [project]
             name  = "release-c5"
@@ -135,17 +135,17 @@ fn criterion_5_lockset_byte_swap_blocks_execution() {
             d = {{ path = "./dep.aer", hash = "{pinned}" }}
         "#
     );
-    let lockset_path = dir.join("lockset.toml");
-    std::fs::write(&lockset_path, &lockset_body).unwrap();
-    let lockset = parse_lockset(&lockset_body).expect("lockset parses");
+    let manifest_path = dir.join("aeris.toml");
+    std::fs::write(&manifest_path, &manifest_body).unwrap();
+    let manifest = parse_manifest(&manifest_body).expect("manifest parses");
 
     // First call: hash matches → no error.
-    verify_local_deps(&lockset, &dir).expect("clean lockset must verify");
+    verify_local_deps(&manifest, &dir).expect("clean manifest must verify");
 
     // Byte-swap the dep, keep the hash pinned: the byte-swap must
     // surface as a `deps.d: hash mismatch` error.
     std::fs::write(&dep_path, "pub fn f() -> int { 99 }\n").unwrap();
-    let err = verify_local_deps(&lockset, &dir)
+    let err = verify_local_deps(&manifest, &dir)
         .expect_err("byte-swap must trigger a hash mismatch");
     let combined: String = err
         .iter()
@@ -176,7 +176,7 @@ fn criterion_6_surface_diff_is_first_hunk_when_committed_lock_is_stale() {
     );
     // Committed body is empty (lock not yet generated) → computed
     // body is non-empty → diff non-empty and unified-diff shaped.
-    let diff = aeris::lockset::diff_surface_bodies("", &computed);
+    let diff = aeris::manifest::diff_surface_bodies("", &computed);
     assert!(!diff.is_empty(), "expected drift diff, got empty");
     assert!(
         diff.starts_with("--- "),
@@ -186,26 +186,26 @@ fn criterion_6_surface_diff_is_first_hunk_when_committed_lock_is_stale() {
     assert!(diff.contains("settle"));
 }
 
-/// Sanity guard: the lockset-aware check path agrees with the bare
+/// Sanity guard: the manifest-aware check path agrees with the bare
 /// `check_module` on the in-intent fixture. This protects criterion 2
 /// from drifting if the `[caps] required` flag changes meaning.
 #[test]
-fn criterion_2_lockset_aware_path_agrees_on_in_intent_pattern() {
+fn criterion_2_manifest_aware_path_agrees_on_in_intent_pattern() {
     let src = r#"
         fn settle(cap: cap[http.post]) {
             intent "x" { http.post("u", "\{\}") }
         }
     "#;
     let m = parse(src).expect("parse");
-    let lockset_src = r#"
+    let manifest_src = r#"
         [project]
         name  = "release-c2"
         aeris = "0.2.0"
     "#;
-    let lockset = parse_lockset(lockset_src).expect("lockset parses");
-    let errs = check_module_with_lockset(&m, &lockset.caps);
+    let manifest = parse_manifest(manifest_src).expect("manifest parses");
+    let errs = check_module_with_manifest(&m, &manifest.caps);
     assert!(
         !errs.iter().any(|e| e.exit_code() == 66),
-        "in-intent pattern must not trigger V2 under lockset, got {errs:?}"
+        "in-intent pattern must not trigger V2 under manifest, got {errs:?}"
     );
 }

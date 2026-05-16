@@ -94,7 +94,7 @@ pub struct AgentNetInstance {
     pub model_decls: Option<
         std::rc::Rc<std::collections::HashMap<(String, u32), crate::syntax::ast::ModelDecl>>,
     >,
-    pub ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
 }
@@ -132,7 +132,7 @@ pub struct AgentInstance {
     pub model_decls: Option<
         std::rc::Rc<std::collections::HashMap<(String, u32), crate::syntax::ast::ModelDecl>>,
     >,
-    pub ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
 }
@@ -172,7 +172,7 @@ pub struct SagaInstance {
         std::rc::Rc<std::collections::HashMap<(String, u32), crate::syntax::ast::ModelDecl>>,
     >,
     pub policies: Option<std::rc::Rc<Vec<crate::syntax::ast::PolicyDecl>>>,
-    pub ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
 }
@@ -293,7 +293,7 @@ pub struct Closure {
         std::rc::Rc<std::collections::HashMap<(String, u32), crate::syntax::ast::ModelDecl>>,
     >,
     pub policies: Option<std::rc::Rc<Vec<crate::syntax::ast::PolicyDecl>>>,
-    pub ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
     /// `requires:` clauses checked at function entry (M5.T4 / § 9.1).

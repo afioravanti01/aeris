@@ -178,10 +178,10 @@ pub struct Env {
     /// `match:` clause names the call's `<module>.<op>` path. Empty
     /// when the module declares none — keeps the hot path branch-free.
     policies: Option<std::rc::Rc<Vec<crate::syntax::ast::PolicyDecl>>>,
-    /// M9.T1: pluggable `ai` backend selected by `lockset.toml
+    /// M9.T1: pluggable `ai` backend selected by `aeris.toml
     /// [ai.backend]`. `None` means the built-in mock backend (echoes
     /// the prompt) — picked so unit tests run offline.
-    ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     /// M9.T4: when set, non-deterministic cap calls (`ai.*`,
     /// `clock.now`, `random.next`, `http.*`, `fs.read_*`) drain
     /// recorded values from this tape instead of executing live.
@@ -273,7 +273,7 @@ impl Env {
 
     /// Attach the configured `ai` backend (M9.T1). The runtime falls
     /// back to a deterministic mock when this is `None`.
-    pub fn with_ai_backend(mut self, backend: std::rc::Rc<crate::lockset::AiBackend>) -> Self {
+    pub fn with_ai_backend(mut self, backend: std::rc::Rc<crate::manifest::AiBackend>) -> Self {
         self.ai_backend = Some(backend);
         self
     }
@@ -384,7 +384,7 @@ impl Env {
         record_decls: Option<std::rc::Rc<HashMap<String, RecordDecl>>>,
         model_decls: Option<std::rc::Rc<HashMap<(String, u32), ModelDecl>>>,
         policies: Option<std::rc::Rc<Vec<crate::syntax::ast::PolicyDecl>>>,
-        ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+        ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
         replay_tape: Option<crate::runtime::replay::TapeHandle>,
         full_record: bool,
     ) -> Self {
@@ -529,7 +529,7 @@ fn register_decls(
     policies: &Rc<Vec<crate::syntax::ast::PolicyDecl>>,
     tracer: Option<super::trace::Tracer>,
     stdin: Option<std::rc::Rc<std::cell::RefCell<std::collections::VecDeque<String>>>>,
-    ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     replay_tape: Option<crate::runtime::replay::TapeHandle>,
     full_record: bool,
 ) {
@@ -624,7 +624,7 @@ fn build_agent_instance(
     module: &ModuleScope,
     tracer: Option<super::trace::Tracer>,
     models: &Rc<HashMap<(String, u32), ModelDecl>>,
-    ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     replay_tape: Option<super::replay::TapeHandle>,
     full_record: bool,
 ) -> Option<super::value::AgentInstance> {
@@ -802,15 +802,15 @@ fn collect_decls(m: &Module) -> CollectedDecls {
 /// return its value (`Ok(unit)` for a clean run). Used by `aeris run
 /// <file.aer>` (M3.T6 / M4.T6) on pure files. If `main` declares a
 /// `cap` parameter it receives the synthesised `cap[*]` (M4.T3 stub
-/// — when a `lockset.toml` is in scope, M7.T4's
+/// — when a `aeris.toml` is in scope, M7.T4's
 /// `run_main_with_cap` is used instead).
 pub fn run_main(m: &Module) -> Result<Value, EvalError> {
     run_main_with(m, None)
 }
 
 /// Run `main` with an explicit capability shape (M7.T4). Used by
-/// `aeris run` once the lockset has been parsed: the `[caps]`
-/// section of `lockset.toml` becomes the effective ceiling that
+/// `aeris run` once the manifest has been parsed: the `[caps]`
+/// section of `aeris.toml` becomes the effective ceiling that
 /// `main(cap)` receives, replacing the `cap[*]` stub.
 pub fn run_main_with_cap(
     m: &Module,
@@ -821,13 +821,13 @@ pub fn run_main_with_cap(
 }
 
 /// M9: full configuration entry — adds the configured `ai` backend
-/// (lockset.toml `[ai.backend]`) and the trace recording mode. The
-/// CLI driver routes through this once a lockset is in scope.
+/// (aeris.toml `[ai.backend]`) and the trace recording mode. The
+/// CLI driver routes through this once a manifest is in scope.
 pub fn run_main_with_cfg(
     m: &Module,
     cap: super::value::CapValue,
     tracer: Option<super::trace::Tracer>,
-    ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     full_record: bool,
 ) -> Result<Value, EvalError> {
     run_main_with_full_cfg(m, cap, tracer, ai_backend, None, full_record)
@@ -839,23 +839,11 @@ pub fn run_main_with_full_cfg(
     m: &Module,
     cap: super::value::CapValue,
     tracer: Option<super::trace::Tracer>,
-    ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     replay_tape: Option<crate::runtime::replay::TapeHandle>,
     full_record: bool,
 ) -> Result<Value, EvalError> {
-    let env = build_module_env(m, tracer.clone(), ai_backend, replay_tape, full_record);
-    let main = env
-        .lookup("main")
-        .ok_or_else(|| EvalError::new(EvalErrorKind::UndefinedVar("main".into()), Span::ZERO))?;
-    let main_closure = match &main {
-        Value::Closure(c) => c.clone(),
-        _ => {
-            return Err(EvalError::new(
-                EvalErrorKind::NotCallable("main".into()),
-                Span::ZERO,
-            ))
-        }
-    };
+    let mut env = build_module_env(m, tracer.clone(), ai_backend, replay_tape, full_record);
     // M15 — prototype mode requires a fallback path for `cap` look-ups
     // in functions that do not declare the parameter. Register the
     // synthesised cap into the module scope so `env.lookup("cap")`
@@ -868,6 +856,26 @@ pub fn run_main_with_full_cfg(
             .borrow_mut()
             .insert("cap".to_string(), Value::Cap(cap_rc.clone()));
     }
+    // M26 — top-level effectful statements run before `main`. They
+    // see the synthesised cap and may bind module-level `let`s that
+    // `main` then consumes. A failure here aborts the run.
+    execute_top_stmts(m, &mut env)?;
+    let main_opt = env.lookup("main");
+    let Some(main) = main_opt else {
+        // M26 — script mode: when no `main` is declared, the module
+        // *is* the program. Top-level statements have already run;
+        // return `Ok(())`.
+        return Ok(Value::Unit);
+    };
+    let main_closure = match &main {
+        Value::Closure(c) => c.clone(),
+        _ => {
+            return Err(EvalError::new(
+                EvalErrorKind::NotCallable("main".into()),
+                Span::ZERO,
+            ))
+        }
+    };
     let args: Vec<Value> = if main_closure.params.is_empty() {
         Vec::new()
     } else {
@@ -888,10 +896,10 @@ pub fn run_main_with_full_cfg(
 }
 
 /// M8.T5 — filter a module's declared policies down to the names
-/// listed in `lockset.toml [policies] active = [...]`. When the list
+/// listed in `aeris.toml [policies] active = [...]`. When the list
 /// is empty (the default), every declared policy stays active
 /// (Mode 1 — module-import). When the list is non-empty, only the
-/// named policies remain — the lockset-driven Mode 3 opt-in.
+/// named policies remain — the manifest-driven Mode 3 opt-in.
 pub fn select_active_policies(
     m: &Module,
     active_names: &[String],
@@ -914,7 +922,7 @@ pub fn select_active_policies(
     }
 }
 
-/// M8.T5 — `aeris run` entry that honours the lockset's
+/// M8.T5 — `aeris run` entry that honours the manifest's
 /// `[policies] active = [..]` whitelist (Activation Mode 3). When
 /// `active_policy_names` is empty, every declared policy is kept
 /// (Mode 1 default). When it lists names, only those policies are
@@ -1009,7 +1017,7 @@ pub fn run_main_with(m: &Module, tracer: Option<super::trace::Tracer>) -> Result
             entries: Vec::new(),
             star: true,
         }));
-        eprintln!("[aeris] effective main cap: cap[*]   (M4.T3 stub — full lockset in M7)");
+        eprintln!("[aeris] effective main cap: cap[*]   (M4.T3 stub — full manifest in M7)");
         vec![synth]
     };
     if let Some(t) = &tracer {
@@ -1077,7 +1085,7 @@ pub fn run_property_case(
 pub fn build_module_env(
     m: &Module,
     tracer: Option<super::trace::Tracer>,
-    ai_backend: Option<std::rc::Rc<crate::lockset::AiBackend>>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     replay_tape: Option<crate::runtime::replay::TapeHandle>,
     full_record: bool,
 ) -> Env {
@@ -1114,6 +1122,72 @@ pub fn build_module_env(
         env = env.with_replay_tape(tape);
     }
     env
+}
+
+/// M26 — execute every top-level statement of `m` in declaration
+/// order. `let X = …` bindings land in the module scope so they
+/// are visible to `main` and to subsequent statements;
+/// expression-statements run for their side effects. The env's
+/// `cap` is the synthesised cap of the project (so the same
+/// runtime allow-list applies as inside `main`). Errors propagate
+/// so a top-level failure aborts the run.
+pub fn execute_top_stmts(m: &Module, env: &mut Env) -> Result<(), EvalError> {
+    for item in &m.items {
+        if let Item::TopStmt(stmt) = item {
+            execute_one_top_stmt(stmt, env)?;
+        }
+    }
+    Ok(())
+}
+
+fn execute_one_top_stmt(stmt: &Stmt, env: &mut Env) -> Result<(), EvalError> {
+    match stmt {
+        Stmt::Let { name, value, .. } => {
+            let v = eval_value(value, env)?;
+            if let Some(scope) = &env.module {
+                scope.borrow_mut().insert(name.clone(), v);
+            }
+            Ok(())
+        }
+        Stmt::Expr(e) => {
+            let _ = eval_value(e, env)?;
+            Ok(())
+        }
+        Stmt::For { var, iter, body, span } => {
+            let block = Expr::Block(
+                Block {
+                    stmts: vec![Stmt::For {
+                        var: var.clone(),
+                        iter: iter.clone(),
+                        body: body.clone(),
+                        span: *span,
+                    }],
+                    tail: None,
+                    span: *span,
+                },
+                *span,
+            );
+            let _ = eval_value(&block, env)?;
+            Ok(())
+        }
+        Stmt::While { cond, body, span } => {
+            let block = Expr::Block(
+                Block {
+                    stmts: vec![Stmt::While {
+                        cond: cond.clone(),
+                        body: body.clone(),
+                        span: *span,
+                    }],
+                    tail: None,
+                    span: *span,
+                },
+                *span,
+            );
+            let _ = eval_value(&block, env)?;
+            Ok(())
+        }
+        Stmt::Defer { .. } | Stmt::Var { .. } => Ok(()),
+    }
 }
 
 /// Build an `Env` for `m` with `tracer` shared across every closure.
@@ -2002,6 +2076,17 @@ fn eval_binary(
         let rb = expect_bool(&r, rhs.span())?;
         return Ok(Flow::Value(Value::Bool(rb)));
     }
+    // `a ?? b` — null-coalescing. Short-circuits like `or`: evaluate
+    // the right side only when the left is "missing" (`Err(_)`,
+    // `None`, or the unit value `()`).
+    if matches!(op, BinOp::Coalesce) {
+        let l = eval_value(lhs, env)?;
+        if let Some(inner) = coalesce_extract(l) {
+            return Ok(Flow::Value(inner));
+        }
+        let r = eval_value(rhs, env)?;
+        return Ok(Flow::Value(r));
+    }
     let l = eval_value(lhs, env)?;
     let r = eval_value(rhs, env)?;
     let v = apply_binop(op, l, r, span)?;
@@ -2089,6 +2174,108 @@ fn binop_name(op: BinOp) -> &'static str {
         BinOp::Ge => ">=",
         BinOp::And => "and",
         BinOp::Or => "or",
+        BinOp::Coalesce => "??",
+    }
+}
+
+/// M19.T6 — load a directory of markdown/text files into a Chat
+/// record. The corpus is concatenated into the system prompt with
+/// FILE markers; each file is read with no allow-list enforcement
+/// in mind because `enforce_path_policy` is already gated by the
+/// in-scope `cap` (the function runs under the caller's cap, not
+/// a synthesised one). When the cap is `cap[*]` (enforce = "off")
+/// every path is reachable.
+fn build_chat_from_dir(
+    env: &Env,
+    system: &str,
+    dir: &str,
+    span: Span,
+) -> Result<Value, EvalError> {
+    // Walk the directory iteratively and collect file paths.
+    let mut stack = vec![std::path::PathBuf::from(dir)];
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    while let Some(p) = stack.pop() {
+        if p.is_dir() {
+            match std::fs::read_dir(&p) {
+                Ok(rd) => {
+                    for entry in rd.flatten() {
+                        stack.push(entry.path());
+                    }
+                }
+                Err(e) => return Err(io_err("ai.chat dir walk", span, e)),
+            }
+            continue;
+        }
+        if p.is_file() {
+            files.push(p);
+        }
+    }
+    files.sort();
+    let allowed_ext = ["md", "txt", "rst", "adoc", "yaml", "yml"];
+    let mut corpus = String::new();
+    let mut count: i64 = 0;
+    for f in &files {
+        let keep = f
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| allowed_ext.contains(&e.to_lowercase().as_str()))
+            .unwrap_or(false);
+        if !keep {
+            continue;
+        }
+        let bytes = match std::fs::read(f) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        corpus.push_str("\n\n=== FILE: ");
+        corpus.push_str(&f.to_string_lossy());
+        corpus.push_str(" ===\n\n");
+        corpus.push_str(&text);
+        count += 1;
+    }
+    let composed_system = if corpus.is_empty() {
+        system.to_string()
+    } else {
+        format!("{system}\n\nKNOWLEDGE BASE (file-tagged):\n{corpus}")
+    };
+    let model = enforce_ai_cap(env, "complete", span).unwrap_or_default();
+    let model = if model.is_empty() {
+        "default".to_string()
+    } else {
+        model
+    };
+    record_event(
+        env,
+        "ai_kb_load",
+        vec![
+            ("dir".into(), format!("\"{dir}\"")),
+            ("files".into(), count.to_string()),
+        ],
+    );
+    Ok(Value::Record(crate::runtime::value::RecordValue {
+        name: Some("Chat".into()),
+        fields: vec![
+            ("system".into(), Value::Str(composed_system)),
+            ("model".into(), Value::Str(model)),
+            ("history".into(), Value::List(Vec::new())),
+            ("kb_files".into(), Value::Int(count)),
+        ],
+    }))
+}
+
+/// `??` extractor — returns the inner value when `v` is a "present"
+/// wrapper (`Ok(x)` / `Some(x)`), else `None` so the caller falls
+/// back to the rhs. Unit `()` is also treated as "missing" so that
+/// `nullable_call() ?? default` reads naturally.
+fn coalesce_extract(v: Value) -> Option<Value> {
+    match v {
+        Value::Result(Ok(inner)) => Some(*inner),
+        Value::Result(Err(_)) => None,
+        Value::Option(Some(inner)) => Some(*inner),
+        Value::Option(None) => None,
+        Value::Unit => None,
+        other => Some(other),
     }
 }
 
@@ -2387,6 +2574,28 @@ fn eval_call(
         if name == "assert" {
             return eval_assert_call(args, span, env);
         }
+        // C4 — global intrinsics: `len(xs)`, `error(msg)`, `print(...)`,
+        // `println(...)`. These shorthand callers want without the
+        // module prefix.
+        if name == "len" && args.len() == 1 {
+            let v = eval_value(&args[0].value, env)?;
+            let n: i64 = match &v {
+                Value::List(xs) | Value::Set(xs) | Value::Tuple(xs) => xs.len() as i64,
+                Value::Map(kvs) => kvs.len() as i64,
+                Value::Str(s) => s.chars().count() as i64,
+                Value::Bytes(b) => b.len() as i64,
+                other => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "`len` not defined for {}",
+                            value_kind(other)
+                        )),
+                        span,
+                    ));
+                }
+            };
+            return Ok(Flow::Value(Value::Int(n)));
+        }
         // M12.T4: `trace()` returns the recorded events of the
         // currently-loaded fixture as a `list<record>`. Outside a
         // fixture-mode test it returns the empty list — callers that
@@ -2553,18 +2762,154 @@ fn eval_call(
     if let Expr::Field { base, name, .. } = callee {
         if let Expr::Ident(m, _) = base.as_ref() {
             if let Some(handler) = lookup_builtin(m, name) {
-                let arg_values: Vec<Value> = args
+                // M25.T2 — if the call uses kwargs, reorder them to
+                // match the builtin's positional signature before
+                // eager evaluation. Unknown names raise a type error
+                // so typos surface near the call site.
+                let ordered = reorder_kwargs_for_builtin(m, name, args, span)?;
+                let arg_values: Vec<Value> = ordered
                     .iter()
                     .map(|a| eval_value(&a.value, env))
                     .collect::<Result<_, _>>()?;
-                // M8.T4: every policy whose `match:` clause covers this
-                // cap path runs before the handler. `require:` failures
-                // and `deny:` hits raise `PolicyViolation` — uncatchable
-                // by `?` (§ 18.4) and surfaced as exit 1.
                 apply_policies(env, m, name, &arg_values, span)?;
                 return handler(env, &arg_values, span).map(Flow::Value);
             }
         }
+    }
+    // M28 — `network.agent(name, system)` mutates the receiver if
+    // it is a `var` binding (parity with v0.1). Handle it inline so
+    // the dispatch table stays declarative for the immutable kinds.
+    if let Expr::Field { base, name, .. } = callee {
+        if name.as_str() == "agent" {
+            if let Expr::Ident(var_name, _) = base.as_ref() {
+                let recv = eval_value(base, env)?;
+                if let Value::Record(r) = &recv {
+                    if r.name.as_deref() == Some("AiNetwork") {
+                        let arg_values: Vec<Value> = args
+                            .iter()
+                            .map(|a| eval_value(&a.value, env))
+                            .collect::<Result<_, _>>()?;
+                        if arg_values.len() != 2 {
+                            return Err(EvalError::new(
+                                EvalErrorKind::Arity {
+                                    name: ".agent".into(),
+                                    expected: 2,
+                                    found: arg_values.len(),
+                                },
+                                span,
+                            ));
+                        }
+                        let agent_name = expect_string(".agent name", &arg_values[0], span)?;
+                        let system = expect_string(".agent system", &arg_values[1], span)?;
+                        let mut new_fields = r.fields.clone();
+                        for (k, v) in new_fields.iter_mut() {
+                            if k == "agents" {
+                                if let Value::List(xs) = v {
+                                    xs.push(Value::Record(
+                                        crate::runtime::value::RecordValue {
+                                            name: Some("AiAgent".into()),
+                                            fields: vec![
+                                                ("name".into(), Value::Str(agent_name.clone())),
+                                                ("system".into(), Value::Str(system.clone())),
+                                            ],
+                                        },
+                                    ));
+                                }
+                            }
+                        }
+                        let new_rec = Value::Record(crate::runtime::value::RecordValue {
+                            name: Some("AiNetwork".into()),
+                            fields: new_fields,
+                        });
+                        env.assign(var_name, new_rec).map_err(|m| {
+                            EvalError::new(
+                                EvalErrorKind::Type(format!(".agent on {var_name}: {m}")),
+                                span,
+                            )
+                        })?;
+                        return Ok(Flow::Value(Value::Unit));
+                    }
+                }
+            }
+        }
+    }
+    // M27.T3 — mutating list methods (`push`, `pop`) on a `var`
+    // binding. Evaluate the receiver, build the new list, and write
+    // it back via `Env::assign`. Failure surfaces as a runtime type
+    // error so misuse is loud near the call site.
+    if let Expr::Field { base, name, .. } = callee {
+        if matches!(name.as_str(), "push" | "pop") {
+            if let Expr::Ident(var_name, _) = base.as_ref() {
+                let recv = eval_value(base, env)?;
+                let xs = match recv {
+                    Value::List(xs) => xs,
+                    other => {
+                        return Err(EvalError::new(
+                            EvalErrorKind::Type(format!(
+                                "`.{name}` requires a list receiver, got {}",
+                                value_kind(&other)
+                            )),
+                            span,
+                        ))
+                    }
+                };
+                let (new_list, ret) = match name.as_str() {
+                    "push" => {
+                        let arg_values: Vec<Value> = args
+                            .iter()
+                            .map(|a| eval_value(&a.value, env))
+                            .collect::<Result<_, _>>()?;
+                        arity_check(".push", 1, &arg_values, span)?;
+                        let mut new = xs.clone();
+                        new.push(arg_values[0].clone());
+                        let n = new.len() as i64;
+                        (new, Value::Int(n))
+                    }
+                    "pop" => {
+                        arity_check(".pop", 0, &[][..], span)?;
+                        let mut new = xs.clone();
+                        let popped = new.pop().map(Value::some).unwrap_or_else(Value::none);
+                        (new, popped)
+                    }
+                    _ => unreachable!(),
+                };
+                env.assign(var_name, Value::List(new_list)).map_err(|m| {
+                    EvalError::new(
+                        EvalErrorKind::Type(format!("`.{name}` on {var_name}: {m}")),
+                        span,
+                    )
+                })?;
+                return Ok(Flow::Value(ret));
+            }
+        }
+    }
+    // C4 — method-call sugar on built-in value types. For
+    // `<expr>.<method>(<args>)` where the receiver evaluates to a
+    // list/string/map/record, dispatch to a hard-coded handler.
+    // This runs after the cap-module path above failed to resolve,
+    // so a bare `io.println(...)` still goes through `lookup_builtin`
+    // even when an `io` variable is in scope.
+    if let Expr::Field { base, name, .. } = callee {
+        let recv = eval_value(base, env)?;
+        if let Some(v) = builtin_method_dispatch(&recv, name, args, env, span)? {
+            return Ok(Flow::Value(v));
+        }
+        let arg_values: Vec<Value> = args
+            .iter()
+            .map(|a| eval_value(&a.value, env))
+            .collect::<Result<_, _>>()?;
+        if let Value::Record(r) = &recv {
+            if let Some((_, callee_val)) = r.fields.iter().find(|(k, _)| k == name) {
+                return invoke_value(&callee_val.clone(), &arg_values, span);
+            }
+        }
+        return Err(EvalError::new(
+            EvalErrorKind::Type(format!(
+                "`.{name}` not defined for {}",
+                value_kind(&recv)
+            )),
+            span,
+        ));
     }
     let callee_value = eval_value(callee, env)?;
     let arg_values: Vec<Value> = args
@@ -2572,6 +2917,513 @@ fn eval_call(
         .map(|a| eval_value(&a.value, env))
         .collect::<Result<_, _>>()?;
     invoke_value(&callee_value, &arg_values, span)
+}
+
+/// M25.T2 — known parameter names for L1/L2 builtins, in positional
+/// order. When a call uses kwargs, args are reordered to this shape
+/// before invoking the handler.
+fn builtin_param_names(module: &str, op: &str) -> Option<&'static [&'static str]> {
+    Some(match (module, op) {
+        // io
+        ("io", "print") | ("io", "println") | ("io", "eprint") | ("io", "eprintln") => &["msg"],
+        ("io", "read_line") => &[],
+        // env
+        ("env", "read") => &["key"],
+        ("env", "set") => &["key", "value"],
+        // clock / random
+        ("clock", "now") => &[],
+        ("clock", "sleep") => &["d"],
+        ("random", "next") => &[],
+        // fs
+        ("fs", "read_text") | ("fs", "read_file") | ("fs", "read_bytes")
+        | ("fs", "exists") | ("fs", "stat") | ("fs", "remove")
+        | ("fs", "walk") | ("fs", "mkdir") => &["path"],
+        ("fs", "write_text") | ("fs", "write_file") | ("fs", "write_bytes") => &["path", "content"],
+        ("fs", "rename") => &["from", "to"],
+        // http
+        ("http", "get") | ("http", "delete") => &["url"],
+        ("http", "post") | ("http", "put") | ("http", "patch") => &["url", "body"],
+        // shell
+        ("shell", "exec") | ("shell", "pipe") => &["cmd"],
+        // strings
+        ("strings", "trim") | ("strings", "lower") | ("strings", "upper")
+        | ("strings", "parse_int") => &["s"],
+        ("strings", "contains") | ("strings", "starts_with") | ("strings", "ends_with")
+        | ("strings", "split") => &["s", "p"],
+        ("strings", "join") => &["xs", "sep"],
+        ("strings", "replace") => &["s", "from", "to"],
+        // json
+        ("json", "encode") | ("json", "stringify") | ("json", "pretty") => &["v"],
+        ("json", "parse") => &["s"],
+        // date
+        ("date", "today") | ("date", "timestamp") | ("date", "now") => &[],
+        ("date", "format") => &["t", "fmt"],
+        // ai
+        ("ai", "complete") => &["prompt"],
+        ("ai", "chat") => &["system", "dir"],
+        ("ai", "embed") => &["text"],
+        ("ai", "session") => &["system", "model"],
+        ("ai", "session_ask") => &["session", "prompt"],
+        ("ai", "decide") => &["prompt", "choices", "retries"],
+        ("ai", "usage") => &[],
+        ("ai", "network") => &["max_rounds"],
+        // yaml
+        ("yaml", "parse") => &["s"],
+        ("yaml", "parse_file") => &["path"],
+        ("net", "http") => &["port"],
+        ("ai", "network") => &["max_rounds"],
+        // audit
+        ("audit", "event") => &["kind", "fields"],
+        // misc — let positional callers through with no entry
+        _ => return None,
+    })
+}
+
+fn reorder_kwargs_for_builtin(
+    module: &str,
+    op: &str,
+    args: &[CallArg],
+    span: Span,
+) -> Result<Vec<CallArg>, EvalError> {
+    // Pure positional → pass through unchanged.
+    if args.iter().all(|a| a.name.is_none()) {
+        return Ok(args.to_vec());
+    }
+    let names = match builtin_param_names(module, op) {
+        Some(n) => n,
+        None => {
+            // Unknown shape: pass through, let the handler emit its
+            // own arity / type error.
+            return Ok(args.to_vec());
+        }
+    };
+    let mut out: Vec<Option<CallArg>> = vec![None; names.len()];
+    let mut next_pos = 0usize;
+    for a in args {
+        match &a.name {
+            None => {
+                while next_pos < names.len() && out[next_pos].is_some() {
+                    next_pos += 1;
+                }
+                if next_pos >= names.len() {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Arity {
+                            name: format!("{module}.{op}"),
+                            expected: names.len(),
+                            found: args.len(),
+                        },
+                        span,
+                    ));
+                }
+                out[next_pos] = Some(a.clone());
+                next_pos += 1;
+            }
+            Some(n) => {
+                let idx = names.iter().position(|p| p == n).ok_or_else(|| {
+                    EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "{module}.{op}: unknown parameter `{n}` (expected one of {names:?})"
+                        )),
+                        span,
+                    )
+                })?;
+                if out[idx].is_some() {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "{module}.{op}: parameter `{n}` provided twice"
+                        )),
+                        span,
+                    ));
+                }
+                out[idx] = Some(a.clone());
+            }
+        }
+    }
+    Ok(out.into_iter().flatten().collect())
+}
+
+/// Known parameter names for value-method calls (`.reply`,
+/// `.agent`, `.run`, …). Reorders kwargs before eager evaluation.
+fn method_param_names(recv_name: Option<&str>, op: &str) -> Option<&'static [&'static str]> {
+    Some(match (recv_name, op) {
+        (Some("HttpReq"), "reply") => &["status", "body", "content_type"],
+        (Some("HttpReq"), "reply_json") => &["status", "body", "content_type"],
+        (Some("AiNetwork"), "agent") => &["name", "system"],
+        (Some("AiNetwork"), "run") => &["entry", "message", "until"],
+        (Some("Chat"), "ask") => &["prompt"],
+        (_, "push") => &["x"],
+        (_, "slice") => &["a", "b"],
+        (_, "split") => &["sep"],
+        (_, "join") => &["sep"],
+        (_, "replace") => &["from", "to"],
+        (_, "contains") => &["x"],
+        (_, "starts_with") | (_, "ends_with") => &["p"],
+        (_, "get") => &["key"],
+        _ => return None,
+    })
+}
+
+/// C4 — built-in methods on `list`, `string`, `map`. Returns
+/// `Ok(None)` when no method matches so the caller can fall through
+/// to other dispatch strategies.
+fn builtin_method_dispatch(
+    recv: &Value,
+    name: &str,
+    args: &[CallArg],
+    env: &mut Env,
+    span: Span,
+) -> Result<Option<Value>, EvalError> {
+    let recv_name = match recv {
+        Value::Record(r) => r.name.as_deref(),
+        _ => None,
+    };
+    let ordered = if args.iter().any(|a| a.name.is_some()) {
+        match method_param_names(recv_name, name) {
+            Some(names) => {
+                let mut out: Vec<Option<CallArg>> = vec![None; names.len()];
+                let mut next_pos = 0usize;
+                for a in args {
+                    match &a.name {
+                        None => {
+                            while next_pos < names.len() && out[next_pos].is_some() {
+                                next_pos += 1;
+                            }
+                            if next_pos >= names.len() {
+                                return Err(EvalError::new(
+                                    EvalErrorKind::Arity {
+                                        name: format!(".{name}"),
+                                        expected: names.len(),
+                                        found: args.len(),
+                                    },
+                                    span,
+                                ));
+                            }
+                            out[next_pos] = Some(a.clone());
+                            next_pos += 1;
+                        }
+                        Some(n) => {
+                            let idx = names.iter().position(|p| p == n).ok_or_else(|| {
+                                EvalError::new(
+                                    EvalErrorKind::Type(format!(
+                                        ".{name}: unknown parameter `{n}` (expected one of {names:?})"
+                                    )),
+                                    span,
+                                )
+                            })?;
+                            out[idx] = Some(a.clone());
+                        }
+                    }
+                }
+                out.into_iter().flatten().collect()
+            }
+            None => args.to_vec(),
+        }
+    } else {
+        args.to_vec()
+    };
+    let arg_values: Vec<Value> = ordered
+        .iter()
+        .map(|a| eval_value(&a.value, env))
+        .collect::<Result<_, _>>()?;
+    match (recv, name) {
+        // ---- list methods ----
+        (Value::List(xs), "len") => {
+            arity_check(".len", 0, &arg_values, span)?;
+            Ok(Some(Value::Int(xs.len() as i64)))
+        }
+        (Value::List(xs), "empty") => {
+            arity_check(".empty", 0, &arg_values, span)?;
+            Ok(Some(Value::Bool(xs.is_empty())))
+        }
+        (Value::List(xs), "first") => {
+            arity_check(".first", 0, &arg_values, span)?;
+            Ok(Some(xs.first().cloned().map(|v| Value::some(v)).unwrap_or_else(Value::none)))
+        }
+        (Value::List(xs), "last") => {
+            arity_check(".last", 0, &arg_values, span)?;
+            Ok(Some(xs.last().cloned().map(|v| Value::some(v)).unwrap_or_else(Value::none)))
+        }
+        (Value::List(xs), "join") => {
+            arity_check(".join", 1, &arg_values, span)?;
+            let sep = expect_string(".join", &arg_values[0], span)?;
+            let mut out = String::new();
+            for (i, v) in xs.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(&sep);
+                }
+                match v {
+                    Value::Str(s) => out.push_str(s),
+                    other => out.push_str(&value_as_display(other)),
+                }
+            }
+            Ok(Some(Value::Str(out)))
+        }
+        (Value::List(xs), "slice") => {
+            arity_check(".slice", 2, &arg_values, span)?;
+            let a = match &arg_values[0] {
+                Value::Int(n) => *n,
+                _ => return Err(EvalError::new(EvalErrorKind::Type(".slice expects (int, int)".into()), span)),
+            };
+            let b = match &arg_values[1] {
+                Value::Int(n) => *n,
+                _ => return Err(EvalError::new(EvalErrorKind::Type(".slice expects (int, int)".into()), span)),
+            };
+            let lo = a.max(0) as usize;
+            let hi = (b.max(0) as usize).min(xs.len());
+            Ok(Some(Value::List(if lo >= hi { Vec::new() } else { xs[lo..hi].to_vec() })))
+        }
+        (Value::List(xs), "contains") => {
+            arity_check(".contains", 1, &arg_values, span)?;
+            let needle = &arg_values[0];
+            Ok(Some(Value::Bool(xs.iter().any(|v| values_equal(v, needle)))))
+        }
+        // ---- string methods ----
+        (Value::Str(s), "len") => {
+            arity_check(".len", 0, &arg_values, span)?;
+            Ok(Some(Value::Int(s.chars().count() as i64)))
+        }
+        (Value::Str(s), "trim") => {
+            arity_check(".trim", 0, &arg_values, span)?;
+            Ok(Some(Value::Str(s.trim().to_string())))
+        }
+        (Value::Str(s), "lower") => {
+            arity_check(".lower", 0, &arg_values, span)?;
+            Ok(Some(Value::Str(s.to_lowercase())))
+        }
+        (Value::Str(s), "upper") => {
+            arity_check(".upper", 0, &arg_values, span)?;
+            Ok(Some(Value::Str(s.to_uppercase())))
+        }
+        (Value::Str(s), "contains") => {
+            arity_check(".contains", 1, &arg_values, span)?;
+            let p = expect_string(".contains", &arg_values[0], span)?;
+            Ok(Some(Value::Bool(s.contains(&p))))
+        }
+        (Value::Str(s), "starts_with") => {
+            arity_check(".starts_with", 1, &arg_values, span)?;
+            let p = expect_string(".starts_with", &arg_values[0], span)?;
+            Ok(Some(Value::Bool(s.starts_with(&p))))
+        }
+        (Value::Str(s), "ends_with") => {
+            arity_check(".ends_with", 1, &arg_values, span)?;
+            let p = expect_string(".ends_with", &arg_values[0], span)?;
+            Ok(Some(Value::Bool(s.ends_with(&p))))
+        }
+        (Value::Str(s), "split") => {
+            arity_check(".split", 1, &arg_values, span)?;
+            let sep = expect_string(".split", &arg_values[0], span)?;
+            let parts: Vec<Value> = if sep.is_empty() {
+                s.chars().map(|c| Value::Str(c.to_string())).collect()
+            } else {
+                s.split(&sep).map(|p| Value::Str(p.to_string())).collect()
+            };
+            Ok(Some(Value::List(parts)))
+        }
+        (Value::Str(s), "replace") => {
+            arity_check(".replace", 2, &arg_values, span)?;
+            let from = expect_string(".replace", &arg_values[0], span)?;
+            let to = expect_string(".replace", &arg_values[1], span)?;
+            Ok(Some(Value::Str(s.replace(&from, &to))))
+        }
+        // ---- AiNetwork record (M28) ----
+        (Value::Record(r), "run") if r.name.as_deref() == Some("AiNetwork") => {
+            let max_rounds = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "max_rounds")
+                .and_then(|(_, v)| if let Value::Int(n) = v { Some(*n) } else { None })
+                .unwrap_or(10);
+            let agents: Vec<(String, String)> = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "agents")
+                .map(|(_, v)| match v {
+                    Value::List(xs) => xs
+                        .iter()
+                        .filter_map(|a| match a {
+                            Value::Record(ar) if ar.name.as_deref() == Some("AiAgent") => Some((
+                                ar.fields
+                                    .iter()
+                                    .find(|(k, _)| k == "name")
+                                    .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                                    .unwrap_or_default(),
+                                ar.fields
+                                    .iter()
+                                    .find(|(k, _)| k == "system")
+                                    .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                                    .unwrap_or_default(),
+                            )),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                })
+                .unwrap_or_default();
+            let (entry, message, until) = decode_network_run_args(&arg_values, span)?;
+            let model = enforce_ai_cap(env, "complete", span).unwrap_or_default();
+            run_ai_network(env, &agents, &entry, &message, &until, max_rounds, &model, span)
+                .map(Some)
+        }
+        // ---- HttpServer record (M20) ----
+        (Value::Record(r), "accept") if r.name.as_deref() == Some("HttpServer") => {
+            arity_check(".accept", 0, &arg_values, span)?;
+            let id = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "id")
+                .and_then(|(_, v)| if let Value::Int(n) = v { Some(*n) } else { None })
+                .ok_or_else(|| {
+                    EvalError::new(
+                        EvalErrorKind::Type("HttpServer missing `id` field".into()),
+                        span,
+                    )
+                })?;
+            let req = super::net_server::http_accept(id).map_err(|m| {
+                EvalError::new(
+                    EvalErrorKind::Io {
+                        op: "net.http.accept".into(),
+                        message: m,
+                    },
+                    span,
+                )
+            })?;
+            record_event(
+                env,
+                "net_accept",
+                vec![
+                    ("method".into(), format!("\"{}\"", req.method)),
+                    ("path".into(), format!("\"{}\"", req.path)),
+                    ("remote".into(), format!("\"{}\"", req.remote_addr)),
+                ],
+            );
+            let headers_record = Value::Record(crate::runtime::value::RecordValue {
+                name: None,
+                fields: req
+                    .headers
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
+                    .collect(),
+            });
+            Ok(Some(Value::Record(crate::runtime::value::RecordValue {
+                name: Some("HttpReq".into()),
+                fields: vec![
+                    ("_conn_id".into(), Value::Int(req.conn_id)),
+                    ("method".into(), Value::Str(req.method)),
+                    ("path".into(), Value::Str(req.path)),
+                    ("query_raw".into(), Value::Str(req.query_raw)),
+                    ("headers".into(), headers_record),
+                    ("body".into(), Value::Str(req.body)),
+                    ("remote_addr".into(), Value::Str(req.remote_addr)),
+                ],
+            })))
+        }
+        (Value::Record(r), "reply") if r.name.as_deref() == Some("HttpReq") => {
+            // Accept positional (status, body, content_type?) or kwargs.
+            let (status, body, ct) = parse_reply_args(&arg_values, span, "text/plain; charset=utf-8")?;
+            let conn_id = req_conn_id(r, span)?;
+            super::net_server::http_reply(conn_id, status, &body, &ct).map_err(|m| {
+                EvalError::new(
+                    EvalErrorKind::Io {
+                        op: "net.http.reply".into(),
+                        message: m,
+                    },
+                    span,
+                )
+            })?;
+            record_event(
+                env,
+                "net_reply",
+                vec![
+                    ("status".into(), status.to_string()),
+                    ("bytes".into(), body.as_bytes().len().to_string()),
+                ],
+            );
+            Ok(Some(Value::Unit))
+        }
+        (Value::Record(r), "reply_json") if r.name.as_deref() == Some("HttpReq") => {
+            let (status, body, _ct) =
+                parse_reply_args(&arg_values, span, "application/json")?;
+            let conn_id = req_conn_id(r, span)?;
+            super::net_server::http_reply(conn_id, status, &body, "application/json").map_err(
+                |m| {
+                    EvalError::new(
+                        EvalErrorKind::Io {
+                            op: "net.http.reply_json".into(),
+                            message: m,
+                        },
+                        span,
+                    )
+                },
+            )?;
+            record_event(
+                env,
+                "net_reply",
+                vec![
+                    ("status".into(), status.to_string()),
+                    ("ct".into(), "\"application/json\"".into()),
+                    ("bytes".into(), body.as_bytes().len().to_string()),
+                ],
+            );
+            Ok(Some(Value::Unit))
+        }
+        // ---- Chat record (M19.T6) ----
+        (Value::Record(r), "ask") if r.name.as_deref() == Some("Chat") => {
+            arity_check(".ask", 1, &arg_values, span)?;
+            let prompt = expect_string(".ask", &arg_values[0], span)?;
+            let system = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "system")
+                .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                .unwrap_or_default();
+            let model = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "model")
+                .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                .unwrap_or_else(|| "default".into());
+            let composed = format!("system: {system}\nuser: {prompt}");
+            let resp = run_ai_backend(env, "complete", &model, &composed).map_err(|m| {
+                EvalError::new(
+                    EvalErrorKind::Io {
+                        op: "chat.ask".into(),
+                        message: m,
+                    },
+                    span,
+                )
+            })?;
+            record_ai_event(env, "chat.ask", &model, &prompt, &resp);
+            Ok(Some(Value::Str(resp)))
+        }
+        (Value::Record(r), "kb_size") if r.name.as_deref() == Some("Chat") => {
+            arity_check(".kb_size", 0, &arg_values, span)?;
+            let n = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "kb_files")
+                .and_then(|(_, v)| if let Value::Int(n) = v { Some(*n) } else { None })
+                .unwrap_or(0);
+            Ok(Some(Value::Int(n)))
+        }
+        // ---- map methods ----
+        (Value::Map(kvs), "len") => {
+            arity_check(".len", 0, &arg_values, span)?;
+            Ok(Some(Value::Int(kvs.len() as i64)))
+        }
+        (Value::Map(kvs), "get") => {
+            arity_check(".get", 1, &arg_values, span)?;
+            let key = &arg_values[0];
+            let v = kvs
+                .iter()
+                .find(|(k, _)| values_equal(k, key))
+                .map(|(_, v)| v.clone())
+                .map(Value::some)
+                .unwrap_or_else(Value::none);
+            Ok(Some(v))
+        }
+        // No match → caller decides what to do.
+        _ => Ok(None),
+    }
 }
 
 /// M12.T4 — render the env's fixture trace as a `Value::List` of
@@ -2770,6 +3622,10 @@ fn lookup_builtin(module: &str, op: &str) -> Option<Builtin> {
         ("clock", "sleep") => builtin_clock_sleep,
         ("random", "next") => builtin_random_next,
         ("env", "read") => builtin_env_read,
+        ("env", "must_read") => builtin_env_must_read,
+        ("env", "set") => builtin_env_set,
+        ("date", "now") => builtin_date_now,
+        ("date", "format") => builtin_date_format,
         ("fs", "read_text") => builtin_fs_read_text,
         ("fs", "read_file") | ("fs", "read_bytes") => builtin_fs_read_bytes,
         ("fs", "write_text") => builtin_fs_write_text,
@@ -2814,8 +3670,679 @@ fn lookup_builtin(module: &str, op: &str) -> Option<Builtin> {
         ("minio", "put") => builtin_minio_put,
         ("rabbitmq", "publish") => builtin_rabbitmq_publish,
         ("rabbitmq", "subscribe") => builtin_rabbitmq_subscribe,
+        // ----- pure helpers (no cap required, no trace event) -----
+        ("strings", "trim") => builtin_strings_trim,
+        ("strings", "lower") => builtin_strings_lower,
+        ("strings", "upper") => builtin_strings_upper,
+        ("strings", "contains") => builtin_strings_contains,
+        ("strings", "starts_with") => builtin_strings_starts_with,
+        ("strings", "ends_with") => builtin_strings_ends_with,
+        ("strings", "split") => builtin_strings_split,
+        ("strings", "join") => builtin_strings_join,
+        ("strings", "replace") => builtin_strings_replace,
+        ("strings", "parse_int") => builtin_strings_parse_int,
+        ("json", "encode") => builtin_json_encode_pure,
+        ("json", "stringify") => builtin_json_encode_pure,
+        ("json", "pretty") => builtin_json_pretty,
+        ("json", "parse") => builtin_json_parse_pure,
+        ("date", "today") => builtin_date_today,
+        ("date", "timestamp") => builtin_date_timestamp,
+        ("yaml", "parse") => builtin_yaml_parse,
+        ("yaml", "parse_file") => builtin_yaml_parse_file,
+        ("net", "http") => builtin_net_http_serve,
+        ("ai", "network") => builtin_ai_network,
         _ => return None,
     })
+}
+
+// ---- pure string helpers ------------------------------------------
+
+fn s_arg(name: &str, args: &[Value], i: usize, span: Span) -> Result<String, EvalError> {
+    expect_string(name, args.get(i).unwrap_or(&Value::Unit), span)
+}
+
+fn builtin_strings_trim(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.trim", 1, args, span)?;
+    Ok(Value::Str(s_arg("strings.trim", args, 0, span)?.trim().to_string()))
+}
+
+fn builtin_strings_lower(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.lower", 1, args, span)?;
+    Ok(Value::Str(s_arg("strings.lower", args, 0, span)?.to_lowercase()))
+}
+
+fn builtin_strings_upper(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.upper", 1, args, span)?;
+    Ok(Value::Str(s_arg("strings.upper", args, 0, span)?.to_uppercase()))
+}
+
+fn builtin_strings_contains(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.contains", 2, args, span)?;
+    let s = s_arg("strings.contains", args, 0, span)?;
+    let p = s_arg("strings.contains", args, 1, span)?;
+    Ok(Value::Bool(s.contains(&p)))
+}
+
+fn builtin_strings_starts_with(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.starts_with", 2, args, span)?;
+    let s = s_arg("strings.starts_with", args, 0, span)?;
+    let p = s_arg("strings.starts_with", args, 1, span)?;
+    Ok(Value::Bool(s.starts_with(&p)))
+}
+
+fn builtin_strings_ends_with(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.ends_with", 2, args, span)?;
+    let s = s_arg("strings.ends_with", args, 0, span)?;
+    let p = s_arg("strings.ends_with", args, 1, span)?;
+    Ok(Value::Bool(s.ends_with(&p)))
+}
+
+fn builtin_strings_split(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.split", 2, args, span)?;
+    let s = s_arg("strings.split", args, 0, span)?;
+    let sep = s_arg("strings.split", args, 1, span)?;
+    let parts: Vec<Value> = if sep.is_empty() {
+        s.chars().map(|c| Value::Str(c.to_string())).collect()
+    } else {
+        s.split(&sep).map(|p| Value::Str(p.to_string())).collect()
+    };
+    Ok(Value::List(parts))
+}
+
+fn builtin_strings_join(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.join", 2, args, span)?;
+    let sep = s_arg("strings.join", args, 1, span)?;
+    let xs = match &args[0] {
+        Value::List(xs) => xs,
+        other => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type(format!(
+                    "strings.join expects a list, got {}",
+                    value_kind(other)
+                )),
+                span,
+            ))
+        }
+    };
+    let mut out = String::new();
+    for (i, v) in xs.iter().enumerate() {
+        if i > 0 {
+            out.push_str(&sep);
+        }
+        match v {
+            Value::Str(s) => out.push_str(s),
+            other => out.push_str(&value_as_display(other)),
+        }
+    }
+    Ok(Value::Str(out))
+}
+
+fn builtin_strings_replace(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.replace", 3, args, span)?;
+    let s = s_arg("strings.replace", args, 0, span)?;
+    let from = s_arg("strings.replace", args, 1, span)?;
+    let to = s_arg("strings.replace", args, 2, span)?;
+    Ok(Value::Str(s.replace(&from, &to)))
+}
+
+fn builtin_strings_parse_int(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("strings.parse_int", 1, args, span)?;
+    let s = s_arg("strings.parse_int", args, 0, span)?;
+    match s.trim().parse::<i64>() {
+        Ok(n) => Ok(Value::ok(Value::Int(n))),
+        Err(_) => Ok(Value::err(Value::Str(format!(
+            "strings.parse_int: not an integer: {s:?}"
+        )))),
+    }
+}
+
+// ---- pure json helpers --------------------------------------------
+
+fn builtin_json_encode_pure(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("json.encode", 1, args, span)?;
+    Ok(Value::Str(crate::runtime::json::encode_natural(&args[0])))
+}
+
+fn builtin_json_pretty(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("json.pretty", 1, args, span)?;
+    // No dedicated pretty-printer yet; fall back to compact natural
+    // JSON so user code keeps compiling. A real pretty form is a
+    // polish-pass task.
+    Ok(Value::Str(crate::runtime::json::encode_natural(&args[0])))
+}
+
+fn builtin_json_parse_pure(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("json.parse", 1, args, span)?;
+    let s = s_arg("json.parse", args, 0, span)?;
+    // Untyped parse: natural-JSON object/array → Value tree. Failure
+    // surfaces as `Err(string)` so callers can `?? default`.
+    let bag = crate::runtime::json::decode_natural_object(&s);
+    match bag {
+        Ok(fields) => Ok(Value::ok(Value::Record(crate::runtime::value::RecordValue {
+            name: None,
+            fields,
+        }))),
+        Err(e) => Ok(Value::err(Value::Str(format!("json.parse: {e:?}")))),
+    }
+}
+
+// ---- date helpers -------------------------------------------------
+
+fn builtin_date_today(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("date.today", 0, args, span)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Civil-date string by stepping back from UNIX epoch days.
+    let days = (now / 86_400) as i64;
+    let (y, m, d) = epoch_days_to_ymd(days);
+    Ok(Value::Date(format!("{y:04}-{m:02}-{d:02}")))
+}
+
+fn builtin_date_timestamp(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("date.timestamp", 0, args, span)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    Ok(Value::Int(now))
+}
+
+// ---- yaml helpers -------------------------------------------------
+
+fn req_conn_id(
+    r: &crate::runtime::value::RecordValue,
+    span: Span,
+) -> Result<i64, EvalError> {
+    r.fields
+        .iter()
+        .find(|(k, _)| k == "_conn_id")
+        .and_then(|(_, v)| if let Value::Int(n) = v { Some(*n) } else { None })
+        .ok_or_else(|| {
+            EvalError::new(
+                EvalErrorKind::Type("HttpReq missing `_conn_id` field".into()),
+                span,
+            )
+        })
+}
+
+/// Decode positional `(status, body, content_type?)` from a vector
+/// of arg values produced by the kwarg-aware dispatcher.
+fn parse_reply_args(
+    args: &[Value],
+    span: Span,
+    default_ct: &str,
+) -> Result<(u16, String, String), EvalError> {
+    if args.is_empty() || args.len() > 3 {
+        return Err(EvalError::new(
+            EvalErrorKind::Arity {
+                name: "HttpReq.reply".into(),
+                expected: 2,
+                found: args.len(),
+            },
+            span,
+        ));
+    }
+    let status = match &args[0] {
+        Value::Int(n) if *n >= 100 && *n < 600 => *n as u16,
+        other => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type(format!(
+                    ".reply expects status: int in [100, 599], got {}",
+                    value_kind(other)
+                )),
+                span,
+            ))
+        }
+    };
+    let body = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => value_as_display(other),
+        None => String::new(),
+    };
+    let ct = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => default_ct.to_string(),
+    };
+    Ok((status, body, ct))
+}
+
+fn decode_network_run_args(args: &[Value], span: Span) -> Result<(String, String, String), EvalError> {
+    // Positional: (entry, message, until?) — kwarg-aware caller has
+    // already reordered. `until` defaults to "DONE" (v0.1 sentinel).
+    if args.len() < 2 || args.len() > 3 {
+        return Err(EvalError::new(
+            EvalErrorKind::Arity {
+                name: "AiNetwork.run".into(),
+                expected: 3,
+                found: args.len(),
+            },
+            span,
+        ));
+    }
+    let entry = expect_string(".run entry", &args[0], span)?;
+    let message = expect_string(".run message", &args[1], span)?;
+    let until = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "DONE".to_string(),
+    };
+    Ok((entry, message, until))
+}
+
+fn run_ai_network(
+    env: &Env,
+    agents: &[(String, String)],
+    entry: &str,
+    message: &str,
+    until: &str,
+    max_rounds: i64,
+    model: &str,
+    span: Span,
+) -> Result<Value, EvalError> {
+    if agents.is_empty() {
+        return Err(EvalError::new(
+            EvalErrorKind::Type("ai.network has no agents".into()),
+            span,
+        ));
+    }
+    let model_for_call = if model.is_empty() { "default" } else { model };
+    let mut trace: Vec<Value> = Vec::new();
+    let mut current = entry.to_string();
+    let mut current_msg = message.to_string();
+    let mut rounds = 0i64;
+    while rounds < max_rounds {
+        rounds += 1;
+        let agent = agents
+            .iter()
+            .find(|(n, _)| n == &current)
+            .ok_or_else(|| {
+                EvalError::new(
+                    EvalErrorKind::Type(format!("ai.network: unknown agent `{current}`")),
+                    span,
+                )
+            })?;
+        let prompt = format!(
+            "system: {}\nuser: {}\n\nYou may end the conversation by replying with the token \"{}\".\n\
+             To hand off to another agent, prefix your reply with `>>NAME:` where NAME is one of: {}.",
+            agent.1,
+            current_msg,
+            until,
+            agents
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        let reply = run_ai_backend(env, "complete", model_for_call, &prompt).map_err(|m| {
+            EvalError::new(
+                EvalErrorKind::Io {
+                    op: "ai.network.run".into(),
+                    message: m,
+                },
+                span,
+            )
+        })?;
+        record_ai_event(env, "network", model_for_call, &prompt, &reply);
+        trace.push(Value::Record(crate::runtime::value::RecordValue {
+            name: None,
+            fields: vec![
+                ("from".into(), Value::Str(current.clone())),
+                ("response".into(), Value::Str(reply.clone())),
+                ("round".into(), Value::Int(rounds)),
+            ],
+        }));
+        // Termination: reply contains the `until` sentinel.
+        if reply.contains(until) {
+            break;
+        }
+        // Hand-off: pick the next agent by `>>NAME:` prefix; otherwise
+        // round-robin to the next agent in declaration order.
+        if let Some(after) = reply.trim_start().strip_prefix(">>") {
+            if let Some(colon) = after.find(':') {
+                let candidate = after[..colon].trim().to_string();
+                if agents.iter().any(|(n, _)| n == &candidate) {
+                    current = candidate;
+                    current_msg = after[colon + 1..].trim().to_string();
+                    continue;
+                }
+            }
+        }
+        let idx = agents
+            .iter()
+            .position(|(n, _)| n == &current)
+            .unwrap_or(0);
+        let next = &agents[(idx + 1) % agents.len()].0;
+        current = next.clone();
+        current_msg = reply;
+    }
+    Ok(Value::Record(crate::runtime::value::RecordValue {
+        name: Some("AiNetworkRun".into()),
+        fields: vec![
+            ("trace".into(), Value::List(trace)),
+            ("rounds".into(), Value::Int(rounds)),
+        ],
+    }))
+}
+
+// ---- ai.network (M28) ---------------------------------------------
+
+fn builtin_ai_network(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    // ai.network(max_rounds: int) -> Network. Default rounds = 10.
+    let max_rounds = match args.first() {
+        Some(Value::Int(n)) if *n > 0 => *n,
+        Some(_) => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type("ai.network expects max_rounds: int".into()),
+                span,
+            ))
+        }
+        None => 10,
+    };
+    let _ = env;
+    Ok(Value::Record(crate::runtime::value::RecordValue {
+        name: Some("AiNetwork".into()),
+        fields: vec![
+            ("max_rounds".into(), Value::Int(max_rounds)),
+            ("agents".into(), Value::List(Vec::new())),
+        ],
+    }))
+}
+
+// ---- net.http server (M20) ----------------------------------------
+
+fn builtin_net_http_serve(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("net.http", 1, args, span)?;
+    let port = match &args[0] {
+        Value::Int(n) if *n >= 0 && *n <= 65535 => *n as u16,
+        other => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type(format!(
+                    "net.http expects port: int in [0, 65535], got {}",
+                    value_kind(other)
+                )),
+                span,
+            ))
+        }
+    };
+    let id = super::net_server::http_serve(port).map_err(|m| {
+        EvalError::new(
+            EvalErrorKind::Io {
+                op: "net.http".into(),
+                message: m,
+            },
+            span,
+        )
+    })?;
+    record_event(
+        env,
+        "net_listen",
+        vec![
+            ("port".into(), port.to_string()),
+            ("id".into(), id.to_string()),
+        ],
+    );
+    Ok(Value::Record(crate::runtime::value::RecordValue {
+        name: Some("HttpServer".into()),
+        fields: vec![
+            ("id".into(), Value::Int(id)),
+            ("port".into(), Value::Int(port as i64)),
+        ],
+    }))
+}
+
+fn builtin_yaml_parse(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("yaml.parse", 1, args, span)?;
+    let s = s_arg("yaml.parse", args, 0, span)?;
+    Ok(parse_yaml_string(&s))
+}
+
+fn builtin_yaml_parse_file(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("yaml.parse_file", 1, args, span)?;
+    let path = s_arg("yaml.parse_file", args, 0, span)?;
+    enforce_path_policy(env, "fs", "read_text", &path, span)?;
+    let bytes = std::fs::read(&path).map_err(|e| io_err("yaml.parse_file", span, e))?;
+    let s = String::from_utf8_lossy(&bytes).into_owned();
+    record_event(
+        env,
+        "yaml_parse",
+        vec![
+            ("path".into(), format!("\"{path}\"")),
+            ("len".into(), s.len().to_string()),
+        ],
+    );
+    Ok(parse_yaml_string(&s))
+}
+
+/// Minimal YAML reader — handles the v0.1 scenario subset:
+/// indented `key: value` mappings, nested mappings, sequences with
+/// `- ` prefix, scalar values (string, int, float, bool, null) and
+/// inline `[ a, b, c ]` flow sequences. Comments (`#`) and quoted
+/// strings (`"..."`, `'...'`) are honoured. Not a full YAML parser
+/// — anything outside this subset returns the raw text wrapped in
+/// `Err`. Always returns a `result<value>` so callers can `?? {}`.
+fn parse_yaml_string(s: &str) -> Value {
+    let mut lines: Vec<&str> = Vec::new();
+    for raw in s.lines() {
+        // Strip trailing comments outside strings.
+        let stripped = strip_yaml_comment(raw);
+        if stripped.trim().is_empty() {
+            continue;
+        }
+        lines.push(stripped);
+    }
+    let mut idx = 0;
+    let value = parse_yaml_block(&lines, &mut idx, 0);
+    Value::ok(value)
+}
+
+fn strip_yaml_comment(line: &str) -> &str {
+    let mut in_dq = false;
+    let mut in_sq = false;
+    for (i, c) in line.char_indices() {
+        match c {
+            '"' if !in_sq => in_dq = !in_dq,
+            '\'' if !in_dq => in_sq = !in_sq,
+            '#' if !in_dq && !in_sq => return &line[..i],
+            _ => {}
+        }
+    }
+    line
+}
+
+fn indent_of(line: &str) -> usize {
+    line.chars().take_while(|c| *c == ' ').count()
+}
+
+fn parse_yaml_block(lines: &[&str], idx: &mut usize, min_indent: usize) -> Value {
+    if *idx >= lines.len() {
+        return Value::Unit;
+    }
+    let first = lines[*idx];
+    let ind = indent_of(first);
+    if ind < min_indent {
+        return Value::Unit;
+    }
+    let trimmed = first[ind..].trim_start();
+    if trimmed.starts_with("- ") || trimmed == "-" {
+        // Sequence of items at this indentation.
+        let mut out: Vec<Value> = Vec::new();
+        while *idx < lines.len() {
+            let l = lines[*idx];
+            if indent_of(l) != ind {
+                break;
+            }
+            let t = l[ind..].trim_start();
+            if !(t.starts_with("- ") || t == "-") {
+                break;
+            }
+            *idx += 1;
+            let inline = if t == "-" { "" } else { t[2..].trim() };
+            if inline.is_empty() {
+                // Nested block follows at deeper indent.
+                let inner = parse_yaml_block(lines, idx, ind + 1);
+                out.push(inner);
+            } else if inline.contains(':') && !is_flow_value(inline) {
+                // Inline mapping shape `- key: value` — sibling keys
+                // line up at `ind + 2` (past the dash + space).
+                let item = parse_yaml_inline_mapping(inline, lines, idx, ind + 2);
+                out.push(item);
+            } else {
+                out.push(parse_yaml_scalar(inline));
+            }
+        }
+        return Value::List(out);
+    }
+    // Mapping.
+    let mut fields: Vec<(String, Value)> = Vec::new();
+    while *idx < lines.len() {
+        let l = lines[*idx];
+        if indent_of(l) != ind {
+            break;
+        }
+        let t = l[ind..].trim_start();
+        if t.starts_with("- ") || t == "-" {
+            break;
+        }
+        let colon = match find_yaml_colon(t) {
+            Some(i) => i,
+            None => break,
+        };
+        let key = t[..colon].trim().trim_matches(['"', '\'']).to_string();
+        let rhs = t[colon + 1..].trim();
+        *idx += 1;
+        let v = if rhs.is_empty() {
+            parse_yaml_block(lines, idx, ind + 1)
+        } else {
+            parse_yaml_scalar(rhs)
+        };
+        fields.push((key, v));
+    }
+    Value::Record(crate::runtime::value::RecordValue { name: None, fields })
+}
+
+fn parse_yaml_inline_mapping(
+    head: &str,
+    lines: &[&str],
+    idx: &mut usize,
+    deeper_indent: usize,
+) -> Value {
+    let colon = find_yaml_colon(head).unwrap_or(head.len());
+    let key = head[..colon].trim().to_string();
+    let rhs = head[colon.saturating_add(1)..].trim();
+    let mut fields: Vec<(String, Value)> = Vec::new();
+    let v = if rhs.is_empty() {
+        parse_yaml_block(lines, idx, deeper_indent)
+    } else {
+        parse_yaml_scalar(rhs)
+    };
+    fields.push((key, v));
+    // Pick up sibling keys at the deeper indent.
+    while *idx < lines.len() {
+        let l = lines[*idx];
+        if indent_of(l) != deeper_indent {
+            break;
+        }
+        let t = l[deeper_indent..].trim_start();
+        if t.starts_with("- ") || t == "-" {
+            break;
+        }
+        let c = match find_yaml_colon(t) {
+            Some(i) => i,
+            None => break,
+        };
+        let k = t[..c].trim().to_string();
+        let rhs = t[c + 1..].trim();
+        *idx += 1;
+        let v = if rhs.is_empty() {
+            parse_yaml_block(lines, idx, deeper_indent + 1)
+        } else {
+            parse_yaml_scalar(rhs)
+        };
+        fields.push((k, v));
+    }
+    Value::Record(crate::runtime::value::RecordValue { name: None, fields })
+}
+
+fn find_yaml_colon(s: &str) -> Option<usize> {
+    let mut in_dq = false;
+    let mut in_sq = false;
+    for (i, c) in s.char_indices() {
+        match c {
+            '"' if !in_sq => in_dq = !in_dq,
+            '\'' if !in_dq => in_sq = !in_sq,
+            ':' if !in_dq && !in_sq => {
+                // Allow `:` inside `[1, 2]` flow sequences only if
+                // followed by whitespace or end-of-line.
+                if i + 1 == s.len() || s.as_bytes()[i + 1] == b' ' {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn is_flow_value(s: &str) -> bool {
+    let t = s.trim();
+    t.starts_with('[') || t.starts_with('{')
+}
+
+fn parse_yaml_scalar(s: &str) -> Value {
+    let t = s.trim();
+    if t.is_empty() || t == "null" || t == "~" {
+        return Value::Unit;
+    }
+    if t == "true" {
+        return Value::Bool(true);
+    }
+    if t == "false" {
+        return Value::Bool(false);
+    }
+    if let Some(rest) = t
+        .strip_prefix('"')
+        .and_then(|r| r.strip_suffix('"'))
+    {
+        return Value::Str(rest.to_string());
+    }
+    if let Some(rest) = t
+        .strip_prefix('\'')
+        .and_then(|r| r.strip_suffix('\''))
+    {
+        return Value::Str(rest.to_string());
+    }
+    if t.starts_with('[') && t.ends_with(']') {
+        let inner = &t[1..t.len() - 1];
+        let parts: Vec<Value> = if inner.trim().is_empty() {
+            Vec::new()
+        } else {
+            inner.split(',').map(|p| parse_yaml_scalar(p.trim())).collect()
+        };
+        return Value::List(parts);
+    }
+    if let Ok(n) = t.parse::<i64>() {
+        return Value::Int(n);
+    }
+    if let Ok(f) = t.parse::<f64>() {
+        return Value::Float(f);
+    }
+    Value::Str(t.to_string())
+}
+
+/// Convert UNIX epoch days to civil (y, m, d). Hinnant 2012 algorithm.
+fn epoch_days_to_ymd(days: i64) -> (i32, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = (yoe as i64 + era * 400) as i32;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
 }
 
 fn record_event(env: &Env, kind: &str, fields: Vec<(String, String)>) {
@@ -2832,6 +4359,18 @@ fn value_as_display(v: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Char(c) => c.to_string(),
         Value::Unit => "()".into(),
+        Value::Date(s) | Value::Timestamp(s) | Value::Duration(s) | Value::Uuid(s)
+        | Value::Decimal(s) => s.clone(),
+        Value::Result(Ok(inner)) => value_as_display(inner),
+        Value::Result(Err(inner)) => format!("Err({})", value_as_display(inner)),
+        Value::Option(Some(inner)) => value_as_display(inner),
+        Value::Option(None) => "None".into(),
+        Value::List(_)
+        | Value::Set(_)
+        | Value::Tuple(_)
+        | Value::Map(_)
+        | Value::Record(_)
+        | Value::Enum(_) => crate::runtime::json::encode_natural(v),
         other => format!("{other:?}"),
     }
 }
@@ -4578,7 +6117,11 @@ fn enforce_ai_cap(env: &Env, op: &str, span: Span) -> Result<String, EvalError> 
         }
     };
     if cap.star {
-        return Ok("mock".to_string());
+        // `enforce = "off"` synthesises `cap[*]`. Return the empty
+        // string to signal "no model restriction": callers compare
+        // against `.is_empty()` to skip equality checks and fall back
+        // to the model carried by the value/session/backend.
+        return Ok(String::new());
     }
     let entry = cap
         .entries
@@ -4611,6 +6154,12 @@ fn enforce_ai_cap(env: &Env, op: &str, span: Span) -> Result<String, EvalError> 
 /// stdin). When no backend is configured at all, the mock kick-in
 /// keeps unit tests offline.
 fn run_ai_backend(env: &Env, op: &str, model: &str, prompt: &str) -> Result<String, String> {
+    // `enforce = "off"` paths feed an empty model here. Substitute a
+    // friendly placeholder so traces and JSON bodies stay readable.
+    // The CLI backend already pins its model in `cmd`; the HTTP
+    // backend just echoes the field in the body; mock cares only for
+    // the echo prefix.
+    let model = if model.is_empty() { "default" } else { model };
     let backend = env.ai_backend.as_ref();
     let kind = backend.map(|b| b.kind.as_str()).unwrap_or("mock");
     match kind {
@@ -4769,6 +6318,16 @@ fn builtin_ai_complete(env: &Env, args: &[Value], span: Span) -> Result<Value, E
 }
 
 fn builtin_ai_chat(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    // M19.T6 — `ai.chat(system: string, dir: string) -> Chat`. When
+    // two strings are passed, load the directory as a corpus and
+    // return a Chat record that exposes `.ask(prompt)` and
+    // `.kb_size()`. Otherwise fall through to the original message-
+    // list API.
+    if args.len() == 2 {
+        if let (Value::Str(system), Value::Str(dir)) = (&args[0], &args[1]) {
+            return build_chat_from_dir(env, system, dir, span);
+        }
+    }
     arity_check("ai.chat", 1, args, span)?;
     // The argument is `list<map<string,string>>` — we serialise it to
     // a single prompt for the backend; v0.2 does not preserve the role
@@ -5896,6 +7455,138 @@ fn builtin_env_read(env: &Env, args: &[Value], span: Span) -> Result<Value, Eval
     })
 }
 
+/// M27.T1 — `env.must_read(key) -> string`. Like `env.read` but
+/// raises an error when the variable is unset, so callers don't
+/// have to unwrap an option.
+fn builtin_env_must_read(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("env.must_read", 1, args, span)?;
+    let name = expect_string("env.must_read", &args[0], span)?;
+    match std::env::var(&name) {
+        Ok(v) => {
+            record_event(
+                env,
+                "env_read",
+                vec![
+                    ("name".into(), format!("\"{name}\"")),
+                    ("present".into(), "true".into()),
+                ],
+            );
+            Ok(Value::Str(v))
+        }
+        Err(_) => Err(EvalError::new(
+            EvalErrorKind::Raised(Value::Str(format!("env.must_read: `{name}` is not set"))),
+            span,
+        )),
+    }
+}
+
+/// M27.T1 — `env.set(key, value) -> unit`. Sets a process env var
+/// for the rest of the run. Trace event records both names but
+/// hashes the value to avoid leaking secrets into the trace.
+fn builtin_env_set(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("env.set", 2, args, span)?;
+    let key = expect_string("env.set", &args[0], span)?;
+    let value = expect_string("env.set", &args[1], span)?;
+    std::env::set_var(&key, &value);
+    record_event(
+        env,
+        "env_set",
+        vec![
+            ("key".into(), format!("\"{key}\"")),
+            ("len".into(), value.len().to_string()),
+        ],
+    );
+    Ok(Value::Unit)
+}
+
+/// M27.T2 — `date.now() -> timestamp`. UTC instant rendered as
+/// `YYYY-MM-DDThh:mm:ssZ`. Recorded under N2 so replay pins the
+/// observed value.
+fn builtin_date_now(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("date.now", 0, args, span)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (y, mo, d) = epoch_days_to_ymd(now / 86_400);
+    let secs_of_day = (now.rem_euclid(86_400)) as u32;
+    let h = secs_of_day / 3600;
+    let mi = (secs_of_day % 3600) / 60;
+    let se = secs_of_day % 60;
+    let ts = format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{se:02}Z");
+    record_event(env, "clock_now", vec![("value".into(), format!("\"{ts}\""))]);
+    Ok(Value::Timestamp(ts))
+}
+
+/// M27.T2 — `date.format(t, fmt) -> string`. Supports a v0.1-
+/// compatible subset of `%Y %m %d %H %M %S` plus literal text.
+/// The input can be a `timestamp` or a `date`.
+fn builtin_date_format(_env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("date.format", 2, args, span)?;
+    let raw = match &args[0] {
+        Value::Timestamp(s) | Value::Date(s) | Value::Str(s) => s.clone(),
+        Value::Int(epoch) => {
+            // Bare unix seconds (date.timestamp() result).
+            let (y, mo, d) = epoch_days_to_ymd(epoch / 86_400);
+            let s = (epoch.rem_euclid(86_400)) as u32;
+            format!(
+                "{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}Z",
+                s / 3600,
+                (s % 3600) / 60,
+                s % 60
+            )
+        }
+        other => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type(format!(
+                    "date.format expects timestamp/date/int, got {}",
+                    value_kind(other)
+                )),
+                span,
+            ))
+        }
+    };
+    let fmt = expect_string("date.format", &args[1], span)?;
+    // Split YYYY-MM-DDThh:mm:ssZ into components.
+    let bytes = raw.as_bytes();
+    let component = |range: std::ops::Range<usize>| -> &str {
+        if range.end <= bytes.len() {
+            std::str::from_utf8(&bytes[range]).unwrap_or("")
+        } else {
+            ""
+        }
+    };
+    let year = component(0..4);
+    let month = component(5..7);
+    let day = component(8..10);
+    let hour = component(11..13);
+    let minute = component(14..16);
+    let second = component(17..19);
+    let mut out = String::with_capacity(fmt.len());
+    let mut iter = fmt.chars().peekable();
+    while let Some(c) = iter.next() {
+        if c == '%' {
+            match iter.next() {
+                Some('Y') => out.push_str(year),
+                Some('m') => out.push_str(month),
+                Some('d') => out.push_str(day),
+                Some('H') => out.push_str(hour),
+                Some('M') => out.push_str(minute),
+                Some('S') => out.push_str(second),
+                Some('%') => out.push('%'),
+                Some(other) => {
+                    out.push('%');
+                    out.push(other);
+                }
+                None => out.push('%'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Ok(Value::Str(out))
+}
+
 fn arity_check(name: &str, expected: usize, args: &[Value], span: Span) -> Result<(), EvalError> {
     if args.len() != expected {
         Err(EvalError::new(
@@ -6492,16 +8183,7 @@ fn list_pat_matches(
 /// values fall back to `Debug` so the user sees something rather than
 /// nothing. Kept here so the parser stays unaware of `Value`.
 fn stringify_for_interp(v: &Value) -> String {
-    match v {
-        Value::Str(s) => s.clone(),
-        Value::Int(n) => n.to_string(),
-        Value::Float(f) => format!("{f}"),
-        Value::Bool(b) => if *b { "true" } else { "false" }.into(),
-        Value::Char(c) => c.to_string(),
-        Value::Date(s) | Value::Timestamp(s) | Value::Duration(s) => s.clone(),
-        Value::Unit => String::new(),
-        other => format!("{other:?}"),
-    }
+    value_as_display(v)
 }
 
 fn eval_literal_pattern(e: &Expr) -> Result<Value, EvalError> {
@@ -7064,9 +8746,11 @@ mod tests {
     }
     #[test]
     fn t5_20_nested_ok_some_chained_unwrap() {
-        // `Ok(Some(7))?` unwraps the result level → `Some(7)`, then
-        // a second `?` unwraps the option → `7`.
-        assert_eq!(ev("Ok(Some(7))??"), Value::Int(7));
+        // `Ok(Some(7))?` unwraps the result level → `Some(7)`. A
+        // second `?` would unwrap the option, but `??` is now the
+        // null-coalesce operator (v0.3): write the unwraps as
+        // separate postfix `?` to keep the chain explicit.
+        assert_eq!(ev("(Ok(Some(7))?)?"), Value::Int(7));
     }
 
     // ---- M3.T4 — closures, higher-order, monomorphisation ----
@@ -9369,7 +11053,7 @@ mod tests {
         // Mode 2: `#[policy(name)]` attaches the listed policy names
         // onto the fn at parse time. M8 wires module-declared policies
         // globally; the attribute carries scope refinement metadata
-        // for the lockset / agent_net layer to consume in M10+.
+        // for the manifest / agent_net layer to consume in M10+.
         let src = r#"
             policy production_writes {
                 match: kube.apply
@@ -9395,9 +11079,9 @@ mod tests {
     }
 
     #[test]
-    fn t5_lockset_mode_filters_module_policies_by_active_list() {
+    fn t5_manifest_mode_filters_module_policies_by_active_list() {
         // Mode 3 end-to-end: a module declares two policies; the
-        // lockset's `[policies] active = [..]` lists only one of them.
+        // manifest's `[policies] active = [..]` lists only one of them.
         // The filtered set propagates through `select_active_policies`
         // → `run_main_with_active_policies` so the unlisted policy is
         // effectively inert. Listing the noisy one instead flips the
@@ -9444,9 +11128,9 @@ mod tests {
     }
 
     #[test]
-    fn t5_lockset_mode_attach_point_works() {
-        // Mode 3 (`lockset.toml [policies]`) — the full toml-driven
-        // wiring lands with M11's lockset work; the runtime already
+    fn t5_manifest_mode_attach_point_works() {
+        // Mode 3 (`aeris.toml [policies]`) — the full toml-driven
+        // wiring lands with M11's manifest work; the runtime already
         // exposes `Env::with_policies` as the attach point. Here we
         // verify that policies handed in externally (no source decl)
         // are honoured by `apply_policies`.
@@ -9569,7 +11253,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"text\":\"pong\"}",
         );
         let tracer = Tracer::in_memory();
-        let backend = std::rc::Rc::new(crate::lockset::AiBackend {
+        let backend = std::rc::Rc::new(crate::manifest::AiBackend {
             kind: "http".into(),
             url: Some(format!("http://127.0.0.1:{port}")),
             auth: None,
@@ -9599,7 +11283,7 @@ mod tests {
         // The acceptance gate of M9.T1: a `cli` backend that spawns a
         // subprocess and returns its output.
         let tracer = Tracer::in_memory();
-        let backend = std::rc::Rc::new(crate::lockset::AiBackend {
+        let backend = std::rc::Rc::new(crate::manifest::AiBackend {
             kind: "cli".into(),
             url: None,
             auth: None,
@@ -9624,8 +11308,8 @@ mod tests {
     fn m9t1_ai_backend_cli_without_cmd_is_runtime_error() {
         // `kind = cli` but no `cmd` configured → the handler raises
         // EvalErrorKind::Io. This guards against silent fall-through
-        // to the mock when the lockset is misconfigured.
-        let backend = std::rc::Rc::new(crate::lockset::AiBackend {
+        // to the mock when the manifest is misconfigured.
+        let backend = std::rc::Rc::new(crate::manifest::AiBackend {
             kind: "cli".into(),
             url: None,
             auth: None,
@@ -9648,7 +11332,7 @@ mod tests {
 
     #[test]
     fn m9t1_ai_backend_unknown_kind_is_runtime_error() {
-        let backend = std::rc::Rc::new(crate::lockset::AiBackend {
+        let backend = std::rc::Rc::new(crate::manifest::AiBackend {
             kind: "telepathy".into(),
             url: None,
             auth: None,
@@ -9931,7 +11615,7 @@ mod tests {
             crate::runtime::replay::ReplayMode::FromFixtures,
         );
         // Configure a backend that would fail if reached.
-        let backend = std::rc::Rc::new(crate::lockset::AiBackend {
+        let backend = std::rc::Rc::new(crate::manifest::AiBackend {
             kind: "cli".into(),
             url: None,
             auth: None,

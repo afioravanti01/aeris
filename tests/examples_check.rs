@@ -1,15 +1,15 @@
 //! M14.T7 — every example under `examples/` must pass `aeris check`.
 //!
 //! Walks every `*.aer` file under `examples/`, parses it (with the
-//! adjacent `lockset.toml` if present), runs the static checker
+//! adjacent `aeris.toml` if present), runs the static checker
 //! (M2.T1+) and asserts the diagnostic batch is empty. Templated
 //! after the `aeris check` CLI driver so the test catches the same
 //! drift the user would hit.
 
 use std::path::Path;
 
-use aeris::check::{check_module, check_module_with_lockset};
-use aeris::lockset::parse_lockset;
+use aeris::check::{check_module, check_module_with_manifest};
+use aeris::manifest::parse_manifest;
 use aeris::syntax::parse;
 
 fn each_example<F: FnMut(&Path)>(mut f: F) {
@@ -49,11 +49,11 @@ fn every_example_checks_clean() {
         let module = parse(&src).unwrap_or_else(|e| {
             panic!("{}: parse error at line {}: {:?}", p.display(), e.span.line, e.kind)
         });
-        let lockset_path = p.parent().unwrap().join("lockset.toml");
-        let errs = if lockset_path.exists() {
-            let toml = std::fs::read_to_string(&lockset_path).expect("read lockset");
-            let lockset = parse_lockset(&toml).expect("parse lockset");
-            check_module_with_lockset(&module, &lockset.caps)
+        let manifest_path = p.parent().unwrap().join("aeris.toml");
+        let errs = if manifest_path.exists() {
+            let toml = std::fs::read_to_string(&manifest_path).expect("read manifest");
+            let manifest = parse_manifest(&toml).expect("parse manifest");
+            check_module_with_manifest(&module, &manifest.caps)
         } else {
             check_module(&module)
         };

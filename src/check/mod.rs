@@ -15,17 +15,17 @@
 
 pub mod effects;
 mod error;
-mod lockset_caps;
+mod manifest_caps;
 mod narrow_caps;
 mod render;
 mod resolver;
 
 pub use error::{CheckError, CheckErrorKind};
-pub use lockset_caps::check_module_against_lockset;
+pub use manifest_caps::check_module_against_manifest;
 pub use narrow_caps::{narrow_caps, render_narrowing_diff, CapNarrowing};
 pub use render::{explain, render_diagnostic};
 
-use crate::lockset::CapsCeiling;
+use crate::manifest::CapsCeiling;
 use crate::syntax::ast::Module;
 
 /// Run the static-analysis suite over a parsed module. The checker
@@ -36,31 +36,59 @@ pub fn check_module(m: &Module) -> Vec<CheckError> {
 }
 
 /// Run the static-analysis suite together with the M2.T6 allow-list
-/// intersection check against the project's `lockset.toml [caps]`
-/// ceiling. The lockset-intersection errors are appended to the result
+/// intersection check against the project's `aeris.toml [caps]`
+/// ceiling. The manifest-intersection errors are appended to the result
 /// of `check_module` so callers receive a single combined batch.
 ///
-/// M15: when `caps.required == false` the checker switches to
-/// prototype mode (§ 8.4.1). Body-resolution `NoCapInScope` errors
-/// (E65) are suppressed for functions without a `cap` parameter; every
-/// other rule (`OpNotInCapSignature`, `cap[*]` ban, `intent`, saga
-/// `undo`, allow-list intersection) remains active.
-pub fn check_module_with_lockset(m: &Module, caps: &CapsCeiling) -> Vec<CheckError> {
+/// § 8.4.1 — three enforcement modes:
+///
+/// * `Strict` (default) — every cap rule is active.
+/// * `Loose` — `NoCapInScope` (E65) is suppressed for functions
+///   without a `cap` parameter; everything else stays.
+/// * `Off` — script mode. The whole cap discipline is relaxed:
+///   E65, E66 (intent on writes), E67 (saga undo on writes), and
+///   E71 (allow-list ceiling) are all suppressed. The runtime
+///   synthesises `cap[*]` so call sites are not gated either.
+pub fn check_module_with_manifest(m: &Module, caps: &CapsCeiling) -> Vec<CheckError> {
+    use crate::manifest::EnforceMode;
     let mut out = resolver::check_module(m);
-    if !caps.required {
-        out.retain(|e| !is_prototype_suppressible(&e.kind, m));
+    match caps.enforce {
+        EnforceMode::Strict => {}
+        EnforceMode::Loose => {
+            out.retain(|e| !is_loose_suppressible(&e.kind, m));
+        }
+        EnforceMode::Off => {
+            out.retain(|e| !is_off_suppressible(&e.kind, m));
+            // Skip the allow-list intersection check entirely.
+            return out;
+        }
     }
-    out.extend(lockset_caps::check_module_against_lockset(m, caps));
+    out.extend(manifest_caps::check_module_against_manifest(m, caps));
     out
 }
 
-/// Whether a check error should be suppressed under `required = false`.
-/// Today this means a single class: `NoCapInScope` raised on a function
-/// that does not declare a `cap` parameter — the prototype-mode escape
-/// hatch. `OpNotInCapSignature` remains active because the developer
-/// explicitly opted in to the discipline by writing `cap: cap[...]`.
-fn is_prototype_suppressible(kind: &CheckErrorKind, _m: &Module) -> bool {
+/// Suppressed under `enforce = "loose"`: only the body-resolution
+/// `NoCapInScope` escape, preserving the prototype-mode behaviour
+/// shipped in M15.
+fn is_loose_suppressible(kind: &CheckErrorKind, _m: &Module) -> bool {
     matches!(kind, CheckErrorKind::NoCapInScope { .. })
+}
+
+/// Suppressed under `enforce = "off"`: the whole cap and intent
+/// discipline. Type errors (E64), `model@vN` versioning (E68),
+/// `agent_net` cycles (E70), and cap-escape into records / channels
+/// (the latter is meaningful even without enforcement, since it
+/// would crash the runtime) all stay active.
+fn is_off_suppressible(kind: &CheckErrorKind, _m: &Module) -> bool {
+    matches!(
+        kind,
+        CheckErrorKind::NoCapInScope { .. }
+            | CheckErrorKind::OpNotInCapSignature { .. }
+            | CheckErrorKind::CapStarInUserCode
+            | CheckErrorKind::MissingIntentForWriteCall { .. }
+            | CheckErrorKind::SagaStepUndoNoopWithWriteDo { .. }
+            | CheckErrorKind::AllowListOutsideLockset { .. }
+    )
 }
 
 // ====================================================================

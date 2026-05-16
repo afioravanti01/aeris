@@ -68,7 +68,7 @@ aeris-v02/
 │   ├── syntax/                           # lexer · parser · AST · formatter (`aeris fmt`)
 │   ├── check/                            # types, cap narrowing, V1/V2/V3 patches, saga rules, cycle detection
 │   ├── runtime/                          # tree-walk evaluator, JSONL tracer, replay, L1 stdlib, L2 cap handlers
-│   ├── lockset/                          # lockset.toml, blake3, surface.lock, main cap synthesis
+│   ├── lockset/                          # aeris.toml, blake3, surface.lock, main cap synthesis
 │   ├── test_harness/                     # parallel test runner, property generators, golden-trace differ
 │   └── templates/                        # files emitted by `aeris init`
 ├── tests/                                # Rust integration tests
@@ -92,7 +92,7 @@ Module responsibilities (one-liners):
 | `syntax` | lexer · parser · AST · pretty-printer (`aeris fmt`) |
 | `check` | types, capability narrowing, V2 intent rule, saga rules, cycle detection, V1 narrow-caps linter, V3 surface lock |
 | `runtime` | tree-walk evaluator, JSONL tracer, replay engine, L1 stdlib, L2 native cap handlers (`ai`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`, `audit`) |
-| `lockset` | lockset.toml parsing, dep resolution, blake3 hashing, surface.lock writer/reader, main cap synthesis |
+| `lockset` | aeris.toml parsing, dep resolution, blake3 hashing, surface.lock writer/reader, main cap synthesis |
 | `test_harness` | parallel `aeris test` runner, property generators, golden-trace differ |
 
 ---
@@ -116,12 +116,18 @@ Module responsibilities (one-liners):
 | M12 | Tests + properties + `fmt` + V1 narrow-caps | `aeris test`, property shrinking, total `aeris fmt`, capability minimisation linter | 4 | M2, M3 | done |
 | M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | done |
 | M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done (CI-driven packaging deferred, § 9) |
-| M15 | Capability prototype mode | `[caps] required` flag in lockset; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
+| M15 | Capability prototype mode | `[caps] required` flag in manifest; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
+| M15B | Three-mode enforcement (`enforce = "off" \| "loose" \| "strict"`) | Manifest field generalising `required` into three levels; `off` synthesises `cap[*]`, suppresses E65/E66/E67/E71, skips runtime allow-list; `aeris init` defaults to `off` | 1 | M15 | done |
 | M16 | v0.3 — String interpolation `{x}` | Replace `\(...)` with `{...}` inside string literals; lexer/parser disambiguation against record and block braces; `aeris fmt --migrate-strings` rewrites `*.aer` | 1 | M1 | done |
 | M17 | v0.3 — Inline errors (`catch`, `error()`, `defer`) | `expr catch e { ... }` as expression; `error(msg)` sugar for `raise err.user(msg)`; `defer stmt` LIFO at function exit | 2 | M2, M3, M5 | done |
 | M18 | v0.3 — Time control (`every`, `retry`, `timeout`, `clock.sleep`) | Block-shaped sugar over cap-gated `clock.sleep`; `retry` with backoff; `timeout` with cooperative cancel | 2 | M4, M5 | done |
-| M19 | v0.3 — AI builtins (`session`, `decide`, `extract`, `generate`, `ensemble`, `eval`, `index`, `guard`, `cache`, `usage`) | Each builtin desugars to the v0.2 core (`agent`/`policy`/`model@vN`); state immutable; every call inside `intent`; cap-gated by `ai.complete` / `ai.embed` | 4 | M9, M10 | partial (T1, T2, T9 done; T3–T8, T10–T11 deferred) |
-| M20 | v0.3 — Network listeners (`net.http server`, TCP `listen`/`connect`, UDP, `net.resolve`) | New L1 ops with their own cap entries (`net.http.serve`, `net.tcp.listen`, ...); allow-list on ports + binds; trace events per accept | 3 | M5 | deferred (servers introduce a long-running, multi-thread runtime that does not fit the current tree-walk model; revisit once spawn/channel + a cooperative scheduler land) |
+| M19 | v0.3 — AI builtins (`session`, `decide`, `extract`, `generate`, `ensemble`, `eval`, `index`, `guard`, `cache`, `usage`) | Each builtin desugars to the v0.2 core (`agent`/`policy`/`model@vN`); state immutable; every call inside `intent`; cap-gated by `ai.complete` / `ai.embed` | 4 | M9, M10 | partial (T1, T2, T6 `ai.chat(system, dir)` + `chat.ask` + `chat.kb_size`, T9 done; T3–T5, T7–T8, T10–T11 deferred) |
+| M24 | v0.3 — Script-friendly surface (`loop`, `??`, `strings.*`, `list/string` methods, global `len()`, natural `json.encode`/`json.parse`, `date.today`/`date.timestamp`) | `loop { }` desugars to `while true`; `??` null-coalesce on `Result`/`Option`/`Unit`; pure helpers in `strings.{trim,lower,upper,contains,starts_with,ends_with,split,join,replace,parse_int}`; method-call sugar on `list`/`string`/`map`; top-level `len(x)`; `json.encode` returns natural (untagged) JSON | 1 | M3 | done |
+| M25 | v0.3 — Untyped fn parameters + kwargs on builtins | `fn f(x)`, `fn f(x, y)` parse without explicit type (treated as dynamic); `f(name: value)` resolves to parameter `name` for both closures and L1/L2 builtins | 1 | M1 | done |
+| M26 | v0.3 — Top-level effectful statements | A `.aer` module may contain `let`, expression-statements, and cap calls outside any `fn`. They run in declaration order before `main` (or as the program body when `main` is absent). Module-level `var` remains forbidden | 1 | M3 | done |
+| M27 | v0.3 — Script builtins (env.set, date.now/format, list.push/pop, yaml.parse) | `env.set(key, value)` writes a process env var (cap: `env.write`); `date.now() -> timestamp`, `date.format(t, fmt) -> string`; mutable `list.push(x)` / `list.pop()` on `var` bindings; `yaml.parse(s) -> result<record>` minimal v0.1-compatible subset | 1 | M3 | done |
+| M28 | v0.3 — Programmatic agent network (`ai.network`) | `ai.network(max_rounds: int) -> Network`; `network.agent(name: string, system: string)`; `network.run(entry:, message:, until:) -> { trace, rounds }`. Thin builder atop the M10 `agent_net` runtime; routing is text-based (until-string match in last reply) rather than type-based | 1 | M9, M10 | done |
+| M20 | v0.3 — Network listeners (`net.http server` minimal) | `net.http(port: int) -> http_server`, `server.accept() -> http_req`, `req.reply(status:, body:, content_type:)`, blocking single-threaded; concurrent handlers via `spawn { … }`; trace events per accept | 2 | M5 | done (HTTP only — TCP/UDP/`net.resolve` deferred to v0.4) |
 | M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | partial (assert_status / assert_json / assert_semantic done; @example and suite-level setup parser sugar deferred) |
 | M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | deferred (every sub-op is shell-out or external SDK plumbing — out of scope for this batch; current minimal handlers from M11 still ship) |
 | M23 | v0.3 — `model X@vN extends X@v(N-1)` | Sugar over the explicit migration function; parser checks fields-of-prev and `where:` clauses are still satisfied; auto-generates a default migration when the diff is structurally trivial | 1 | M8 | done |
@@ -203,7 +209,7 @@ that the task realises.
 | M2.T3 | Capability checker: `cap[..]` narrowing in signatures | A function calling `fs.write_file` without it in `cap[..]` rejected with code 65 | § 8.3 | done |
 | M2.T4 | Capability checker: body-resolution (§ 8.2) — `<module>.<op>(...)` binds to in-scope `cap` | Pure fn calling `http.get(...)` rejected with code 65 ("no cap in scope") | § 8.2 | done |
 | M2.T5 | Capability checker: `cap[*]` rejected in user code | Sample with `cap[*]` returns code 65 | § 8.4, § 8.7 | done |
-| M2.T6 | Capability checker: allow-list intersection with `lockset.toml [caps]` | A signature requesting `http.post @ ["evil.com"]` outside lockset rejected with code 71 | § 8.3.2 | done |
+| M2.T6 | Capability checker: allow-list intersection with `aeris.toml [caps]` | A signature requesting `http.post @ ["evil.com"]` outside lockset rejected with code 71 | § 8.3.2 | done |
 | M2.T7 | V2 enforcement: write-effectful call without enclosing `intent` rejected with code 66 | Negative fixtures for each write-classified op | § 10.1 | done |
 | M2.T8 | Saga rule: `step` with write-`do` and `undo: noop` rejected with code 67 | Negative fixtures | § 12.2 | done |
 | M2.T9 | `agent_net`: cycle rejected with code 70 | Negative fixture: `flow a -> b -> a` | § 14.1 | done |
@@ -228,7 +234,7 @@ that the task realises.
 |---|---|---|---|---|
 | M4.T1 | JSONL tracer: `intent_enter` / `intent_exit`, scope tracking, ULID-based `trace_id` | Trace file produced for any run; ULID monotonic | § 20.1 | done |
 | M4.T2 | Capability runtime: `cap` value type, `cap.subset[..]` constructor with parse-time and runtime narrowing | Negative test: `subset` broadening parent rejected | § 8.4 | done |
-| M4.T3 | `main`'s synthesised cap from `lockset.toml [caps]` (without M7's full lockset — minimal stub) | `aeris run` prints effective cap shape on stderr | § 8.4 | done |
+| M4.T3 | `main`'s synthesised cap from `aeris.toml [caps]` (without M7's full lockset — minimal stub) | `aeris run` prints effective cap shape on stderr | § 8.4 | done |
 | M4.T4 | L1 `io`: `print`, `println`, `eprint`, `eprintln`, `read_line` (diagnostic class — no V2 trigger) | 10 fixtures; `read_line` reads from stdin | § 22 | done |
 | M4.T5 | L1 `fs`: read/write/walk/stat/exists/mkdir/remove/rename with allow-list runtime check | Path outside allow-list raises `PolicyViolation`; trace event emitted | § 22, § 8.3.1 | done |
 | M4.T6 | L1 `env.read` (read-only env access; mutation forbidden) | Trace event records read | § 22 | done |
@@ -263,12 +269,12 @@ that the task realises.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M7.T1 | `lockset.toml` parser (using `toml` crate); semantic validation | 20 lockset fixtures; malformed → exit 69 | § 24.1 | done |
+| M7.T1 | `aeris.toml` parser (using `toml` crate); semantic validation | 20 lockset fixtures; malformed → exit 69 | § 24.1 | done |
 | M7.T2 | Local path dep resolution + blake3 hashing of resolved bytes | Hash mismatch → exit 69; `aeris lock` recomputes | § 24.4 | done |
 | M7.T3 | GitHub tarball dep resolution + cache at `.aeris/ext/<host>__<repo>/<version>/` | Network test (mocked) succeeds; second run hits cache | § 24.2 | done |
 | M7.T4 | `main`'s synthesised cap composes from `[caps]` ceiling | Effective signature printed on `aeris run` stderr matches lockset | § 8.4 | done |
 | M7.T5 | V3 `aeris lock surface`: per-`pub`-fn effect set + allow-list emitted to `.aeris/surface.lock` | Snapshot test against 5-module project | § 8.6 | done |
-| M7.T6 | `surface_hash` for deps recorded in `lockset.toml [deps].<alias>` | A dep upgrade that broadens surface forces a lockfile diff | § 24.3 | done |
+| M7.T6 | `surface_hash` for deps recorded in `aeris.toml [deps].<alias>` | A dep upgrade that broadens surface forces a lockfile diff | § 24.3 | done |
 | M7.T7 | CI mode: `aeris lock --check` rejects PR with stale lockset | Exit 69 on staleness | § 24.4 | done |
 
 ### 5.8 M8 — Models + Policies (3 weeks)
@@ -279,7 +285,7 @@ that the task realises.
 | M8.T2 | `model@vN` validation on `json.decode` and on HTTP body ingress | 10 fixtures crossing trust boundary | § 16.2 | done |
 | M8.T3 | Record-level `where:` (multi-field invariants) | 5 fixtures with cross-field constraints | § 16.3 | done |
 | M8.T4 | `policy` runtime: `match`, `deny`, `require`, `limit`, `audit`, `when` | One fixture per clause, all six | § 15 | done |
-| M8.T5 | Policy activation: module-import / `#[policy(name)]` attribute / `lockset.toml [policies]` | 3 activation modes tested | § 15.3 | done |
+| M8.T5 | Policy activation: module-import / `#[policy(name)]` attribute / `aeris.toml [policies]` | 3 activation modes tested | § 15.3 | done |
 | M8.T6 | Policy drift trace event when replay-vs-live outcome differs | `policy_drift` event emitted on synthetic divergence | § 15.4 | done |
 | M8.T7 | `PolicyViolation` exit (not catchable by `?`) | Test confirms behaviour | § 18.4 | done |
 
@@ -287,7 +293,7 @@ that the task realises.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M9.T1 | `ai` cap handler with pluggable backend selected by `lockset.toml [ai.backend]` | HTTP backend hits Anthropic API (or mock); CLI backend spawns subprocess; mock backend returns canned responses | § 23 | done |
+| M9.T1 | `ai` cap handler with pluggable backend selected by `aeris.toml [ai.backend]` | HTTP backend hits Anthropic API (or mock); CLI backend spawns subprocess; mock backend returns canned responses | § 23 | done |
 | M9.T2 | Operations: `ai.complete`, `ai.chat`, `ai.embed`, `ai.tools` | One fixture per op | § 22 | done |
 | M9.T3 | N3 tape recorder: every `ai.*` call records `(prompt, model, response, tokens, ts)` | Trace event `ai_call` per op | § 8.1, § 20.2 | done |
 | M9.T4 | `aeris replay <trace_id>` re-runs program against tape; no LLM contacted | Two-phase test: original run + replay; outputs identical | § 20.3 | done |
@@ -363,13 +369,24 @@ that the task realises.
 |---|---|---|---|---|
 | M15.T1 | Add `required: bool` to `[caps]` parser; default `true` | 5 lockset fixtures with explicit `required` | § 8.4.1, § 24.1 | done |
 | M15.T2 | `check::check_module_with_lockset` honours `required = false`: suppress `NoCapInScope` (E65) for fns without `cap` parameter; fns *with* `cap` still checked normally | 9 fixtures: same code passes with `required = false`, fails with `required = true` | § 8.4.1 | done |
-| M15.T3 | `aeris init` template emits `required = false` by default with explanatory comment | `src/templates/lockset.toml` | § 25.1 | done |
+| M15.T3 | `aeris init` template emits `required = false` by default with explanatory comment | `src/templates/aeris.toml` | § 25.1 | done |
 | M15.T4 | Examples migration: `examples/saga` and `examples/agent_net` opt into `required = true`; `examples/hello` keeps prototype mode | `examples_check.rs` integration test still green | App. A–C | done |
 | M15.T5 | Documentation: `RELEASE.md` notes the prototype/strict workflow; `language.md § 8.4.1` updated | RELEASE.md + language.md updated | § 8.4.1 | done |
 
 The orthogonal rules (E66 intent, E67 saga undo, E71 lockset
 ceiling, E65 `cap[*]` ban) remain active in both modes — they
 concern program structure, not authority distribution.
+
+### 5.15B M15B — Three-mode enforcement (`enforce`) (1 week, post-v0.2.0)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M15B.T1 | `manifest::EnforceMode { Off, Loose, Strict }`; parse `[caps] enforce = "off" \| "loose" \| "strict"`; accept legacy `required = true \| false` as alias | parser tests for the three forms + legacy bool + invalid string | § 8.4.1 | done |
+| M15B.T2 | `check::check_module_with_manifest` honours all three modes: `off` suppresses E65/E66/E67/E71 and skips the manifest-intersection check; `loose` keeps the M15 behaviour; `strict` preserves M0–M14 | one positive + one negative fixture per mode × suppressed-error pair | § 8.4.1 | done |
+| M15B.T3 | `Manifest::synthesise_main_cap` returns `CapValue { star: true }` under `enforce = "off"` so every runtime allow-list (`enforce_path_policy`, `enforce_http_host_policy`, `enforce_ai_cap`) short-circuits | runtime test: `fs.walk` / `http.post` / `ai.session_ask` succeed without `*.allow` listed in the manifest | § 8.3.1 | done |
+| M15B.T4 | `enforce_ai_cap` returns the empty string under `cap[*]` so callers can fall back to the model carried by the value/session/backend; `run_ai_backend` substitutes `"default"` when no model is set | regression test for `ai.complete` + `ai.session_ask` + `ai.chat.ask` under `enforce = "off"` | § 23 | done |
+| M15B.T5 | `aeris init` template emits `enforce = "off"`; `aeris run` startup banner shows `cap[*]  (enforce = "off" — no runtime allow-list)` | `aeris init` snapshot test; example `enforce = "off"` script runs cleanly | § 25.1, § 8.4 | done |
+| M15B.T6 | `language.md § 8.4.1` + `§ 24.1` updated; § 25.3 exit-code matrix unchanged (E66/E67/E71 still fire under strict/loose) | docs/language.md updated | § 8.4.1 | done |
 
 ### 5.16 M16 — String interpolation `{x}` (1 week)
 
@@ -468,6 +485,26 @@ object — so `aeris replay` stays bit-identical.
 | M23.T3 | Auto-migration: when the diff is structurally trivial (only added fields with defaults), the compiler generates `migrate_v1_to_v2`; otherwise an explicit migration is required | 4 fixtures | § 16.4 | deferred (defaults syntax + migration synthesis; future polish pass) |
 | M23.T4 | `aeris doc` emits the `extends` chain | Snapshot test | § 25.1 | deferred (small doc tweak; bundled with the next doc pass) |
 
+### 5.24 M24 — Script-friendly surface (1 week)
+
+Closes the v0.1 → v0.2 ergonomic gap that surfaced during dogfooding
+(§ 11 of this document). The pieces are mechanical, but together
+they let an `enforce = "off"` script read like an interpreted
+scripting language, not a stripped-down systems language.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M24.T1 | Reserve `loop` keyword; parser desugars `loop { body }` to `while true { body }` before the static check | 5 fixtures incl. `break` / `continue` interaction | § 2.3, § 6.1 | done |
+| M24.T2 | Lexer emits `QuestionQuestion` for `??`; parser introduces `BinOp::Coalesce` between `and` and `or`; runtime extracts inner value from `Ok(v)`/`Some(v)`/non-wrapper and falls back to rhs on `Err(_)`/`None`/`()`. Right-associative | 10 fixtures incl. chained `a ?? b ?? c` | § 2.6, § 18 | done |
+| M24.T3 | Pure builtins on `strings`: `trim`, `lower`, `upper`, `contains`, `starts_with`, `ends_with`, `split`, `join`, `replace`, `parse_int` | 1 fixture per op | § 22 | done |
+| M24.T4 | Method-call sugar on `list<T>` (`len`, `empty`, `first`, `last`, `slice`, `contains`, `join`), `string` (same surface as `strings.*`), `map<K,V>` (`len`, `get`) — dispatched at runtime after the cap-module path failed | 8 fixtures | § 5.4, § 22 | done |
+| M24.T5 | Top-level `len(x)` intrinsic — accepts `list` / `set` / `tuple` / `map` / `string` / `bytes` | 5 fixtures | § 22 | done |
+| M24.T6 | `json.encode` / `json.stringify` emit natural (untagged) JSON; `json.parse` returns `result<record>` for objects; `json.pretty` aliases compact encoder pending a real pretty-printer | 4 fixtures incl. record → object → record round-trip | § 22 | done |
+| M24.T7 | `date.today() -> date`, `date.timestamp() -> int` | 2 fixtures | § 22 | done |
+| M24.T8 | `value_as_display` unwraps `Result(Ok(v))` → `v`, `Option(Some(v))` → `v`, displays records / lists via the natural JSON encoder; `io.println(Some(7))` prints `7` not `Some(Int(7))` | 6 display-shape fixtures | § 22 | done |
+| M24.T9 | `ai.chat(system: string, dir: string) -> Chat` (M19.T6 reified): walks the directory, loads `*.md \| .txt \| .rst \| .adoc \| .yaml \| .yml`, concatenates with `=== FILE: <path> ===` markers, returns a `Chat` record. `chat.ask(prompt) -> string` calls the backend; `chat.kb_size() -> int` reports the file count. Coexists with the v0.2 `ai.chat(messages)` form | smoke test under mock and CLI backend | § 23 | done |
+| M24.T10 | `language.md § 2.3 / § 2.6 / § 5.4 / § 6.1 / § 8.4.1 / § 22 / § 23 / § 24.1 / Appendix D` updated; `RELEASE.md` records v0.3 surface | docs cross-referenced | — | done |
+
 ---
 
 ## 6. Test artifacts
@@ -485,7 +522,8 @@ absence is a v0.2.0 release-blocker.
 | Round-trip fixtures | `aeris-tests/roundtrip/` | `parse → fmt → parse` byte-equal |
 | Replay parity fixtures | `aeris-tests/replay/` | Original run + `aeris replay` produce identical traces |
 | Lockset tampering vectors | `aeris-tests/lockset-attack/` | Modified bytes / hash mismatch / version drift |
-| Prototype-mode fixtures | `src/check/lockset_caps.rs::tests` (M15) | Same source passes with `required = false` and fails with `required = true` |
+| Prototype-mode fixtures | `src/check/manifest_caps.rs::tests` (M15 / M15B) | Same source passes with `enforce = "loose"` / `"off"` and fails with `"strict"` |
+| v0.3 script fixtures | `demo/11_chatbot_md/` (M15B + M24) | One real end-to-end project exercising `enforce = "off"` + `loop` + `??` + method calls + `ai.chat(dir)` |
 
 Acceptance suite naming: every test file is `<milestone>-<task>-<short>.aer`,
 e.g. `aeris-tests/positive/M6.T2-saga-rollback.aer`. CI runs the
@@ -551,7 +589,7 @@ that is itself implementable.
 
 | # | Risk | L | I | Mitigation |
 |---|---|---|---|---|
-| R1 | LLM backend instability invalidates N3 replay (Anthropic API changes) | M | H | Backend abstraction (M9.T1) + mock backend by default; HTTP / CLI backends opt-in via `[ai.backend]` in `lockset.toml` |
+| R1 | LLM backend instability invalidates N3 replay (Anthropic API changes) | M | H | Backend abstraction (M9.T1) + mock backend by default; HTTP / CLI backends opt-in via `[ai.backend]` in `aeris.toml` |
 | R2 | Effect-surface analysis (V3) becomes intractable for large projects | L | H | Per-pub-fn computation only; cache by AST hash; benchmark on 1000-fn synthetic project before M11 |
 | R3 | Saga undo cascade hits backend rate limits | M | M | M6.T5 retries with exponential backoff; PartialFailure surfacing is the safety valve |
 | R4 | `aeris fmt --narrow-caps` produces noisy diffs that overwhelm review | L | M | Linter mode emits diffs only on opt-in; default `aeris fmt` does not narrow |

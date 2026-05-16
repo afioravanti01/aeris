@@ -196,7 +196,7 @@ fn walk_block_for_caps(b: &crate::syntax::ast::Block, out: &mut Vec<String>) {
 /// so re-orderings, comment churn, or any change that does *not*
 /// affect the public effect set keeps the hash stable. Returns the
 /// `blake3:<hex>` string that callers pin into
-/// `[deps].<alias>.surface_hash` in `lockset.toml`.
+/// `[deps].<alias>.surface_hash` in `aeris.toml`.
 pub fn compute_dep_surface_hash(src: &str) -> Result<String, String> {
     let files = vec![("<dep>".to_string(), src.to_string())];
     let lock = compute_surface(&files)?;

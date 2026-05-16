@@ -49,6 +49,142 @@ pub fn encode(v: &Value) -> String {
     out
 }
 
+/// Encode a `Value` to *natural* JSON: the user-facing `json.encode`
+/// from `language.md` § 22. Records become objects, lists become
+/// arrays, primitives are bare numbers/strings/booleans. The format
+/// is lossy for variants that JSON cannot express (timestamps and
+/// dates become strings; bytes become hex strings; tuples become
+/// arrays) — round-tripping through `json.parse` is best-effort.
+pub fn encode_natural(v: &Value) -> String {
+    let mut out = String::new();
+    write_natural(v, &mut out);
+    out
+}
+
+fn write_natural(v: &Value, out: &mut String) {
+    match v {
+        Value::Unit => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Int(n) => out.push_str(&n.to_string()),
+        Value::Float(f) => write_float(*f, out),
+        Value::Decimal(s) => out.push_str(s),
+        Value::Str(s) => write_natural_str(s, out),
+        Value::Bytes(b) => {
+            out.push('"');
+            for byte in b {
+                out.push_str(&format!("{byte:02x}"));
+            }
+            out.push('"');
+        }
+        Value::Char(c) => write_natural_str(&c.to_string(), out),
+        Value::Uuid(s) | Value::Date(s) | Value::Timestamp(s) | Value::Duration(s) => {
+            write_natural_str(s, out);
+        }
+        Value::List(vs) | Value::Set(vs) | Value::Tuple(vs) => {
+            out.push('[');
+            for (i, v) in vs.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_natural(v, out);
+            }
+            out.push(']');
+        }
+        Value::Map(kvs) => {
+            out.push('{');
+            for (i, (k, v)) in kvs.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                let key = match k {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{other:?}"),
+                };
+                write_natural_str(&key, out);
+                out.push(':');
+                write_natural(v, out);
+            }
+            out.push('}');
+        }
+        Value::Option(None) => out.push_str("null"),
+        Value::Option(Some(inner)) => write_natural(inner, out),
+        Value::Result(Ok(inner)) => write_natural(inner, out),
+        Value::Result(Err(inner)) => {
+            out.push_str("{\"error\":");
+            write_natural(inner, out);
+            out.push('}');
+        }
+        Value::Record(r) => {
+            out.push('{');
+            for (i, (k, v)) in r.fields.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_natural_str(k, out);
+                out.push(':');
+                write_natural(v, out);
+            }
+            out.push('}');
+        }
+        Value::Enum(e) => match &e.data {
+            VariantValue::Unit => write_natural_str(&e.variant, out),
+            VariantValue::Tuple(vs) if vs.len() == 1 => {
+                out.push('{');
+                write_natural_str(&e.variant, out);
+                out.push(':');
+                write_natural(&vs[0], out);
+                out.push('}');
+            }
+            VariantValue::Tuple(vs) => {
+                out.push('{');
+                write_natural_str(&e.variant, out);
+                out.push_str(":[");
+                for (i, v) in vs.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_natural(v, out);
+                }
+                out.push_str("]}");
+            }
+            VariantValue::Record(fields) => {
+                out.push('{');
+                write_natural_str(&e.variant, out);
+                out.push_str(":{");
+                for (i, (k, v)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_natural_str(k, out);
+                    out.push(':');
+                    write_natural(v, out);
+                }
+                out.push_str("}}");
+            }
+        },
+        Value::Closure(_) | Value::Cap(_) | Value::Saga(_) => out.push_str("null"),
+        _ => out.push_str("null"),
+    }
+}
+
+fn write_natural_str(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
 fn write_value(v: &Value, out: &mut String) {
     match v {
         Value::Unit => out.push_str("{\"unit\":null}"),

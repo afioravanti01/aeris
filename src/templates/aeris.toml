@@ -1,0 +1,38 @@
+[project]
+name  = "my-aeris-project"
+aeris = "0.3.0"
+
+[deps]
+
+[caps]
+# Capability enforcement mode (§ 8.4.1):
+#
+#   enforce = "off"     — script mode (default for `aeris init`).
+#                         No `cap` parameters required, no runtime
+#                         allow-list. Trace, replay, models and
+#                         policies stay available as voluntary
+#                         annotations.
+#
+#   enforce = "loose"   — prototype mode. Functions without a `cap`
+#                         parameter may call any operation, but the
+#                         runtime allow-list below is enforced.
+#                         Functions that DO declare `cap` are
+#                         checked statically.
+#
+#   enforce = "strict"  — production mode. Every effectful function
+#                         must declare its `cap[...]`; `intent` is
+#                         mandatory on writes; sagas need explicit
+#                         `undo`. Flip to "strict" when the project
+#                         becomes mission-critical.
+enforce = "off"
+
+# Project-wide allow-list ceiling (only enforced under "loose" or
+# "strict") — see docs/language.md § 24.1.
+# http.allow      = ["api.example.com"]
+# fs.allow_read   = ["./data/**"]
+# fs.allow_write  = ["./out/**"]
+# ai.models       = ["claude-sonnet-4-6"]
+
+# [ai.backend]
+# kind = "cli"
+# cmd  = "claude --print --model claude-sonnet-4-6"

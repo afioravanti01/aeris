@@ -235,7 +235,12 @@ impl<'a> Lexer<'a> {
             }
             b'?' => {
                 self.advance();
-                TokenKind::Question
+                if self.peek() == b'?' {
+                    self.advance();
+                    TokenKind::QuestionQuestion
+                } else {
+                    TokenKind::Question
+                }
             }
             b'^' => {
                 self.advance();

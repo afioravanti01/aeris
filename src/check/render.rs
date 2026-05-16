@@ -72,7 +72,7 @@ pub fn suggestion(k: &CheckErrorKind) -> Option<String> {
             "express iteration on `agent_net {net}` via `until: <expr>`, not a back-edge"
         )),
         CheckErrorKind::AllowListOutsideLockset { entry, family, .. } => Some(format!(
-            "add `{entry}` to `[caps] {family}` in `lockset.toml`, or remove it from the signature"
+            "add `{entry}` to `[caps] {family}` in `aeris.toml`, or remove it from the signature"
         )),
         CheckErrorKind::CapEscape { vector } => match vector {
             CapEscapeVector::RecordField { .. } | CapEscapeVector::EnumVariant { .. } => {
@@ -236,7 +236,7 @@ fn headline(k: &CheckErrorKind) -> String {
             }
         },
         CheckErrorKind::AllowListOutsideLockset { op, entry, family } => format!(
-            "`{op} @ \"{entry}\"` is outside the lockset ceiling `[caps] {family}`"
+            "`{op} @ \"{entry}\"` is outside the manifest ceiling `[caps] {family}`"
         ),
     }
 }
@@ -320,9 +320,9 @@ pub fn explain(code: u8) -> Option<String> {
             "model Invoice@v1 { id: uuid }\nrecord B { x: Invoice@v1 }",
         ),
         69 => (
-            "lockfile drift / hash mismatch / malformed lockset",
+            "lockfile drift / hash mismatch / malformed manifest",
             "§ 24",
-            "`lockset.toml` is malformed, a dep's hash does not match its bytes, or the surface lock is stale.",
+            "`aeris.toml` is malformed, a dep's hash does not match its bytes, or the surface lock is stale.",
             "deps.utils.hash = \"sha256:abc\"",
             "deps.utils.hash = \"blake3:9b18\"",
         ),
@@ -334,7 +334,7 @@ pub fn explain(code: u8) -> Option<String> {
             "agent_net p { flow a -> b until: a.done }",
         ),
         71 => (
-            "allow-list violation (signature outside lockset ceiling)",
+            "allow-list violation (signature outside manifest ceiling)",
             "§ 8.3.2",
             "A function signature requested an `@ \"<endpoint>\"` value outside the project's `[caps]` ceiling.",
             "fn f(cap: cap[http.post @ \"evil.com\"]) {}",
@@ -560,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn explain_for_71_mentions_lockset_and_allow_list() {
+    fn explain_for_71_mentions_manifest_and_allow_list() {
         let body = explain(71).unwrap();
         assert!(body.contains("E71"));
         assert!(body.contains("allow-list"));

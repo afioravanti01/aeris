@@ -105,7 +105,7 @@ The reader sees, **without running anything**, that:
 - The *why* is on the screen (`intent "..."`), not in a commit message.
 - Every external write has a paired `undo`.
 - The supply chain pin `deploy@"1.2.0"` is reproducible because it is
-  bound to a blake3 hash in `lockset.toml` (§ 24).
+  bound to a blake3 hash in `aeris.toml` (§ 24).
 
 That is the whole language, in spirit, on one page.
 
@@ -134,15 +134,19 @@ That is the whole language, in spirit, on one page.
 
 ```
 agent      agent_net  and        as         await      break
-cap        const      continue   deny       do         else
-ensures    enum       false      flow       fn         for
-from       if         in         intent     is         let
-limit      match      model      not        or         policy
-property   pub        raise      record     require    requires
-return     saga       spawn      step       test       true
-type       undo       until      use        var        when
-where      while      with
+cap        catch      const      continue   defer      deny
+do         else       ensures    enum       every      extends
+false      flow       fn         for        from       if
+in         intent     is         let        limit      loop
+match      model      not        or         policy     property
+pub        raise      record     require    requires   retry
+return     saga       spawn      step       test       timeout
+true       type       undo       until      use        var
+when       where      while      with
 ```
+
+The v0.3 additions over v0.2 are `catch`, `defer`, `every`, `extends`,
+`loop`, `retry`, `timeout`.
 
 **No soft keywords.** A user variable named `step` is a syntax error;
 the developer writes `q` or `s` instead. This is a deliberate cost —
@@ -212,6 +216,7 @@ unary -  not
 ==  !=  <  <=  >  >=
 is   as
 and
+??                  (null-coalesce — Ok(v)/Some(v)/value → v, Err/None/() → rhs)
 or
 ..  ..=             (range, inclusive range)
 =  +=  -=  *=  /=  %=
@@ -219,6 +224,13 @@ or
 
 There are **no** ternary, comma operator, increment/decrement, or
 overload-able operators. `aeris fmt` is total.
+
+The `??` operator (v0.3) takes any value on the left and an
+expression on the right. It returns the left value when it is
+"present" — `Ok(v)`, `Some(v)`, or any non-wrapper value — and
+evaluates the right when it is `Err(_)`, `None`, or `()`. Right-
+associative: `a ?? b ?? c` is `a ?? (b ?? c)`. The right-hand side
+is short-circuited like `or`.
 
 ---
 
@@ -228,7 +240,7 @@ overload-able operators. `aeris fmt` is total.
 
 ```
 my-pipeline/
-├── lockset.toml            // dependency pins, cap allow-lists, surface
+├── aeris.toml            // dependency pins, cap allow-lists, surface
 ├── .aeris/                 // build cache, surface lock, traces
 │   ├── ext/                // fetched external libraries by hash
 │   ├── surface.lock        // public effect surface (V3)
@@ -241,7 +253,7 @@ my-pipeline/
     └── invoices.test.aer
 ```
 
-A *project* is the closure of `lockset.toml`. A *module* is a single
+A *project* is the closure of `aeris.toml`. A *module* is a single
 `.aer` file. There is no `package` keyword; the file path under `src/`
 is the module path.
 
@@ -256,7 +268,7 @@ use deploy from "github.com/acmecorp/aeris-devops" deploy@"1.2.0"   // L3 — ex
 use { rollout, status } from deploy                   // selective re-export
 ```
 
-- Local and external imports MUST appear in `[deps]` of `lockset.toml`
+- Local and external imports MUST appear in `[deps]` of `aeris.toml`
   with a `blake3:...` hash. The runtime computes the hash of the
   resolved bytes; mismatch is a fatal error before execution.
 - L1 and L2 names live in a frozen registry (`aeris-core`); they cannot
@@ -283,6 +295,30 @@ pub policy production_egress { ... }
 
 The public surface of a module is what `aeris lock surface` (V3) records
 into `.aeris/surface.lock`.
+
+### 3.4 Top-level statements (v0.3, M26)
+
+A module may contain `let` bindings, expression-statements (function
+calls), and `for` / `while` / `loop` / `if` blocks **outside** any
+`fn`. These run in declaration order on module load, before `main`
+(or as the program body when no `main` is declared):
+
+```aeris
+let CLAUDE_ARGS = "--print --model claude-sonnet-4-6"
+env.set(key: "AERIS_LLM_CLI", value: "claude {CLAUDE_ARGS}")
+fs.mkdir("./out")
+
+fn main() { … }
+```
+
+A module with no `main` is a valid program: the file *is* the body,
+top-level statements are its sequential execution. Module-level
+`var` is still forbidden — only immutable `let` and `const` may
+bind at module scope.
+
+The runtime allow-list applies to top-level statements exactly as
+it does inside `main`: the synthesised cap from `aeris.toml [caps]`
+is in scope, and `enforce = "off"` bypasses it.
 
 ---
 
@@ -468,16 +504,28 @@ let q = "raw \\( not interpolated )"   // backslash escapes
 
 ### 5.4 Method-call syntax
 
-`x.f(a)` is sugar for `f(x, a)` if `f` is in scope and accepts `x` as
-its first parameter. There is no method dispatch table. Field access
-takes precedence: if the LHS type has a field `f`, `x.f` is the field
-and `x.f(a)` is calling that field's value.
+`x.f(a)` resolves in this priority order:
+
+1. **Module call**: when `x` is a bare identifier naming an L1/L2
+   module (`io.println(...)`, `fs.read_text(...)`, `ai.complete(...)`),
+   the call dispatches to the module's `f` operation. Cap-gating
+   applies (§ 8.2).
+2. **Built-in method on the value type**: the runtime ships methods
+   on `list`, `string`, `map`, and on a handful of record kinds
+   (`Chat`, `Session`). These bind tighter than user-defined
+   functions. See § 22 for the full list.
+3. **Record field as callable**: when `x` is a record value with a
+   field `f` holding a closure, `x.f(a)` calls that closure with `a`.
+4. **UFCS**: `f(x, a)` if `f` is a free function in scope.
+
+There is no general method dispatch table for user-defined types;
+the four rules above are total.
 
 ---
 
 ## 6. Statements and control flow
 
-### 6.1 `if`, `match`, `while`, `for`, `until`
+### 6.1 `if`, `match`, `while`, `loop`, `for`, `until`
 
 ```aeris
 if cond { ... } else if cond2 { ... } else { ... }
@@ -485,13 +533,16 @@ if cond { ... } else if cond2 { ... } else { ... }
 match v { p1 -> e1, p2 if guard -> e2, _ -> default }
 
 while cond { ... }
-while true { ... }                            // unbounded loop (no `loop` keyword)
+loop { ... }                                  // v0.3 — sugar for `while true`
 for i in 0..10 { ... }
 for (k, v) in map { ... }
 for x in channel { ... }                      // see § 19
 
 until: condition                              // declarative; only inside agent_net
 ```
+
+`loop { body }` is parsed pre-check as `while true { body }`. Use
+`break` to exit; `continue` re-enters from the top.
 
 `break` and `continue` are unlabelled by default; labelled breaks use
 `'name:`:
@@ -504,8 +555,8 @@ until: condition                              // declarative; only inside agent_
 }
 ```
 
-There is no `loop` keyword. `while true { ... }` is the unconditional
-form (one construct per concept, thesis § 3).
+v0.3 adds `loop { … }` as sugar over `while true { … }` so script
+authors don't have to spell out the condition (§ 6.1, M24.T1).
 
 ### 6.2 Range types
 
@@ -594,6 +645,36 @@ error.
 Aeris does **not** support default parameter values, variadics, or
 optional parameters. The cost (one construct per concept) is paid at
 call sites via named arguments and `option<T>`.
+
+### 7.5 Untyped parameters (v0.3)
+
+Parameters may omit their type when authoring a script. `fn f(x, y)`
+is admissible and resolves to the pseudo-type `any` (the dynamic
+interpreter does not check parameter types). The strict mode still
+encourages typed signatures: `aeris fmt --narrow-caps` does not
+infer types, but `aeris check` reports the underlying expression
+errors at the body site.
+
+### 7.6 Named arguments (kwargs)
+
+A call may pass arguments by name to match the parameter list of
+the callee:
+
+```aeris
+fn greet(name: string, greeting: string) -> string { greeting + " " + name }
+greet(name: "Bob", greeting: "hello")
+greet("Alice", "ciao")          // positional also accepted
+```
+
+Named arguments work identically against:
+- user-defined functions and closures (matched by parameter name);
+- L1 / L2 builtins (matched against a frozen kwarg table in the
+  runtime — see § 22);
+- record methods on `Chat`, `HttpReq`, `HttpServer`, `AiNetwork`.
+
+Reserved keywords (`match`, `until`, `policy`, `agent`, …) are
+admissible as argument names — the v0.1 `network.run(until: "DONE")`
+form parses as expected.
 
 ---
 
@@ -758,7 +839,7 @@ Capabilities without a meaningful allow-list dimension (`clock.now`,
 
 #### 8.3.2 Allow-list intersection with the lockset
 
-`lockset.toml [caps]` declares the **project-wide ceiling** for each
+`aeris.toml [caps]` declares the **project-wide ceiling** for each
 family. A function signature that requests an endpoint outside the
 project ceiling is a parse-time error. A signature that requests a
 strict subset is unified with the ceiling at construction time
@@ -774,7 +855,7 @@ strict subset is unified with the ceiling at construction time
 
 `cap[*]` is **forbidden in user source code**. The only function that
 receives a capability without writing its shape is `main`, and `main`'s
-shape is **derived from `lockset.toml`**:
+shape is **derived from `aeris.toml`**:
 
 ```aeris
 fn main(cap) -> result<unit> {
@@ -785,7 +866,7 @@ fn main(cap) -> result<unit> {
 ```
 
 At `aeris run`, the runtime constructs `cap` for `main` by composing
-the entries of `lockset.toml [caps]` into a concrete cap value. The
+the entries of `aeris.toml [caps]` into a concrete cap value. The
 effective signature is printed by `aeris check` and `aeris run` on
 start-up:
 
@@ -803,7 +884,7 @@ $ aeris run src/main.aer
 ```
 
 The single source of truth for the project's authority surface is
-therefore `lockset.toml [caps]`, made executable through `main`'s
+therefore `aeris.toml [caps]`, made executable through `main`'s
 synthesised parameter type.
 
 Inside `main`, capabilities propagate to callees via narrowing:
@@ -824,59 +905,73 @@ capability call; it constructs a new cap). It:
 - never *broadens* — `cap.subset[http.post @ ["evil.com"]]` against a
   parent that did not contain `evil.com` is a parse-time error.
 
-### 8.4.1 Strict and prototype modes
+### 8.4.1 Enforcement modes — `off`, `loose`, `strict`
 
-The capability system has two modes, selected by a project-wide flag
-in `lockset.toml`:
+The capability system has **three** modes, selected by a project-wide
+field in `aeris.toml [caps]`:
 
 ```toml
 [caps]
-required = false   # prototype mode (default for `aeris init`)
-# required = true  # strict mode (mission-critical projects)
+enforce = "off"      # script mode — default for `aeris init`
+# enforce = "loose"  # prototype mode — runtime allow-list enforced
+# enforce = "strict" # production mode — full v0.2 discipline
 ```
 
-**Strict mode (`required = true`).** The behaviour described in
-§§ 8.1–8.4: every function that calls a capability operation must
-declare an enclosing `cap` parameter, and the `<module>.<op>` pair
-must appear in its `cap[...]` shape. Body-resolution failures surface
-as exit code 65 (`NoCapInScope`, `OpNotInCapSignature`).
+| feature | `strict` | `loose` | `off` |
+|---|---|---|---|
+| `main(cap)` cap synthesised from `[caps]` | yes | yes | `cap[*]` |
+| `NoCapInScope` (E65) on fn without `cap` | error | suppressed | suppressed |
+| `OpNotInCapSignature` (E65) on declared cap | error | error | suppressed |
+| `CapStarInUserCode` (E65) | error | error | suppressed |
+| `MissingIntentForWriteCall` (E66) | error | error | suppressed |
+| `SagaStepUndoNoopWithWriteDo` (E67) | error | error | suppressed |
+| `BareModelWithoutVersion` (E68) | error | error | error |
+| `AgentNetCycle` (E70) | error | error | error |
+| `AllowListOutsideLockset` (E71) | error | error | suppressed |
+| Runtime allow-list (`http`, `fs`, `ai.models`, …) | enforced | enforced | bypassed (`cap[*]`) |
+| Trace, replay, `model@vN` validation, policies | on | on | on |
 
-**Prototype mode (`required = false`).** The body-resolution rule is
-relaxed — a function *without* a `cap` parameter may freely call any
-capability operation. Functions that *do* declare a `cap` parameter
-are still checked normally: a developer who opts in to the discipline
-receives it. The runtime allow-list (§ 8.3.1, N4) remains enforced
-in both modes; an unauthorised host or path still raises
-`PolicyViolation` at the call site, regardless of mode.
+**`strict` mode.** The full v0.2 behaviour described in §§ 8.1–8.4.
+Every function that calls a capability operation declares its
+`cap[...]`. `intent` is mandatory on writes. Sagas need explicit
+`undo` on every write step. The manifest's allow-list is the
+project-wide ceiling.
 
-The two regimes are linked by a single migration step: flipping
-`required = false` to `required = true` re-enables every static check
-that prototype mode suppressed. The narrow-caps linter (§ 8.5) helps
-the conversion by deriving the minimal `cap[...]` shape from the
-body's actual usage and emitting it as a `diff`.
+**`loose` mode (alias `required = false`).** The body-resolution
+rule is relaxed — a function *without* a `cap` parameter may freely
+call any capability operation. Functions that *do* declare a `cap`
+parameter are still checked normally: opting in to the discipline
+restores its full strength. The runtime allow-list stays in force;
+an unauthorised host or path raises `PolicyViolation` at the call
+site.
 
-The default for `aeris init` is `required = false`. The recommended
-workflow is:
+**`off` mode (new in v0.3).** Script-friendly. The whole cap
+discipline is relaxed: no `cap` parameters needed, no E65/E66/E67/E71,
+no runtime allow-list — `main` receives `cap[*]`. The trace, replay,
+`model@vN` validation, and `policy` blocks **stay** available as
+voluntary annotations; the only thing turned off is *cap
+enforcement*. Intended for single-author scripts and prototypes
+where audit is not a concern.
 
-1. *Prototype.* Iterate freely; the lockset's allow-list still
-   prevents the program from contacting unauthorised endpoints.
-2. *Promote.* When the project becomes mission-critical, flip
-   `required = true`, run `aeris fmt --narrow-caps`, apply the
-   suggested diff, and let `aeris check` flag every remaining gap.
+**Back-compat.** The legacy `required = true | false` form is still
+accepted: `true` → `strict`, `false` → `loose`. When both `enforce`
+and `required` are present, `required` (read second) wins on the
+boolean axis — projects already on `required = …` keep working.
 
-The following invariants hold in **both** modes:
+**Migration ladder.** A script grows up in three steps:
 
-- `cap[*]` remains forbidden in user source code (§ 8.4 / E65 variant
-  `CapStarInUserCode`);
-- `intent` blocks remain mandatory around write-effectful calls
-  (§ 10.1 / E66);
-- saga `step`s with a write-effectful `do` still require an explicit
-  `undo` block (§ 12.2 / E67);
-- the lockset ceiling (§ 8.3.2 / E71) is still applied to every
-  signature that declares an `@` allow-list.
+1. *Script.* `enforce = "off"`. Write code like in v0.1; iterate fast.
+2. *Prototype.* Flip to `enforce = "loose"`. The manifest now caps
+   what the program can reach at runtime; the static check still
+   does not force `cap` annotations.
+3. *Production.* Flip to `enforce = "strict"`. Run
+   `aeris fmt --narrow-caps` to derive each function's signature
+   from its body. Apply the diff. `aeris check` flags every
+   remaining gap.
 
-These rules are about program structure, not authority distribution,
-so they hold orthogonally to the capability-checking mode.
+The default for `aeris init` is `enforce = "off"`. The promoted
+project moves up the ladder when audit, supply-chain, or PR-review
+needs become real.
 
 ### 8.5 Capability minimisation (V1)
 
@@ -925,7 +1020,7 @@ do not require relocking.
   it as a capture (passed via `cap.subset[...]` at the spawn site).
 - The literal `cap[*]` is rejected in any user source file. The only
   cap with full project authority is `main`'s synthesised parameter
-  type, derived from `lockset.toml`.
+  type, derived from `aeris.toml`.
 
 These rules are checked by the parser; violations are not "warnings".
 
@@ -1348,7 +1443,7 @@ language.
 - A policy may be **scoped** to a function via attribute syntax:
   `#[policy(production_writes)] fn deploy(...) { ... }`
 - A policy may be activated globally for a project from
-  `lockset.toml [policies]`.
+  `aeris.toml [policies]`.
 
 ### 15.4 Determinism under replay
 
@@ -1706,20 +1801,75 @@ The L1 stdlib is bundled with `aeris-core`. The full list:
 | `fs`      | `read_file`, `read_text`, `read_bytes`, `write_file`, `write_text`, `write_bytes`, `walk`, `stat`, `exists`, `mkdir`, `remove`, `rename` |
 | `http`    | `get`, `post`, `put`, `patch`, `delete`, `req`, `resp`, `header`, `query`, `body<T>` |
 | `shell`   | `exec`, `pipe`, `args`, `quote` |
-| `env`     | `read`, `must_read`, `home`, `pwd` |
-| `strings` | `trim`, `split`, `join`, `lower`, `upper`, `contains`, `starts_with`, `replace`, `regex` |
-| `date`    | `today`, `parse`, `format`, `add_days`, `weekday` |
-| `json`    | `decode<T>`, `encode`, `pretty`, `walk` |
-| `yaml`    | `decode<T>`, `encode` |
-| `net`     | `dns`, `ping`, `port_open` |
+| `env`     | `read(key)`, `must_read(key)`, `set(key, value)` (v0.3) |
+| `strings` | `trim`, `lower`, `upper`, `contains`, `starts_with`, `ends_with`, `split`, `join`, `replace`, `parse_int` (v0.3) |
+| `date`    | `today() -> date`, `timestamp() -> int`, `now() -> timestamp`, `format(t, fmt)` (v0.3 — `%Y %m %d %H %M %S`) |
+| `json`    | `decode<T>(s)`, `encode(v)`, `parse(s)`, `stringify(v)` ≡ `encode`, `pretty(v)` (v0.3 — natural JSON) |
+| `yaml`    | `parse(s)`, `parse_file(path)` (v0.3 — v0.1-compatible subset) |
+| `clock`   | `now`, `sleep` (M18) |
+| `random`  | `next` |
+| `net`     | `http(port: int) -> HttpServer` (v0.3, M20) |
+
+**`net.http(port: int) -> HttpServer` (M20).** Bind a TCP listener
+on the given port and return a server value. The server is
+single-threaded blocking; concurrent request handling is the
+caller's responsibility via `spawn { … }`:
+
+```aeris
+let server = net.http(port: 8080)
+loop {
+  let req = server.accept()
+  spawn {
+    if req.path == "/api/health" {
+      req.reply_json(200, json.encode({ status: "ok" }))
+    } else if req.path == "/" {
+      req.reply(200, fs.read_text("./index.html"), "text/html; charset=utf-8")
+    } else {
+      req.reply(404, "not found")
+    }
+  }
+}
+```
+
+The accepted request value is a record with keys `method`, `path`,
+`query_raw`, `headers` (record), `body` (string), `remote_addr`.
+TCP / UDP listeners and `net.resolve` are deferred to v0.4.
+
+`json.encode` / `json.stringify` emit **natural JSON** (the v0.3
+surface used everywhere a human or HTTP body needs to see it):
+records become objects, lists become arrays, `Ok(v)`/`Some(v)`
+unwrap to `v`, `Err(_)`/`None`/`()` become `null`. The internal
+self-tagging encoder (used by the trace JSONL) is not exposed to
+user code.
+
+`json.parse` returns `result<record>` for natural JSON objects —
+parse failure surfaces as `Err(string)` so callers can write
+`json.parse(raw) ?? \{\}` for a default.
+
+**Methods on built-in values (v0.3, no `use` needed):**
+
+| Receiver | Methods |
+|---|---|
+| `list<T>` | `.len()`, `.empty()`, `.first()`, `.last()`, `.slice(a, b)`, `.contains(x)`, `.join(sep)`. **Mutating (only on `var` bindings)**: `.push(x) -> int`, `.pop() -> option<T>` |
+| `string` | `.len()`, `.trim()`, `.lower()`, `.upper()`, `.contains(p)`, `.starts_with(p)`, `.ends_with(p)`, `.split(sep)`, `.replace(from, to)` |
+| `map<K, V>` | `.len()`, `.get(k) -> option<V>` |
+| `record Chat` | `.ask(prompt) -> string`, `.kb_size() -> int` (see § 23) |
+| `record HttpServer` | `.accept() -> HttpReq` (M20) |
+| `record HttpReq` | `.reply(status, body, content_type?) -> unit`, `.reply_json(status, body) -> unit` (M20) |
+| `record AiNetwork` | `.agent(name, system) -> unit` (mutating), `.run(entry, message, until?) -> { trace, rounds }` (M28) |
+
+The global `len(x)` function accepts `list`, `set`, `tuple`, `map`,
+`string`, and `bytes`. The display form (`io.println`, `+` string
+concat) renders `Ok(v)`/`Some(v)` as `v`, records and lists as
+natural JSON.
 
 Every L1 module that can have side effects names a capability path
 (e.g. `fs.write_file`, `http.post`). Pure helpers (`strings.trim`,
-`json.decode`, `date.parse`) take no `cap` and are called as plain
-functions (`strings.trim(s)`, not `cap.strings.trim(s)`). The L1
-surface is closed; there are no "plugins" extending it (thesis § 9.6).
-Diagnostic helpers (`io.print*`) bypass the V2 mandatory-intent rule
-(§ 8.1, diagnostic class).
+`json.decode`, `date.today`, the value methods above) take no `cap`
+and are called as plain functions. The L1 surface is closed; there
+are no "plugins" extending it (thesis § 9.6). Diagnostic helpers
+(`io.print*`) bypass the V2 mandatory-intent rule (§ 8.1,
+diagnostic class).
 
 ---
 
@@ -1743,22 +1893,78 @@ L2 modules expose pure helpers (manifest builders, query DSLs) that
 take no `cap`. Effectful entry points always require the appropriate
 capability path in the enclosing function's `cap` parameter.
 
+**`ai.network(max_rounds: int) -> AiNetwork` (v0.3, M28).**
+Programmatic multi-agent builder, parity with v0.1. Methods:
+
+- `network.agent(name: string, system: string)` — register an
+  agent in the network (mutates a `var` binding).
+- `network.run(entry: string, message: string, until: string?) ->
+  { trace: list<record>, rounds: int }` — drive the network from
+  `entry` with `message`; iterate at most `max_rounds`; stop when
+  any reply contains the `until` sentinel (default `"DONE"`).
+  Hand-off is text-based: a reply prefixed `>>NAME:` forwards the
+  rest to the named agent, otherwise round-robin advances.
+
+```aeris
+fn main() {
+  var net = ai.network(max_rounds: 10)
+  net.agent(name: "geologist",     system: fs.read_text("./agents/geo.md"))
+  net.agent(name: "risk_assessor", system: fs.read_text("./agents/risk.md"))
+  net.agent(name: "reporter",      system: fs.read_text("./agents/rep.md"))
+
+  let r = net.run(
+    entry:   "geologist",
+    message: "Analyse today's M4.5+ events.",
+    until:   "DONE",
+  )
+  io.println("{r.rounds} rounds")
+}
+```
+
+`ai.network` is a *lower-overhead* sibling of `agent_net`. The
+declarative `agent_net` validates each edge against `accept` /
+`produce` `model@vN` schemas (§ 14); the programmatic builder
+uses free-form text and text-based routing. Use `agent_net` when
+the schemas are stable; use `ai.network` when the agent set is
+discovered at runtime from a directory.
+
+**`ai.chat(system, dir) -> Chat` (v0.3, M19.T6).** Convenience
+constructor that loads a directory of markdown / text files
+(`*.md`, `*.txt`, `*.rst`, `*.adoc`, `*.yaml`, `*.yml`) into the
+system prompt as a labelled knowledge base, then returns a `Chat`
+record with two methods:
+
+- `chat.ask(prompt) -> string` — send the prompt; reply is the
+  string returned by the backend.
+- `chat.kb_size() -> int` — number of files loaded.
+
+```aeris
+let chat = ai.chat("You are concise.", "./docs")
+io.println("loaded {chat.kb_size()} files")
+io.println(chat.ask("explain capabilities"))
+```
+
+The two-argument form coexists with the v0.2 `ai.chat(messages)`
+list-of-messages API: when `args = (string, string)` the directory
+loader fires; otherwise the message-list path runs. Both go
+through the same backend (`[ai.backend]`).
+
 The `ai` module is **pluggable on configuration**, not on linkage:
 the LLM backend (HTTP API endpoint, CLI process, mock) is selected
-through `lockset.toml [ai.backend]` and resolved by `aeris-core` at
+through `aeris.toml [ai.backend]` and resolved by `aeris-core` at
 start-up; no third-party native code is loaded.
 
 ---
 
 ## 24. External libraries — Layer 3
 
-### 24.1 The lockset
+### 24.1 The manifest
 
 ```toml
-# lockset.toml
+# aeris.toml
 [project]
 name   = "settle-pipeline"
-aeris  = "0.2.0"
+aeris  = "0.3.0"
 
 [deps]
 deploy = { source = "github.com/acmecorp/aeris-devops", version = "1.2.0",
@@ -1767,7 +1973,7 @@ utils  = { path   = "./lib/utils.aer",
            hash   = "blake3:9b18...ff02" }
 
 [caps]
-required        = true                                # § 8.4.1 — strict mode for production
+enforce         = "strict"                            # § 8.4.1 — off | loose | strict
 http.allow      = ["api.acme.com", "api.stripe.com"]
 fs.allow_read   = ["/etc/aeris/**", "./data/**"]
 fs.allow_write  = ["./out/**", "./.aeris/**"]
@@ -1783,6 +1989,22 @@ auth  = "env:ANTHROPIC_API_KEY"
 active = ["production_egress", "model_budget"]
 ```
 
+The file is named `aeris.toml` — it carries project metadata,
+content-addressed deps, the cap ceiling, the AI backend and the
+active policies, not just the locks. The crate refers to its
+in-memory shape as `Manifest`; "lockset" survives as a synonym for
+the deps section in older prose.
+
+For scripts, the `[caps]` block is reduced to a single line:
+
+```toml
+[caps]
+enforce = "off"   # cap[*] synthesised, no runtime allow-list
+```
+
+`enforce` is the v0.3 form; `required = true | false` from v0.2 is
+still accepted as an alias (`true` → strict, `false` → loose).
+
 ### 24.2 Resolution
 
 - A `use ... from "github.com/.../v"` resolves to a tarball whose bytes
@@ -1796,7 +2018,7 @@ active = ["production_egress", "model_budget"]
 ### 24.3 Effect surface for dependencies
 
 A dependency's `surface.lock` is **also** locked into the consumer's
-`lockset.toml [deps].<alias>.surface_hash`. A dependency upgrade that
+`aeris.toml [deps].<alias>.surface_hash`. A dependency upgrade that
 broadens the surface forces a lockfile diff visible in PR review (V3
 + supply-chain integrity).
 
@@ -1807,8 +2029,8 @@ use "./lib/utils.aer"               // path source; hash auto-computed
 ```
 
 For path-source dependencies, `aeris lock` recomputes the hash on
-every change and updates `lockset.toml`. CI rejects a PR whose
-`lockset.toml` is stale relative to the source tree.
+every change and updates `aeris.toml`. CI rejects a PR whose
+`aeris.toml` is stale relative to the source tree.
 
 ---
 
@@ -1822,7 +2044,7 @@ aeris test <file_or_glob>                 # run tests
 aeris fmt [--narrow-caps] <file_or_glob>  # format; total
 aeris check <file_or_glob>                # type & cap-graph check, no run
 aeris doc <file_or_glob>                  # extract /// doc comments → JSONL
-aeris lock [surface]                      # write lockset.toml & .aeris/surface.lock
+aeris lock [surface]                      # write aeris.toml & .aeris/surface.lock
 aeris replay <trace_id> [--live]          # re-run from recorded trace
 aeris trace tail [<trace_id>]             # follow a trace
 aeris trace diff <a> <b>                  # diff two traces
@@ -1947,7 +2169,7 @@ write any program in this document.
   allow-lists a public function reaches transitively.
 - **intent** — a scope-level "why" string, mandatory on write-effectful
   calls; emitted into the trace.
-- **lockset** — `lockset.toml` + `surface.lock`; the project's pinned
+- **lockset** — `aeris.toml` + `surface.lock`; the project's pinned
   view of the world. Also the source of `main`'s synthesised cap shape.
 - **model@vN** — a versioned record schema validated at trust
   boundaries.
@@ -2033,6 +2255,59 @@ fn main(d: Doc@v1, cap) -> result<Summary@v1> {
   summarise_loop(d, cap.subset[ai.complete @ ["claude-haiku-4-5", "claude-opus-4-7"]])
 }
 ```
+
+## Appendix D — script mode chatbot (v0.3)
+
+A markdown-backed chatbot that wires a CLI-headless backend with no
+`cap`, no `intent`, and no manual KB loading. The `enforce = "off"`
+mode lets the script feel like the v0.1 spelling while keeping the
+trace + replay + backend abstraction intact.
+
+```toml
+# aeris.toml
+[project]
+name  = "docs-chatbot"
+aeris = "0.3.0"
+
+[caps]
+enforce = "off"
+
+[ai.backend]
+kind = "cli"
+cmd  = "claude --print --dangerously-skip-permissions \
+        --no-session-persistence --effort low \
+        --output-format text --model claude-sonnet-4-6"
+```
+
+```aeris
+fn main() {
+  let chat = ai.chat(
+    "Answer only from the FILE-tagged knowledge below.",
+    "./docs",
+  )
+  io.println("loaded {chat.kb_size()} files")
+
+  loop {
+    io.print("you> ")
+    let q = io.read_line() ?? ""
+    if q == "" or q == "quit" { break }
+    io.println("bot> " + chat.ask(q))
+  }
+}
+```
+
+Every v0.3 surface used here is opt-in:
+
+- `enforce = "off"` removes the cap discipline,
+- `loop { }` is the v0.3 sugar for `while true { }`,
+- `?? ""` defaults a missing stdin line to an empty string,
+- `ai.chat(system, dir)` + `.ask(prompt)` + `.kb_size()` are the
+  M19.T6 KB builtins,
+- `io.println` displays records and option/result values naturally.
+
+Flipping `enforce` from `"off"` through `"loose"` to `"strict"`
+forces increasingly more annotations onto the same code without
+changing its meaning — see § 8.4.1.
 
 ---
 

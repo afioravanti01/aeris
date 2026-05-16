@@ -1,22 +1,22 @@
-//! Structured `lockset.toml` model + semantic validation (M7.T1, T4).
+//! Structured `aeris.toml` model + semantic validation (M7.T1, T4).
 //!
 //! Realises `docs/language.md` § 24.1. Parses the raw TOML produced
 //! by `super::toml::parse`, walks the canonical sections
 //! (`[project]`, `[deps]`, `[caps]`, `[ai.backend]`, `[policies]`)
-//! and produces a strongly-typed `Lockset` value that the runtime
+//! and produces a strongly-typed `Manifest` value that the runtime
 //! consumes — `main`'s synthesised cap (M7.T4 — replaces M4.T3
-//! stub) is built directly from `Lockset.caps`.
+//! stub) is built directly from `Manifest.caps`.
 //!
 //! All validation failures map to **exit code 69** (§ 25.3 — lockfile
 //! drift / hash mismatch / malformed pin). The CLI driver renders the
-//! `LocksetError::message` and propagates that exit code.
+//! `ManifestError::message` and propagates that exit code.
 
 use std::collections::BTreeMap;
 
 use super::toml::{TomlError, TomlValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Lockset {
+pub struct Manifest {
     pub project: ProjectInfo,
     pub deps: BTreeMap<String, DepEntry>,
     pub caps: CapsCeiling,
@@ -51,14 +51,47 @@ pub struct DepEntry {
     pub surface_hash: Option<String>,
 }
 
+/// § 8.4.1 — capability enforcement mode. Three levels, finest to
+/// coarsest discipline:
+///
+/// * `Strict` — every effectful function must declare an enclosing
+///   `cap` parameter; the runtime allow-list from the manifest is
+///   enforced on every cap call; `intent` is mandatory on writes;
+///   sagas need explicit `undo` on every write step.
+///
+/// * `Loose` — body-resolution `NoCapInScope` (E65) is suppressed
+///   for functions that omit `cap`. Functions that declare `cap` are
+///   still checked normally. The runtime allow-list (§ 8.3.1, N4)
+///   stays in force. `intent` and saga `undo` remain mandatory.
+///
+/// * `Off` — script-friendly mode. The whole cap discipline is
+///   relaxed: no `cap` parameters needed, no runtime allow-list,
+///   no E65/E66/E67/E71. The trace, replay, models and policies
+///   stay available but become voluntary annotations. Intended for
+///   single-author scripts and prototypes where audit is not a
+///   concern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnforceMode {
+    Off,
+    Loose,
+    Strict,
+}
+
+impl EnforceMode {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "off" => Some(Self::Off),
+            "loose" => Some(Self::Loose),
+            "strict" => Some(Self::Strict),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapsCeiling {
-    /// § 8.4.1 — capability checking mode. `true` (strict) forces every
-    /// effectful function to declare an enclosing `cap` parameter;
-    /// `false` (prototype) suppresses `NoCapInScope` (E65) for
-    /// functions that lack one. The runtime allow-list below applies
-    /// in both modes. `aeris init` emits `required = false`.
-    pub required: bool,
+    /// § 8.4.1 — capability enforcement mode.
+    pub enforce: EnforceMode,
     pub http_allow: Vec<String>,
     pub fs_allow_read: Vec<String>,
     pub fs_allow_write: Vec<String>,
@@ -66,14 +99,23 @@ pub struct CapsCeiling {
     pub ai_models: Vec<String>,
 }
 
+impl CapsCeiling {
+    /// Back-compat alias: returns `true` when the mode is `Strict`.
+    /// Existing call sites that thought of the bool flag can still
+    /// read it without caring about the new third value.
+    pub fn required(&self) -> bool {
+        matches!(self.enforce, EnforceMode::Strict)
+    }
+}
+
 impl Default for CapsCeiling {
     fn default() -> Self {
         // Crate-internal default: strict mode preserves the original
         // M0–M14 behaviour for tests and consumers that build a
         // `CapsCeiling` directly. The user-facing `aeris init`
-        // template is opinionated towards prototype mode (M15.T3).
+        // template is opinionated towards `enforce = "off"` (scripts).
         Self {
-            required: true,
+            enforce: EnforceMode::Strict,
             http_allow: Vec::new(),
             fs_allow_read: Vec::new(),
             fs_allow_write: Vec::new(),
@@ -96,40 +138,50 @@ pub struct AiBackend {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocksetError {
+pub struct ManifestError {
     pub message: String,
 }
 
-impl std::fmt::Display for LocksetError {
+impl std::fmt::Display for ManifestError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl LocksetError {
+impl ManifestError {
     fn new(s: impl Into<String>) -> Self {
         Self { message: s.into() }
     }
 }
 
-impl From<TomlError> for LocksetError {
+impl From<TomlError> for ManifestError {
     fn from(e: TomlError) -> Self {
-        LocksetError::new(format!("lockset.toml: {e}"))
+        ManifestError::new(format!("aeris.toml: {e}"))
     }
 }
 
-/// `aeris check` / `aeris run` exit code for any lockset-related
+/// `aeris check` / `aeris run` exit code for any manifest-related
 /// failure (§ 25.3).
-pub const EXIT_LOCKSET_ERROR: u8 = 69;
+pub const EXIT_MANIFEST_ERROR: u8 = 69;
 
-impl Lockset {
-    /// Compose `main`'s synthesised cap from this lockset's `[caps]`
+impl Manifest {
+    /// Compose `main`'s synthesised cap from this manifest's `[caps]`
     /// ceiling (M7.T4 — replaces the M4.T3 `cap[*]` stub).
     /// Each non-empty allow-list becomes a `(module, op, allow)`
     /// entry. The resulting `CapValue` carries `star = false` so
     /// `cap.subset[..]` narrowing checks fire normally.
     pub fn synthesise_main_cap(&self) -> crate::runtime::value::CapValue {
         use crate::runtime::value::{CapEntryValue, CapValue};
+        // `enforce = "off"` → cap[*]. Every runtime allow-list check
+        // (`enforce_*_policy`) short-circuits on `star = true`, so the
+        // script can reach any host, path, or model. The trace still
+        // records the call; only the gate disappears.
+        if matches!(self.caps.enforce, EnforceMode::Off) {
+            return CapValue {
+                entries: Vec::new(),
+                star: true,
+            };
+        }
         let mut entries: Vec<CapEntryValue> = Vec::new();
         if !self.caps.http_allow.is_empty() {
             for op in ["get", "post", "put", "patch", "delete"] {
@@ -214,7 +266,12 @@ impl Lockset {
     /// Human-readable description of the cap shape, printed on
     /// `aeris run` startup (§ 8.4).
     pub fn describe_main_cap(&self) -> String {
-        let mut out = String::from("[aeris] effective main cap from lockset:\n");
+        if matches!(self.caps.enforce, EnforceMode::Off) {
+            return String::from(
+                "[aeris] effective main cap: cap[*]  (enforce = \"off\" — no runtime allow-list)\n",
+            );
+        }
+        let mut out = String::from("[aeris] effective main cap from manifest:\n");
         if !self.caps.http_allow.is_empty() {
             out.push_str(&format!("  http.* @ {:?}\n", self.caps.http_allow));
         }
@@ -236,22 +293,22 @@ impl Lockset {
 }
 
 /// Verify each `path = "./..."` dep's actual file bytes hash to
-/// the value pinned in `lockset.toml [deps].<alias>.hash` (M7.T2).
+/// the value pinned in `aeris.toml [deps].<alias>.hash` (M7.T2).
 /// Returns the list of mismatched aliases on failure — caller maps
 /// to exit code 69. `project_root` is the directory containing
-/// `lockset.toml`; relative `path` deps resolve against it.
+/// `aeris.toml`; relative `path` deps resolve against it.
 pub fn verify_local_deps(
-    lockset: &Lockset,
+    manifest: &Manifest,
     project_root: &std::path::Path,
-) -> Result<(), Vec<LocksetError>> {
-    let mut errors: Vec<LocksetError> = Vec::new();
-    for (alias, dep) in &lockset.deps {
+) -> Result<(), Vec<ManifestError>> {
+    let mut errors: Vec<ManifestError> = Vec::new();
+    for (alias, dep) in &manifest.deps {
         if let DepSource::LocalPath(p) = &dep.source {
             let abs = project_root.join(p);
             let bytes = match std::fs::read(&abs) {
                 Ok(b) => b,
                 Err(e) => {
-                    errors.push(LocksetError::new(format!(
+                    errors.push(ManifestError::new(format!(
                         "deps.{alias}: cannot read `{}`: {e}",
                         abs.display()
                     )));
@@ -261,7 +318,7 @@ pub fn verify_local_deps(
             let text = String::from_utf8_lossy(&bytes);
             let computed = super::surface::hash_text(&text);
             if computed != dep.hash {
-                errors.push(LocksetError::new(format!(
+                errors.push(ManifestError::new(format!(
                     "deps.{alias}: hash mismatch — pinned `{}` vs actual `{computed}`",
                     dep.hash
                 )));
@@ -274,13 +331,13 @@ pub fn verify_local_deps(
                 match super::surface::compute_dep_surface_hash(&text) {
                     Ok(actual) => {
                         if &actual != pinned {
-                            errors.push(LocksetError::new(format!(
+                            errors.push(ManifestError::new(format!(
                                 "deps.{alias}: surface_hash mismatch — pinned `{pinned}` vs actual `{actual}` (run `aeris lock` to refresh)"
                             )));
                         }
                     }
                     Err(e) => {
-                        errors.push(LocksetError::new(format!(
+                        errors.push(ManifestError::new(format!(
                             "deps.{alias}: cannot compute surface_hash: {e}"
                         )));
                     }
@@ -298,16 +355,16 @@ pub fn verify_local_deps(
     }
 }
 
-/// Parse + semantically validate a `lockset.toml` source. The
+/// Parse + semantically validate a `aeris.toml` source. The
 /// `[project]` section is required; all others are optional.
-pub fn parse_lockset(src: &str) -> Result<Lockset, LocksetError> {
+pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
     let root = super::toml::parse(src)?;
     let project = parse_project(&root)?;
     let deps = parse_deps(&root)?;
     let caps = parse_caps(&root)?;
     let ai_backend = parse_ai_backend(&root)?;
     let policies = parse_policies(&root)?;
-    Ok(Lockset {
+    Ok(Manifest {
         project,
         deps,
         caps,
@@ -316,11 +373,11 @@ pub fn parse_lockset(src: &str) -> Result<Lockset, LocksetError> {
     })
 }
 
-fn parse_project(root: &BTreeMap<String, TomlValue>) -> Result<ProjectInfo, LocksetError> {
+fn parse_project(root: &BTreeMap<String, TomlValue>) -> Result<ProjectInfo, ManifestError> {
     let project_table = match root.get("project") {
         Some(TomlValue::Table(t)) => t,
-        Some(_) => return Err(LocksetError::new("`[project]` must be a table")),
-        None => return Err(LocksetError::new("missing required `[project]` section")),
+        Some(_) => return Err(ManifestError::new("`[project]` must be a table")),
+        None => return Err(ManifestError::new("missing required `[project]` section")),
     };
     let name = required_string(project_table, "project", "name")?;
     let aeris = required_string(project_table, "project", "aeris")?;
@@ -329,10 +386,10 @@ fn parse_project(root: &BTreeMap<String, TomlValue>) -> Result<ProjectInfo, Lock
 
 fn parse_deps(
     root: &BTreeMap<String, TomlValue>,
-) -> Result<BTreeMap<String, DepEntry>, LocksetError> {
+) -> Result<BTreeMap<String, DepEntry>, ManifestError> {
     let table = match root.get("deps") {
         Some(TomlValue::Table(t)) => t,
-        Some(_) => return Err(LocksetError::new("`[deps]` must be a table")),
+        Some(_) => return Err(ManifestError::new("`[deps]` must be a table")),
         None => return Ok(BTreeMap::new()),
     };
     let mut out = BTreeMap::new();
@@ -340,14 +397,14 @@ fn parse_deps(
         let inner = match raw {
             TomlValue::Table(t) => t,
             _ => {
-                return Err(LocksetError::new(format!(
+                return Err(ManifestError::new(format!(
                     "deps.{alias}: must be an inline table"
                 )))
             }
         };
         let hash = required_string(inner, &format!("deps.{alias}"), "hash")?;
         if !hash.starts_with("blake3:") {
-            return Err(LocksetError::new(format!(
+            return Err(ManifestError::new(format!(
                 "deps.{alias}.hash: must start with `blake3:`"
             )));
         }
@@ -375,19 +432,37 @@ fn parse_deps(
     Ok(out)
 }
 
-fn parse_caps(root: &BTreeMap<String, TomlValue>) -> Result<CapsCeiling, LocksetError> {
+fn parse_caps(root: &BTreeMap<String, TomlValue>) -> Result<CapsCeiling, ManifestError> {
     let table = match root.get("caps") {
         Some(TomlValue::Table(t)) => t,
-        Some(_) => return Err(LocksetError::new("`[caps]` must be a table")),
+        Some(_) => return Err(ManifestError::new("`[caps]` must be a table")),
         // No `[caps]` block at all: preserve M0–M14 strict behaviour
-        // (an absent lockset already produced strict checking).
+        // (an absent manifest already produced strict checking).
         None => return Ok(CapsCeiling::default()),
     };
     let mut out = CapsCeiling::default();
+    // New form: `enforce = "off" | "loose" | "strict"`.
+    if let Some(v) = table.get("enforce") {
+        match v {
+            TomlValue::String(s) => {
+                out.enforce = EnforceMode::parse(s).ok_or_else(|| {
+                    ManifestError::new(format!(
+                        "caps.enforce: must be one of \"off\", \"loose\", \"strict\" (got `{s}`)"
+                    ))
+                })?;
+            }
+            _ => return Err(ManifestError::new("caps.enforce: must be a string")),
+        }
+    }
+    // Back-compat: `required = true|false` maps onto `enforce`. If
+    // both are present, the explicit `enforce` wins (last one wins
+    // in iteration order, but here `enforce` is checked first and
+    // `required` only fires if `enforce` did not).
     if let Some(v) = table.get("required") {
         match v {
-            TomlValue::Bool(b) => out.required = *b,
-            _ => return Err(LocksetError::new("caps.required: must be a boolean")),
+            TomlValue::Bool(true) => out.enforce = EnforceMode::Strict,
+            TomlValue::Bool(false) => out.enforce = EnforceMode::Loose,
+            _ => return Err(ManifestError::new("caps.required: must be a boolean")),
         }
     }
     if let Some(http) = table.get("http") {
@@ -410,7 +485,7 @@ fn parse_caps(root: &BTreeMap<String, TomlValue>) -> Result<CapsCeiling, Lockset
     Ok(out)
 }
 
-fn parse_ai_backend(root: &BTreeMap<String, TomlValue>) -> Result<Option<AiBackend>, LocksetError> {
+fn parse_ai_backend(root: &BTreeMap<String, TomlValue>) -> Result<Option<AiBackend>, ManifestError> {
     let ai = match root.get("ai") {
         Some(TomlValue::Table(t)) => t,
         _ => return Ok(None),
@@ -428,10 +503,10 @@ fn parse_ai_backend(root: &BTreeMap<String, TomlValue>) -> Result<Option<AiBacke
     }))
 }
 
-fn parse_policies(root: &BTreeMap<String, TomlValue>) -> Result<Vec<String>, LocksetError> {
+fn parse_policies(root: &BTreeMap<String, TomlValue>) -> Result<Vec<String>, ManifestError> {
     match root.get("policies") {
         Some(TomlValue::Table(t)) => Ok(optional_string_array(t, "active")),
-        Some(_) => Err(LocksetError::new("`[policies]` must be a table")),
+        Some(_) => Err(ManifestError::new("`[policies]` must be a table")),
         None => Ok(Vec::new()),
     }
 }
@@ -442,13 +517,13 @@ fn required_string(
     t: &BTreeMap<String, TomlValue>,
     section: &str,
     key: &str,
-) -> Result<String, LocksetError> {
+) -> Result<String, ManifestError> {
     match t.get(key) {
         Some(TomlValue::String(s)) => Ok(s.clone()),
-        Some(_) => Err(LocksetError::new(format!(
+        Some(_) => Err(ManifestError::new(format!(
             "{section}.{key}: must be a string"
         ))),
-        None => Err(LocksetError::new(format!(
+        None => Err(ManifestError::new(format!(
             "{section}: missing required key `{key}`"
         ))),
     }
@@ -465,18 +540,18 @@ fn required_string_array(
     t: &BTreeMap<String, TomlValue>,
     section: &str,
     key: &str,
-) -> Result<Vec<String>, LocksetError> {
+) -> Result<Vec<String>, ManifestError> {
     match t.get(key) {
         Some(TomlValue::Array(xs)) => xs
             .iter()
             .map(|v| match v {
                 TomlValue::String(s) => Ok(s.clone()),
-                _ => Err(LocksetError::new(format!(
+                _ => Err(ManifestError::new(format!(
                     "{section}.{key}: array element must be a string"
                 ))),
             })
             .collect(),
-        Some(_) => Err(LocksetError::new(format!(
+        Some(_) => Err(ManifestError::new(format!(
             "{section}.{key}: must be an array of strings"
         ))),
         None => Ok(Vec::new()),
@@ -499,27 +574,27 @@ fn optional_string_array(t: &BTreeMap<String, TomlValue>, key: &str) -> Vec<Stri
 fn expect_table<'a>(
     v: &'a TomlValue,
     section: &str,
-) -> Result<&'a BTreeMap<String, TomlValue>, LocksetError> {
+) -> Result<&'a BTreeMap<String, TomlValue>, ManifestError> {
     match v {
         TomlValue::Table(t) => Ok(t),
-        _ => Err(LocksetError::new(format!("{section}: must be a table"))),
+        _ => Err(ManifestError::new(format!("{section}: must be a table"))),
     }
 }
 
 // ====================================================================
-//  Tests — 20 lockset fixtures (M7.T1 acceptance)
+//  Tests — 20 manifest fixtures (M7.T1 acceptance)
 // ====================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn ok(src: &str) -> Lockset {
-        parse_lockset(src).unwrap_or_else(|e| panic!("expected ok, got {e}"))
+    fn ok(src: &str) -> Manifest {
+        parse_manifest(src).unwrap_or_else(|e| panic!("expected ok, got {e}"))
     }
 
-    fn bad(src: &str) -> LocksetError {
-        match parse_lockset(src) {
+    fn bad(src: &str) -> ManifestError {
+        match parse_manifest(src) {
             Ok(_) => panic!("expected error, got ok"),
             Err(e) => e,
         }
@@ -675,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn p09_full_canonical_lockset() {
+    fn p09_full_canonical_manifest() {
         // The exact shape from `language.md` § 24.1.
         let l = ok(r#"
             [project]
@@ -818,7 +893,7 @@ mod tests {
     #[test]
     fn n07_malformed_toml_unterminated_string() {
         let e = bad("[project]\nname = \"x\nun");
-        assert!(e.message.contains("lockset.toml:") || e.message.contains("string"));
+        assert!(e.message.contains("aeris.toml:") || e.message.contains("string"));
     }
 
     // ---- M7.T2 — local path dep hashing ----
@@ -840,8 +915,8 @@ mod tests {
                 u = {{ path = "u.aer", hash = "{computed}" }}
             "#
         );
-        let lockset = parse_lockset(&toml_src).unwrap();
-        let r = verify_local_deps(&lockset, &dir);
+        let manifest = parse_manifest(&toml_src).unwrap();
+        let r = verify_local_deps(&manifest, &dir);
         assert!(r.is_ok(), "{r:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -859,8 +934,8 @@ mod tests {
             [deps]
             u = { path = "u.aer", hash = "blake3:0000000000000000" }
         "#;
-        let lockset = parse_lockset(toml_src).unwrap();
-        let errs = verify_local_deps(&lockset, &dir).unwrap_err();
+        let manifest = parse_manifest(toml_src).unwrap();
+        let errs = verify_local_deps(&manifest, &dir).unwrap_err();
         assert!(errs[0].message.contains("hash mismatch"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -877,8 +952,8 @@ mod tests {
             [deps]
             u = { path = "missing.aer", hash = "blake3:00" }
         "#;
-        let lockset = parse_lockset(toml_src).unwrap();
-        let errs = verify_local_deps(&lockset, &dir).unwrap_err();
+        let manifest = parse_manifest(toml_src).unwrap();
+        let errs = verify_local_deps(&manifest, &dir).unwrap_err();
         assert!(errs[0].message.contains("cannot read"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -903,14 +978,14 @@ mod tests {
                 u = {{ path = "u.aer", hash = "{content_hash}", surface_hash = "{surface_hash}" }}
             "#
         );
-        let lockset = parse_lockset(&toml_src).unwrap();
-        let r = verify_local_deps(&lockset, &dir);
+        let manifest = parse_manifest(&toml_src).unwrap();
+        let r = verify_local_deps(&manifest, &dir);
         assert!(r.is_ok(), "{r:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn m7t6_dep_surface_hash_mismatch_is_lockset_error() {
+    fn m7t6_dep_surface_hash_mismatch_is_manifest_error() {
         let dir = std::env::temp_dir().join(format!("aeris-m7t6-bad-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let src = "pub fn f() -> int { 1 }\n";
@@ -928,8 +1003,8 @@ mod tests {
                 u = {{ path = "u.aer", hash = "{content_hash}", surface_hash = "{stale}" }}
             "#
         );
-        let lockset = parse_lockset(&toml_src).unwrap();
-        let errs = verify_local_deps(&lockset, &dir).unwrap_err();
+        let manifest = parse_manifest(&toml_src).unwrap();
+        let errs = verify_local_deps(&manifest, &dir).unwrap_err();
         assert!(
             errs.iter().any(|e| e.message.contains("surface_hash mismatch")),
             "expected surface_hash error, got: {errs:?}"
@@ -966,8 +1041,8 @@ mod tests {
                 u = {{ path = "u.aer", hash = "{v2_content}", surface_hash = "{v1_surface}" }}
             "#
         );
-        let lockset = parse_lockset(&toml_src).unwrap();
-        let errs = verify_local_deps(&lockset, &dir).unwrap_err();
+        let manifest = parse_manifest(&toml_src).unwrap();
+        let errs = verify_local_deps(&manifest, &dir).unwrap_err();
         assert!(
             errs.iter().any(|e| e.message.contains("surface_hash mismatch")),
             "expected surface_hash drift, got: {errs:?}"
@@ -975,7 +1050,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ---- M7.T4 — main cap composition from lockset ----
+    // ---- M7.T4 — main cap composition from manifest ----
 
     #[test]
     fn m7t4_synthesise_cap_from_http_allow() {

@@ -1,0 +1,823 @@
+<!DOCTYPE html><html lang="it-IT"><head><title>Aeris v0.2</title><meta property="og:title" content="Aeris v0.2"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,height=device-height,initial-scale=1.0"><meta name="apple-mobile-web-app-capable" content="yes"><meta http-equiv="X-UA-Compatible" content="ie=edge"><meta property="og:type" content="website"><meta name="twitter:card" content="summary"><style>@media screen{body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button,body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button,body[data-bespoke-view=overview] button.bespoke-marp-overview-close,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area .bespoke-marp-presenter-info-page,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button{appearance:none;background-color:initial;border:0;color:inherit;cursor:pointer;font-size:inherit;opacity:.8;outline:none;padding:0;transition:opacity .2s linear;-webkit-tap-highlight-color:transparent}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button:disabled,body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button:disabled,body[data-bespoke-view=overview] button.bespoke-marp-overview-close:disabled,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area .bespoke-marp-presenter-info-page:disabled,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button:disabled,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button:disabled{cursor:not-allowed;opacity:.15!important}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button:hover,body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button:hover,body[data-bespoke-view=overview] button.bespoke-marp-overview-close:hover,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area .bespoke-marp-presenter-info-page:hover,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button:hover,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button:hover{opacity:1}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button:hover:active,body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button:hover:active,body[data-bespoke-view=overview] button.bespoke-marp-overview-close:hover:active,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area .bespoke-marp-presenter-info-page:hover:active,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button:hover:active,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button:hover:active{opacity:.6}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button:hover:not(:disabled),body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button:hover:not(:disabled),body[data-bespoke-view=overview] button.bespoke-marp-overview-close:hover:not(:disabled),body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area .bespoke-marp-presenter-info-page:hover:not(:disabled),body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button:hover:not(:disabled),body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button:hover:not(:disabled){transition:none}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=prev],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=prev],body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button.bespoke-marp-presenter-info-page-prev{background:#0000 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgc3Ryb2tlLXdpZHRoPSI1IiBkPSJNNjggOTAgMjggNTBsNDAtNDAiLz48L3N2Zz4=") no-repeat 50%;background-size:contain;overflow:hidden;text-indent:100%;white-space:nowrap}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=next],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=next],body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button.bespoke-marp-presenter-info-page-next{background:#0000 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgc3Ryb2tlLXdpZHRoPSI1IiBkPSJtMzIgOTAgNDAtNDAtNDAtNDAiLz48L3N2Zz4=") no-repeat 50%;background-size:contain;overflow:hidden;text-indent:100%;white-space:nowrap}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=fullscreen],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=fullscreen]{background:#0000 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48ZGVmcz48c3R5bGU+LmF7ZmlsbDpub25lO3N0cm9rZTojZmZmO3N0cm9rZS1saW5lY2FwOnJvdW5kO3N0cm9rZS1saW5lam9pbjpyb3VuZDtzdHJva2Utd2lkdGg6NXB4fTwvc3R5bGU+PC9kZWZzPjxyZWN0IHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgeD0iMTAiIHk9IjIwIiBjbGFzcz0iYSIgcng9IjUuNjciLz48cGF0aCBkPSJNNDAgNzBIMjBWNTBtMjAgMEwyMCA3MG00MC00MGgyMHYyMG0tMjAgMCAyMC0yMCIgY2xhc3M9ImEiLz48L3N2Zz4=") no-repeat 50%;background-size:contain;overflow:hidden;text-indent:100%;white-space:nowrap}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button.exit[data-bespoke-marp-osc=fullscreen],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button.exit[data-bespoke-marp-osc=fullscreen]{background-image:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48ZGVmcz48c3R5bGU+LmF7ZmlsbDpub25lO3N0cm9rZTojZmZmO3N0cm9rZS1saW5lY2FwOnJvdW5kO3N0cm9rZS1saW5lam9pbjpyb3VuZDtzdHJva2Utd2lkdGg6NXB4fTwvc3R5bGU+PC9kZWZzPjxyZWN0IHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgeD0iMTAiIHk9IjIwIiBjbGFzcz0iYSIgcng9IjUuNjciLz48cGF0aCBkPSJNMjAgNTBoMjB2MjBtLTIwIDAgMjAtMjBtNDAgMEg2MFYzMG0yMCAwTDYwIDUwIiBjbGFzcz0iYSIvPjwvc3ZnPg==")}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=presenter],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=presenter]{background:#0000 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgc3Ryb2tlLXdpZHRoPSI1IiBkPSJNODcuOCA0Ny41Qzg5IDUwIDg3LjcgNTIgODUgNTJIMzVhOC43IDguNyAwIDAgMS03LjItNC41bC0xNS42LTMxQzExIDE0IDEyLjIgMTIgMTUgMTJoNTBhOC44IDguOCAwIDAgMSA3LjIgNC41ek02MCA1MnYzNm0tMTAgMGgyME00NSA0MmgyMCIvPjwvc3ZnPg==") no-repeat 50%;background-size:contain;overflow:hidden;text-indent:100%;white-space:nowrap}body[data-bespoke-view=overview] button.bespoke-marp-overview-close,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button.bespoke-marp-presenter-note-bigger{background:#0000 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBzdHJva2U9IiNmZmYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgc3Ryb2tlLXdpZHRoPSI1IiBkPSJNMTIgNTBoODBNNTIgOTBWMTAiLz48L3N2Zz4=") no-repeat 50%;background-size:contain;overflow:hidden;text-indent:100%;white-space:nowrap}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button.bespoke-marp-presenter-note-smaller{background:#0000 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgc3Ryb2tlLXdpZHRoPSI1IiBkPSJNMTIgNTBoODAiLz48L3N2Zz4=") no-repeat 50%;background-size:contain;overflow:hidden;text-indent:100%;white-space:nowrap}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=overview],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=overview]{background:#0000 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48ZGVmcz48c3R5bGU+LmF7ZmlsbDpub25lO3N0cm9rZTojZmZmO3N0cm9rZS1saW5lY2FwOnJvdW5kO3N0cm9rZS1saW5lam9pbjpyb3VuZDtzdHJva2Utd2lkdGg6NXB4O3J4OjVweDtyeTo1cHg7d2lkdGg6MjVweDtoZWlnaHQ6MjVweH08L3N0eWxlPjwvZGVmcz48cmVjdCB4PSIyMCIgeT0iMjAiIGNsYXNzPSJhIi8+PHJlY3QgeD0iNTUiIHk9IjIwIiBjbGFzcz0iYSIvPjxyZWN0IHg9IjIwIiB5PSI1NSIgY2xhc3M9ImEiLz48cmVjdCB4PSI1NSIgeT0iNTUiIGNsYXNzPSJhIi8+PC9zdmc+") no-repeat 50%;background-size:contain;overflow:hidden;text-indent:100%;white-space:nowrap}}@keyframes __bespoke_marp_transition_reduced_outgoing__{0%{opacity:1}to{opacity:0}}@keyframes __bespoke_marp_transition_reduced_incoming__{0%{mix-blend-mode:plus-lighter;opacity:0}to{mix-blend-mode:plus-lighter;opacity:1}}.bespoke-marp-note,.bespoke-marp-osc,.bespoke-progress-parent{display:none;transition:none}@media screen{::view-transition-group(*){animation-duration:var(--marp-bespoke-transition-animation-duration,.5s);animation-timing-function:ease}::view-transition-new(*),::view-transition-old(*){animation-delay:0s;animation-direction:var(--marp-bespoke-transition-animation-direction,normal);animation-duration:var(--marp-bespoke-transition-animation-duration,.5s);animation-fill-mode:both;animation-name:var(--marp-bespoke-transition-animation-name,var(--marp-bespoke-transition-animation-name-fallback,__bespoke_marp_transition_no_animation__));mix-blend-mode:normal}::view-transition-old(*){--marp-bespoke-transition-animation-name-fallback:__bespoke_marp_transition_reduced_outgoing__;animation-timing-function:ease}::view-transition-new(*){--marp-bespoke-transition-animation-name-fallback:__bespoke_marp_transition_reduced_incoming__;animation-timing-function:ease}::view-transition-new(root),::view-transition-old(root){animation-timing-function:linear}::view-transition-new(__bespoke_marp_transition_osc__),::view-transition-old(__bespoke_marp_transition_osc__){animation-duration:0s!important;animation-name:__bespoke_marp_transition_osc__!important}::view-transition-new(__bespoke_marp_transition_osc__){opacity:0!important}.bespoke-marp-transition-warming-up::view-transition-group(*),.bespoke-marp-transition-warming-up::view-transition-new(*),.bespoke-marp-transition-warming-up::view-transition-old(*){animation-play-state:paused!important}body,html{height:100%;margin:0}body{background:#000;overflow:hidden}svg.bespoke-marp-slide{content-visibility:hidden;interactivity:inert;opacity:0;pointer-events:none;z-index:-1}svg.bespoke-marp-slide:not(.bespoke-marp-active) *{view-transition-name:none!important}svg.bespoke-marp-slide.bespoke-marp-active{content-visibility:visible;interactivity:auto;opacity:1;pointer-events:auto;z-index:0}svg.bespoke-marp-slide.bespoke-marp-active.bespoke-marp-active-ready *{animation-name:__bespoke_marp__!important}@supports not (content-visibility:hidden){svg.bespoke-marp-slide[data-bespoke-marp-load=hideable]{display:none}svg.bespoke-marp-slide[data-bespoke-marp-load=hideable].bespoke-marp-active{display:block}}}@media screen and (prefers-reduced-motion:reduce){svg.bespoke-marp-slide *{view-transition-name:none!important}}@media screen{[data-bespoke-marp-fragment=inactive]{visibility:hidden}body[data-bespoke-view=""] .bespoke-marp-parent,body[data-bespoke-view=next] .bespoke-marp-parent{inset:0;position:absolute}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc,body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc{background:#000000a6;border-radius:7px;bottom:50px;color:#fff;contain:paint;display:block;font-family:Helvetica,Arial,sans-serif;font-size:16px;left:50%;line-height:0;opacity:1;padding:12px;position:absolute;touch-action:manipulation;transform:translateX(-50%);transition:opacity .2s linear;-webkit-user-select:none;user-select:none;view-transition-name:__bespoke_marp_transition_osc__;white-space:nowrap;will-change:transform;z-index:1}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>:where(*),body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>:where(*){margin-left:6px}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>:where(*):where(:first-child),body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>:where(*):where(:first-child){margin-left:0}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>span,body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>span{opacity:.8}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>span[data-bespoke-marp-osc=page],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>span[data-bespoke-marp-osc=page]{display:inline-block;min-width:140px;text-align:center}body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=fullscreen],body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=next],body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=overview],body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=presenter],body[data-bespoke-view=""] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=prev],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=fullscreen],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=next],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=overview],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=presenter],body[data-bespoke-view=next] .bespoke-marp-parent>.bespoke-marp-osc>button[data-bespoke-marp-osc=prev]{height:32px;line-height:32px;width:32px}body[data-bespoke-view=""] .bespoke-marp-parent.bespoke-marp-inactive,body[data-bespoke-view=next] .bespoke-marp-parent.bespoke-marp-inactive{cursor:none}body[data-bespoke-view=""] .bespoke-marp-parent.bespoke-marp-inactive>.bespoke-marp-osc,body[data-bespoke-view=next] .bespoke-marp-parent.bespoke-marp-inactive>.bespoke-marp-osc{opacity:0;pointer-events:none}body[data-bespoke-view=""] svg.bespoke-marp-slide,body[data-bespoke-view=next] svg.bespoke-marp-slide{height:100%;left:0;position:absolute;top:0;width:100%}body[data-bespoke-view=""] .bespoke-progress-parent{background:#222;display:flex;height:5px;width:100%}body[data-bespoke-view=""] .bespoke-progress-parent+:where(.bespoke-marp-parent){top:5px}body[data-bespoke-view=""] .bespoke-progress-parent .bespoke-progress-bar{background:#0288d1;flex:0 0 0;transition:flex-basis .2s cubic-bezier(0,1,1,1)}body[data-bespoke-view=next]{background:#0000}body[data-bespoke-view=presenter]{background:#161616}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container{display:grid;font-family:Helvetica,Arial,sans-serif;grid-template:"current dragbar next" minmax(140px,1fr) "current dragbar note" 2fr "info    dragbar note" 3em;grid-template-columns:minmax(3px,var(--bespoke-marp-presenter-split-ratio,66%)) 0 minmax(3px,1fr);height:100%;left:0;position:absolute;top:0;width:100%}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container :where(.bespoke-marp-parent){grid-area:current;overflow:hidden;position:relative}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container :where(.bespoke-marp-parent) :where(svg.bespoke-marp-slide){height:calc(100% - 40px);left:20px;pointer-events:none;position:absolute;top:20px;-webkit-user-select:none;user-select:none;width:calc(100% - 40px)}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container :where(.bespoke-marp-parent) :where(svg.bespoke-marp-slide).bespoke-marp-active{filter:drop-shadow(0 3px 10px rgba(0,0,0,.5))}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-dragbar-container{background:#0288d1;cursor:col-resize;grid-area:dragbar;margin-left:-3px;opacity:0;position:relative;transition:opacity .4s linear .1s;width:6px;z-index:10}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-dragbar-container:hover{opacity:1}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-dragbar-container.active{opacity:1;transition-delay:0s}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-next-container{background:#222;cursor:pointer;display:none;grid-area:next;overflow:hidden;position:relative}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-next-container.active{display:block}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-next-container iframe.bespoke-marp-presenter-next{background:#0000;border:0;display:block;filter:drop-shadow(0 3px 10px rgba(0,0,0,.5));height:calc(100% - 40px);left:20px;pointer-events:none;position:absolute;interactivity:inert;top:20px;-webkit-user-select:none;user-select:none;width:calc(100% - 40px)}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container{background:#222;color:#eee;grid-area:note;position:relative;z-index:1}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container button{height:1.5em;line-height:1.5em;width:1.5em}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-presenter-note-wrapper{display:block;inset:0;position:absolute}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-presenter-note-buttons{background:#000000a6;border-radius:4px;bottom:0;display:flex;gap:4px;margin:12px;opacity:0;padding:6px;pointer-events:none;position:absolute;right:0;transition:opacity .2s linear}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-presenter-note-buttons:focus-within,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-presenter-note-wrapper:focus-within+.bespoke-marp-presenter-note-buttons,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container:hover .bespoke-marp-presenter-note-buttons{opacity:1;pointer-events:auto}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note{box-sizing:border-box;font-size:calc(1.1em*var(--bespoke-marp-note-font-scale, 1));height:calc(100% - 40px);margin:20px;overflow:auto;padding-right:3px;white-space:pre-wrap;width:calc(100% - 40px);word-wrap:break-word;scrollbar-color:#eeeeee80 #0000;scrollbar-width:thin}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note::-webkit-scrollbar{width:6px}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note::-webkit-scrollbar-track{background:#0000}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note::-webkit-scrollbar-thumb{background:#eeeeee80;border-radius:6px}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note:empty{pointer-events:none}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note.active{display:block}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note p:first-child{margin-top:0}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-note-container .bespoke-marp-note p:last-child{margin-bottom:0}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container{align-items:center;box-sizing:border-box;color:#eee;display:flex;flex-wrap:nowrap;grid-area:info;justify-content:center;overflow:hidden;padding:0 10px}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-time,body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-timer{box-sizing:border-box;display:block;padding:0 10px;white-space:nowrap;width:100%}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container button{height:1.5em;line-height:1.5em;width:1.5em}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area{order:2;text-align:center}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-page-area .bespoke-marp-presenter-info-page{display:inline-block;min-width:120px;text-align:center}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-time{color:#999;order:1;text-align:left}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-timer{color:#999;order:3;text-align:right}body[data-bespoke-view=presenter] .bespoke-marp-presenter-container .bespoke-marp-presenter-info-container .bespoke-marp-presenter-info-timer:hover{cursor:pointer}body[data-bespoke-view=overview]{background:#161616;overflow:auto}body[data-bespoke-view=overview] [data-bespoke-marp-fragment=inactive]{visibility:visible}body[data-bespoke-view=overview] .bespoke-marp-overview-header{backdrop-filter:blur(4px);background:#222222d9;box-shadow:0 3px 10px #00000080;box-sizing:border-box;display:flex;height:48px;inset:0 0 auto;justify-content:flex-end;padding:10px;position:fixed;z-index:1}body[data-bespoke-view=overview] button.bespoke-marp-overview-close{height:28px;line-height:28px;transform:rotate(45deg);width:28px}body[data-bespoke-view=overview] .bespoke-marp-parent{display:grid;gap:40px;grid-template-columns:repeat(auto-fit,minmax(0,240px));justify-content:space-around;padding:30px}body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide{--bov-selected:#0000;--bov-focus:#161616;--bov-focus-outline:#0000;background-image:conic-gradient(#161616 0 0),conic-gradient(var(--bov-focus) 0 0),conic-gradient(var(--bov-focus-outline) 0 0),conic-gradient(var(--bov-selected) 0 0);background-position:5px 5px,3px 3px,2px 2px,0 0;background-repeat:no-repeat;background-size:calc(100% - 10px) calc(100% - 10px),calc(100% - 6px) calc(100% - 6px),calc(100% - 4px) calc(100% - 4px),100% 100%;content-visibility:visible;cursor:pointer;filter:drop-shadow(0 3px 10px rgba(0,0,0,.5));margin:-6px;padding:6px;interactivity:auto;opacity:1;outline:0;pointer-events:auto;scroll-margin-block:30px;width:100%;z-index:0}body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide *,body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide.bespoke-marp-active *{pointer-events:none;interactivity:inert}body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide:active,body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide:focus-visible,body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide:hover{--bov-focus-outline:#161616}body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide:focus-visible,body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide:hover{--bov-focus:#999}body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide:active{--bov-focus:#eee}body[data-bespoke-view=overview] .bespoke-marp-parent svg.bespoke-marp-slide.bespoke-marp-active{--bov-selected:#0288d1}body[data-bespoke-view=overview]:has(.bespoke-marp-overview-header) .bespoke-marp-parent{padding-top:78px}body[data-bespoke-view=overview]:has(.bespoke-marp-overview-header) .bespoke-marp-parent svg.bespoke-marp-slide{scroll-margin-top:78px}.bespoke-marp-overview{background:#000000a6;inset:0;opacity:0;pointer-events:none;position:fixed;transition:opacity .1s ease;z-index:10}.bespoke-marp-overview iframe{background:#222;border:0;display:block;height:100%;left:0;position:absolute;top:0;width:100%}.bespoke-marp-overview[data-open="1"]{opacity:1;pointer-events:auto}}@media print{.bespoke-marp-overview,.bespoke-marp-presenter-info-container,.bespoke-marp-presenter-next-container,.bespoke-marp-presenter-note-container{display:none}}</style><style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');div#\:\$p > svg > foreignObject > section{width:1280px;height:720px;box-sizing:border-box;overflow:hidden;position:relative;scroll-snap-align:center center;-webkit-text-size-adjust:100%;text-size-adjust:100%}div#\:\$p > svg > foreignObject > section::after{bottom:0;content:attr(data-marpit-pagination);padding:inherit;pointer-events:none;position:absolute;right:0}div#\:\$p > svg > foreignObject > section:not([data-marpit-pagination])::after{display:none}div#\:\$p > svg > foreignObject > section :is(h1, marp-h1){font-size:2em;margin-block:0.67em}div#\:\$p > svg > foreignObject > section video::-webkit-media-controls{will-change:transform}@page {size:2560px 1600px;margin:0}@media print{html, body{background-color:#fff;margin:0;page-break-inside:avoid;break-inside:avoid-page}div#\:\$p > svg > foreignObject > section{page-break-before:always;break-before:page}div#\:\$p > svg > foreignObject > section, div#\:\$p > svg > foreignObject > section *{-webkit-print-color-adjust:exact!important;animation-delay:0s!important;animation-duration:0s!important;color-adjust:exact!important;print-color-adjust:exact!important;transition:none!important}div#\:\$p > svg[data-marpit-svg]{display:block;height:100vh;width:100vw}}div#\:\$p > svg > foreignObject > :where(section){container-type:size}div#\:\$p > svg > foreignObject > section img[data-marp-twemoji]{background:transparent;height:1em;margin:0 .05em 0 .1em;vertical-align:-.1em;width:1em}div#\:\$p > svg > foreignObject > :where(section):not([\20 root]){--dark:     #0E1020;--cream:    #F6F3F0;--orange:   #FFAE41;--salmon:   #FF7E51;--red:      #D14600;--blue:     #004AAC;--gray:     #B4B0AC;--white:    #FFFFFF;--navy:     #1C2035;--bg:           var(--cream);--bg-alt:       var(--white);--text:         var(--dark);--muted:        #5F6470;--soft:         var(--gray);--heading:      var(--dark);--accent:       var(--salmon);--accent-2:     var(--orange);--accent-3:     var(--blue);--rule:         rgba(180, 176, 172, 0.45);--hairline:     rgba(180, 176, 172, 0.22);--code-bg:      #0E1020;--code-bg-2:    #1C2035;--code-text:    #E5E1DC;--code-keyword: #FF7E51;--code-string:  #B5D8A6;--code-comment: #7A7E8B;--code-fn:      #FFAE41;--code-num:     #FFD08A;--code-op:      #B4B0AC;--code-attr:    #B5D8A6;--code-type:    #FFAE41;--code-var:     #E5E1DC;--code-builtin: #FFAE41;--quote-bg:     rgba(255, 174, 65, 0.10);--shadow-lg:    0 24px 48px -24px rgba(14, 16, 32, 0.18);--shadow-md:    0 8px 24px -12px rgba(14, 16, 32, 0.12);--shadow-sm:    0 2px 6px rgba(14, 16, 32, 0.06);}div#\:\$p > svg > foreignObject > section{width:2560px;height:1600px;padding:152px 88px 68px;background:var(--bg);color:var(--text);font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Calibri', "Segoe UI", system-ui, sans-serif;font-weight:300;font-size:36px;line-height:1.55;letter-spacing:0;text-align:left;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden;box-sizing:border-box;position:relative;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;font-feature-settings:"kern" 1, "liga" 1}div#\:\$p > svg > foreignObject > section{--marpit-root-font-size: 36px}div#\:\$p > svg > foreignObject > section header{position:absolute;inset:0 0 auto 0;height:124px;background:var(--white);display:flex;align-items:center;justify-content:center;padding:0 220px;font-size:17px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--dark);z-index:10}div#\:\$p > svg > foreignObject > section header::before{content:'AERIS';position:absolute;left:60px;top:50%;transform:translateY(-50%);font-family:'JetBrains Mono', "SF Mono", Menlo, Consolas, monospace;font-size:28px;font-weight:700;letter-spacing:0.12em;color:var(--dark)}div#\:\$p > svg > foreignObject > section[data-marpit-pagination]::after{content:attr(data-marpit-pagination);position:absolute;top:0;right:60px;height:124px;display:flex;align-items:center;font-size:17px;font-weight:700;color:var(--dark);z-index:20;font-family:'JetBrains Mono', monospace;letter-spacing:0.04em}div#\:\$p > svg > foreignObject > section[data-marpit-pagination]::after{--marpit-root-font-size: 17px}/* ── Footer bar — copyright/version line ─────────────────────────────── */div#\:\$p > svg > foreignObject > section footer{position:absolute;inset:auto 0 0 0;height:60px;display:flex;align-items:center;justify-content:flex-end;padding:0 80px;gap:56px;font-size:16px;color:var(--gray);z-index:10}div#\:\$p > svg > foreignObject > section :is(h1, marp-h1), div#\:\$p > svg > foreignObject > section :is(h2, marp-h2), div#\:\$p > svg > foreignObject > section :is(h3, marp-h3), div#\:\$p > svg > foreignObject > section :is(h4, marp-h4){font-family:inherit;color:var(--dark);margin:0 0 0.55em}div#\:\$p > svg > foreignObject > section :is(h1, marp-h1){font-size:1.55em;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;line-height:1.15;margin:0 0 0.7em;color:var(--dark);border:none;display:block;padding:0;background:none;-webkit-text-fill-color:var(--dark)}div#\:\$p > svg > foreignObject > section :is(h1, marp-h1)::after{display:none;content:none}div#\:\$p > svg > foreignObject > section :is(h2, marp-h2){font-size:1.15em;font-weight:600;letter-spacing:0;line-height:1.25;color:var(--dark);margin:0.6em 0 0.4em}div#\:\$p > svg > foreignObject > section :is(h3, marp-h3){font-size:0.78em;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:var(--salmon);margin:0.7em 0 0.3em;padding-left:0;position:static}div#\:\$p > svg > foreignObject > section :is(h3, marp-h3)::before{display:none;content:none}div#\:\$p > svg > foreignObject > section :is(h4, marp-h4){font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.14em;color:var(--muted);margin:0.5em 0 0.2em}div#\:\$p > svg > foreignObject > section.cover{background:var(--white);color:var(--dark);padding:0 100px 100px 560px;display:flex;flex-direction:column;justify-content:flex-end;gap:0.7em;text-align:left;position:relative}div#\:\$p > svg > foreignObject > section.cover header, div#\:\$p > svg > foreignObject > section.cover footer, div#\:\$p > svg > foreignObject > section.cover[data-marpit-pagination]::after{display:none}div#\:\$p > svg > foreignObject > section.cover .cover-logo{position:absolute;bottom:110px;left:72px;height:144px;width:auto;z-index:2}div#\:\$p > svg > foreignObject > section.cover::before{content:'';position:absolute;top:36px;left:36px;right:36px;height:54%;background-color:var(--dark);background-image:url('img/lines-left.png');background-size:100% auto;background-position:center;background-repeat:no-repeat;border-radius:28px;z-index:0}div#\:\$p > svg > foreignObject > section.cover :is(h1, marp-h1), div#\:\$p > svg > foreignObject > section.cover :is(h2, marp-h2){font-size:2.8em;font-weight:300;color:var(--dark);text-transform:uppercase;letter-spacing:0.04em;margin:0;line-height:1.05;position:relative;z-index:1;background:none;-webkit-text-fill-color:var(--dark)}div#\:\$p > svg > foreignObject > section.cover :is(h1, marp-h1)::after, div#\:\$p > svg > foreignObject > section.cover :is(h2, marp-h2)::after{display:none;content:none}div#\:\$p > svg > foreignObject > section.cover p, div#\:\$p > svg > foreignObject > section.cover blockquote{position:relative;z-index:1}div#\:\$p > svg > foreignObject > section.cover p{font-size:0.85em;color:var(--gray);margin:0;font-weight:400}div#\:\$p > svg > foreignObject > section.cover blockquote{font-size:0.65em;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--salmon);background:none;border:none;padding:0;margin:0 0 0.3em;border-radius:0}div#\:\$p > svg > foreignObject > section.cover blockquote p{color:inherit;font-size:inherit;font-weight:inherit}div#\:\$p > svg > foreignObject > section.cover p.subtitle, div#\:\$p > svg > foreignObject > section.cover .subtitle{font-size:0.95em;color:var(--muted);font-weight:400;margin:0;max-width:none}div#\:\$p > svg > foreignObject > section.cover div#\:\$p > svg > foreignObject > section section.subtitle{--marpit-root-font-size: 0.95em}div#\:\$p > svg > foreignObject > section.cover p.author, div#\:\$p > svg > foreignObject > section.cover p.date, div#\:\$p > svg > foreignObject > section.cover .author, div#\:\$p > svg > foreignObject > section.cover .date{font-size:0.7em;color:var(--gray);margin:0;font-weight:400;letter-spacing:0.02em}div#\:\$p > svg > foreignObject > section.cover div#\:\$p > svg > foreignObject > section section.author, div#\:\$p > svg > foreignObject > section.cover div#\:\$p > svg > foreignObject > section section.date{--marpit-root-font-size: 0.7em}div#\:\$p > svg > foreignObject > section.divider{background-color:var(--navy)!important;color:var(--white)!important;padding-left:192px;display:flex;flex-direction:column;justify-content:center;gap:0.5em;position:relative}div#\:\$p > svg > foreignObject > section.divider::before{content:'';position:absolute;top:0;left:0;right:0;height:32%;background-image:url('img/lines-section.png');background-size:cover;background-position:center top;background-repeat:no-repeat;z-index:0;pointer-events:none;mask-image:linear-gradient(to bottom, black 65%, transparent 100%);-webkit-mask-image:linear-gradient(to bottom, black 65%, transparent 100%)}div#\:\$p > svg > foreignObject > section.divider > *{position:relative;z-index:1}div#\:\$p > svg > foreignObject > section.divider header, div#\:\$p > svg > foreignObject > section.divider footer, div#\:\$p > svg > foreignObject > section.divider[data-marpit-pagination]::after{display:none}div#\:\$p > svg > foreignObject > section.divider :is(h1, marp-h1){color:var(--white)!important;font-size:2.4em;font-weight:300;text-transform:uppercase;letter-spacing:0.04em;margin:0 0 0.3em;background:none!important;-webkit-text-fill-color:var(--white)!important;border:none!important}div#\:\$p > svg > foreignObject > section.divider :is(h1, marp-h1)::after{display:none!important;content:none!important}div#\:\$p > svg > foreignObject > section.divider :is(h2, marp-h2){color:rgba(255, 255, 255, 0.72)!important;font-size:1.15em;font-weight:300;text-transform:none;letter-spacing:0;margin-bottom:1em}div#\:\$p > svg > foreignObject > section.divider p, div#\:\$p > svg > foreignObject > section.divider .eyebrow{color:rgba(255, 255, 255, 0.85)!important;font-size:1em}div#\:\$p > svg > foreignObject > section.divider div#\:\$p > svg > foreignObject > section section.eyebrow{--marpit-root-font-size: 1em}div#\:\$p > svg > foreignObject > section.divider .eyebrow{color:var(--orange)!important;font-size:0.7em;font-weight:700;letter-spacing:0.14em;text-transform:uppercase}div#\:\$p > svg > foreignObject > section.divider div#\:\$p > svg > foreignObject > section section.eyebrow{--marpit-root-font-size: 0.7em}div#\:\$p > svg > foreignObject > section.divider blockquote{background:rgba(255, 255, 255, 0.05);border-left:6px solid var(--orange);border-radius:0 8px 8px 0;color:rgba(255, 255, 255, 0.92);font-size:0.9em;font-weight:300}div#\:\$p > svg > foreignObject > section.divider strong{color:var(--white)!important;font-weight:600}div#\:\$p > svg > foreignObject > section.divider em{color:rgba(255, 255, 255, 0.75)!important;font-style:italic}div#\:\$p > svg > foreignObject > section p, div#\:\$p > svg > foreignObject > section li{line-height:1.55;font-weight:300}div#\:\$p > svg > foreignObject > section p{margin:0 0 0.4em}div#\:\$p > svg > foreignObject > section ul, div#\:\$p > svg > foreignObject > section ol{display:block;padding-left:1em;margin:0.4em 0 0.5em}div#\:\$p > svg > foreignObject > section ul li{list-style:none;position:relative;padding-left:0.85em;margin-bottom:0.3em;font-size:0.92em;line-height:1.55}div#\:\$p > svg > foreignObject > section ul li::marker{content:''}div#\:\$p > svg > foreignObject > section ul li::before{content:'–';position:absolute;left:0;top:0;color:var(--salmon);font-weight:700}div#\:\$p > svg > foreignObject > section ul ul li::before{content:'·';color:var(--gray);font-weight:700}div#\:\$p > svg > foreignObject > section ol li{margin-bottom:0.3em;font-size:0.92em;line-height:1.55}div#\:\$p > svg > foreignObject > section strong{color:var(--dark);font-weight:600}div#\:\$p > svg > foreignObject > section em{color:var(--muted);font-style:italic}div#\:\$p > svg > foreignObject > section :is(h1, marp-h1) + p{font-size:1em;color:var(--muted);margin-top:-0.2em;margin-bottom:0.7em;font-weight:300;max-width:92%;line-height:1.55}div#\:\$p > svg > foreignObject > section .eyebrow{font-size:0.7em;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--salmon);margin:0 0 0.3em;display:block}div#\:\$p > svg > foreignObject > section div#\:\$p > svg > foreignObject > section section.eyebrow{--marpit-root-font-size: 0.7em}div#\:\$p > svg > foreignObject > section blockquote{border-left:6px solid var(--orange);background:var(--quote-bg);padding:0.65em 1em;font-style:normal;box-shadow:none;width:auto;border-radius:0 8px 8px 0;font-size:0.92em;color:var(--dark);margin:0.7em 0;font-weight:400}div#\:\$p > svg > foreignObject > section blockquote p{margin:0;font-size:inherit;font-weight:inherit}div#\:\$p > svg > foreignObject > section code{font-family:'JetBrains Mono', "SF Mono", Menlo, Consolas, monospace;background:rgba(14, 16, 32, 0.07);padding:0.08em 0.4em;border-radius:4px;font-size:0.82em;color:var(--dark);font-weight:500}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre){box-shadow:var(--shadow-md);width:100%;margin:0.5em 0;background:transparent;border-radius:14px;position:relative;max-width:100%;overflow:hidden}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code{font-family:'JetBrains Mono', "SF Mono", Menlo, Consolas, monospace!important;background:var(--code-bg)!important;color:var(--code-text)!important;padding:0.9em 1.15em;border-radius:14px;border:2px solid rgba(255, 255, 255, 0.04);font-size:0.75em;line-height:1.5;font-weight:400;max-height:none;overflow-x:auto;overflow-y:hidden;letter-spacing:0;display:block;white-space:pre;tab-size:4}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.keyword, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.builtin, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.atrule, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.tag{color:var(--code-keyword)!important;font-weight:600!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.string, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.char, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.attr-value{color:var(--code-string)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.comment, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.prolog, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.doctype, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.cdata{color:var(--code-comment)!important;font-style:italic!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.function{color:var(--code-fn)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.number, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.boolean{color:var(--code-num)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.operator, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.punctuation{color:var(--code-op)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.attr-name{color:var(--code-attr)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.class-name, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.namespace{color:var(--code-type)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.variable{color:var(--code-var)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.regex, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .token.important{color:var(--code-builtin)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-keyword, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-selector-tag, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-built_in, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-name, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-tag{color:var(--code-keyword)!important;font-weight:600!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-string, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-attr-value, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-template-tag, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-template-variable{color:var(--code-string)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-comment, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-quote{color:var(--code-comment)!important;font-style:italic!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-function .hljs-title, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-title.function_, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-title.invoke__, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-title{color:var(--code-fn)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-number, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-literal, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-symbol{color:var(--code-num)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-operator, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-punctuation{color:var(--code-op)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-attr, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-attribute{color:var(--code-attr)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-class .hljs-title, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-title.class_, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-type{color:var(--code-type)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-variable, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-params{color:var(--code-var)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-regexp, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-meta{color:var(--code-builtin)!important;font-weight:500!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-meta .hljs-keyword{color:var(--code-builtin)!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-deletion{color:#fca5a5!important}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code .hljs-addition{color:#B5D8A6!important}div#\:\$p > svg > foreignObject > section.tight :is(pre, marp-pre) code{font-size:0.58em;line-height:1.4}div#\:\$p > svg > foreignObject > section.tight div.column :is(pre, marp-pre) code{font-size:0.6em;line-height:1.4}div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code.language-text, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code.language-bash, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code.language-console, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) code.language-json{background:var(--code-bg-2)!important;color:#cbd5e1!important;border:2px solid rgba(255, 255, 255, 0.04)}div#\:\$p > svg > foreignObject > section div.columns{display:flex;gap:1.4em;align-items:flex-start}div#\:\$p > svg > foreignObject > section div.column{flex:1;min-width:0}div#\:\$p > svg > foreignObject > section div.column.wide{flex:1.5}div#\:\$p > svg > foreignObject > section div.column.narrow{flex:1}div#\:\$p > svg > foreignObject > section div.columns :is(pre, marp-pre){width:100%}div#\:\$p > svg > foreignObject > section div.column :is(pre, marp-pre) code{font-size:0.82em;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}div#\:\$p > svg > foreignObject > section div.column.compact{font-size:0.95em;line-height:1.5}div#\:\$p > svg > foreignObject > section div.column.compact p{margin:0.5em 0}div#\:\$p > svg > foreignObject > section div.column.compact li{margin-bottom:0.7em;line-height:1.5}div#\:\$p > svg > foreignObject > section div.column.compact ul, div#\:\$p > svg > foreignObject > section div.column.compact ol{margin:0.5em 0 0.5em 1em}div#\:\$p > svg > foreignObject > section div.column.compact code{font-size:0.95em}div#\:\$p > svg > foreignObject > section table{width:100%;border-collapse:collapse;border-spacing:0;margin:0.6em 0;background:transparent;border:none;border-radius:0;overflow:visible;box-shadow:none;font-size:0.85em}div#\:\$p > svg > foreignObject > section table th{background:transparent;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:var(--salmon);border-bottom:2px solid var(--dark);padding:0.4em 0.7em;text-align:left;font-size:0.95em}div#\:\$p > svg > foreignObject > section table td{padding:0.5em 0.7em;border-bottom:1px solid var(--rule);vertical-align:top;background:transparent}div#\:\$p > svg > foreignObject > section table tr:last-child td{border-bottom:none}div#\:\$p > svg > foreignObject > section table tr:hover td{background:rgba(255, 255, 255, 0.4)}div#\:\$p > svg > foreignObject > section div.note, div#\:\$p > svg > foreignObject > section div.tip, div#\:\$p > svg > foreignObject > section div.callout, div#\:\$p > svg > foreignObject > section div.motivation{background:var(--quote-bg);border-left:6px solid var(--orange);padding:0.65em 1em;margin:0.6em 0;border-radius:0 8px 8px 0;font-size:0.9em;color:var(--dark);font-weight:400}div#\:\$p > svg > foreignObject > section div.tip{background:rgba(0, 74, 172, 0.07);border-left-color:var(--blue)}div#\:\$p > svg > foreignObject > section div.motivation{font-style:italic}div#\:\$p > svg > foreignObject > section div.motivation strong{color:var(--salmon);font-style:normal;font-weight:600}div#\:\$p > svg > foreignObject > section.divider div.note, div#\:\$p > svg > foreignObject > section.divider div.tip, div#\:\$p > svg > foreignObject > section.divider div.motivation{background:rgba(255, 255, 255, 0.08)!important;border-left:6px solid var(--orange)!important;color:var(--white)!important}div#\:\$p > svg > foreignObject > section.divider div.motivation strong{color:var(--white)!important}div#\:\$p > svg > foreignObject > section p.caption, div#\:\$p > svg > foreignObject > section :is(pre, marp-pre) + p{font-size:0.78em;color:var(--muted);margin-top:0.35em;letter-spacing:0.005em;font-weight:400}div#\:\$p > svg > foreignObject > section .tag, div#\:\$p > svg > foreignObject > section .chip{display:inline-block;font-size:0.62em;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:0.15em 0.5em;border-radius:999px;vertical-align:middle;margin-left:0.4em;line-height:1.6}div#\:\$p > svg > foreignObject > section div#\:\$p > svg > foreignObject > section section.tag, div#\:\$p > svg > foreignObject > section div#\:\$p > svg > foreignObject > section section.chip{--marpit-root-font-size: 0.62em}div#\:\$p > svg > foreignObject > section .ok, div#\:\$p > svg > foreignObject > section .chip-ok{background:#e8f5e9;color:#2e7d32}div#\:\$p > svg > foreignObject > section .warning, div#\:\$p > svg > foreignObject > section .chip-warn{background:#fff8e1;color:#f57f17}div#\:\$p > svg > foreignObject > section .wip, div#\:\$p > svg > foreignObject > section .chip-wip{background:#e3f2fd;color:#1565c0}div#\:\$p > svg > foreignObject > section .error, div#\:\$p > svg > foreignObject > section .chip-error{background:#fce4ec;color:#c62828}div#\:\$p > svg > foreignObject > section .chip-azure{background:var(--blue);color:#FFFFFF}div#\:\$p > svg > foreignObject > section .chip-app{background:var(--salmon);color:#FFFFFF}div#\:\$p > svg > foreignObject > section .chip-env{background:var(--navy);color:#FFFFFF}div#\:\$p > svg > foreignObject > section .chip-prod{background:var(--red);color:#FFFFFF}div#\:\$p > svg > foreignObject > section .chip-gray{background:var(--gray);color:var(--dark)}div#\:\$p > svg > foreignObject > section hr{border:none;border-top:2px solid var(--hairline);margin:1em auto;width:100%}div#\:\$p > svg > foreignObject > section::after{font-family:'JetBrains Mono', monospace;font-size:24px;font-weight:600;color:var(--soft);letter-spacing:0.04em}div#\:\$p > svg > foreignObject > section::after{--marpit-root-font-size: 24px}div#\:\$p > svg > foreignObject > section.cover::after, div#\:\$p > svg > foreignObject > section.divider::after{}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"]{columns:initial!important;display:block!important;padding:0!important}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"]::before, div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"]::after, div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="content"]::before, div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="content"]::after{display:none!important}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"] > div[data-marpit-advanced-background-container]{all:initial;display:flex;flex-direction:row;height:100%;overflow:hidden;width:100%}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"] > div[data-marpit-advanced-background-container][data-marpit-advanced-background-direction="vertical"]{flex-direction:column}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"][data-marpit-advanced-background-split] > div[data-marpit-advanced-background-container]{width:var(--marpit-advanced-background-split, 50%)}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"][data-marpit-advanced-background-split="right"] > div[data-marpit-advanced-background-container]{margin-left:calc(100% - var(--marpit-advanced-background-split, 50%))}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"] > div[data-marpit-advanced-background-container] > figure{all:initial;background-position:center;background-repeat:no-repeat;background-size:cover;flex:auto;margin:0}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="background"] > div[data-marpit-advanced-background-container] > figure > figcaption{position:absolute;border:0;clip:rect(0, 0, 0, 0);height:1px;margin:-1px;overflow:hidden;padding:0;white-space:nowrap;width:1px}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="content"], div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="pseudo"]{background:transparent!important}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background="pseudo"], div#\:\$p > svg[data-marpit-svg] > foreignObject[data-marpit-advanced-background="pseudo"]{pointer-events:none!important}div#\:\$p > svg > foreignObject > section[data-marpit-advanced-background-split]{width:100%;height:100%}
+</style></head><body><div class="bespoke-marp-osc"><button data-bespoke-marp-osc="prev" tabindex="-1" title="Previous slide">Previous slide</button><span data-bespoke-marp-osc="page"></span><button data-bespoke-marp-osc="next" tabindex="-1" title="Next slide">Next slide</button><button data-bespoke-marp-osc="fullscreen" tabindex="-1" title="Toggle fullscreen (f)">Toggle fullscreen</button><button data-bespoke-marp-osc="overview" tabindex="-1" title="Toggle overview view (o)">Toggle overview view</button><button data-bespoke-marp-osc="presenter" tabindex="-1" title="Open presenter view (p)">Open presenter view</button></div><div id=":$p"><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="1" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-class="cover" data-theme="aeris" lang="it-IT" class="cover" data-marpit-pagination="1" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--class:cover;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<p class="eyebrow">Technical presentation · v0.2</p>
+<h2 id="aeris-v02">AERIS v0.2</h2>
+<p>Un linguaggio interpretato in Rust dove capabilities sono valori passati per parametro, la compensation di ogni write esterna è obbligatoria, la supply chain è content-addressed e il replay è bit-identical.</p>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="2" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="2" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="agenda">Agenda</h1>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Atto</th>
+<th>Contenuto</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I</strong></td>
+<td>Inquadramento</td>
+<td>Problema, cosa fa Aeris</td>
+</tr>
+<tr>
+<td><strong>II</strong></td>
+<td>Modello di esecuzione</td>
+<td>Quattro layer, pipeline, trace, lockset</td>
+</tr>
+<tr>
+<td><strong>III</strong></td>
+<td>Sistema di capability</td>
+<td>Tipo first-class, narrowing, body resolution, surface lock</td>
+</tr>
+<tr>
+<td><strong>IV</strong></td>
+<td>Contracts, intent, model</td>
+<td><code>requires</code>/<code>ensures</code>, <code>intent</code> obbligatorio, <code>@vN</code></td>
+</tr>
+<tr>
+<td><strong>V</strong></td>
+<td>Saga e agenti</td>
+<td>Compensation, idempotency, <code>agent</code>, <code>agent_net</code></td>
+</tr>
+<tr>
+<td><strong>VI</strong></td>
+<td>Policy, refusal, limiti</td>
+<td>Policy runtime, cosa il linguaggio rifiuta, stato</td>
+</tr>
+</tbody>
+</table>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="3" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="3" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="il-problema-tecnico">Il problema tecnico</h1>
+<blockquote>
+<p>Codice prodotto e letto da LLM. Tre fonti di non-determinismo che si sommano e nessun layer tradizionale le copre insieme.</p>
+</blockquote>
+<ul>
+<li><strong>Modello</strong> — stesso prompt, output diverso. <code>temperature=0</code> riduce, non elimina</li>
+<li><strong>Semantica del linguaggio</strong> — costrutti ambigui forzano l'LLM a inferire</li>
+<li><strong>Stato del mondo</strong> — rete, DB, FS mutano sotto i piedi del programma</li>
+</ul>
+<p>I rimedi noti coprono solo un sottoinsieme:</p>
+<ul>
+<li><strong>Sandboxing</strong> (Docker, gVisor) — controlla il processo, non sa quale funzione tocca cosa</li>
+<li><strong>Type systems</strong> (TS, Java, Rust) — parlano di dati, non di <strong>effetti</strong></li>
+<li><strong>Effect systems accademici</strong> (F*, Liquid Haskell, Koka) — rigore non pagabile su codice enterprise</li>
+<li><strong>DSL/framework</strong> (Airflow, LangChain) — convenzione, non enforcement</li>
+</ul>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="4" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="4" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="cosa-fa-aeris">Cosa fa Aeris</h1>
+<div class="columns">
+<div class="column compact">
+<ul>
+<li>Linguaggio <strong>interpretato</strong>, scritto in Rust</li>
+<li><strong>Singolo binario statico</strong> <code>aeris</code> &lt; 8 MB, zero dipendenze runtime</li>
+<li>Tree-walking interpreter (no bytecode, no JIT) — V0.2 sceglie semplicità sopra performance</li>
+<li>File <code>.aer</code>, esecuzione via <code>aeris run &lt;file&gt;</code> / <code>aeris test &lt;file&gt;</code></li>
+<li>Ogni esecuzione produce un <strong>trace JSONL</strong> in <code>.aeris/traces/&lt;trace_id&gt;.jsonl</code></li>
+<li><code>aeris replay &lt;trace&gt; &lt;source&gt;</code> rigioca l'esecuzione bit-identical sul subset deterministico</li>
+</ul>
+</div>
+<div class="column compact">
+<p><strong>Quattro layer di costrutti:</strong></p>
+<ul>
+<li><strong>L1</strong> — sintassi (lessico, tipi, control flow)</li>
+<li><strong>L2</strong> — semantica verificabile (capability, contracts, intent)</li>
+<li><strong>L3</strong> — agentic loop (<code>saga</code> con <code>do</code>/<code>undo</code>)</li>
+<li><strong>L4</strong> — multi-agent (<code>agent</code>, <code>agent_net</code>)</li>
+</ul>
+<p>I layer sono <em>opt-in by depth</em>: uno script puro vive in L1; una pipeline self-recovering usa L1+L2+L3.</p>
+</div>
+</div>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="5" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-class="divider" data-theme="aeris" lang="it-IT" class="divider" data-marpit-pagination="5" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--class:divider;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+
+<h1 id="modello-di-esecuzione">Modello di esecuzione</h1>
+<blockquote>
+<p>I quattro layer, la pipeline source → trace, la matrice degli exit code, il lockset come centro di gravità.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="6" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="6" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="i-quattro-layer">I quattro layer</h1>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Cosa aggiunge</th>
+<th>Costrutti</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>L1</strong> AI-native syntax</td>
+<td>Lessico denso, una forma canonica per costrutto, keyword tutti riservati</td>
+<td><code>fn</code>, <code>record</code>, <code>enum</code>, <code>match</code>, <code>if</code>, <code>for</code></td>
+</tr>
+<tr>
+<td><strong>L2</strong> Verifiable semantics</td>
+<td>Capability come valori, contratti runtime, intent obbligatorio</td>
+<td><code>cap[...]</code>, <code>requires:</code> / <code>ensures:</code>, <code>intent</code></td>
+</tr>
+<tr>
+<td><strong>L3</strong> Agentic loop</td>
+<td>Saga con <code>do</code>/<code>undo</code> obbligatori, idempotency automatica, esiti deterministici</td>
+<td><code>saga</code>, <code>step</code>, <code>do</code>, <code>undo</code></td>
+</tr>
+<tr>
+<td><strong>L4</strong> Multi-agent</td>
+<td>LLM unit tipato, dataflow aciclico, schema validation a ogni edge</td>
+<td><code>agent</code>, <code>agent_net</code>, <code>flow</code>, <code>until:</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Composizione <em>opt-in by depth</em>. Niente runtime tax per chi non sale di layer.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="7" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="7" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="pipeline-di-esecuzione">Pipeline di esecuzione</h1>
+<pre><code class="language-text">.aer source ─► lexer ─► parser ─► check (M2) ─► tree-walk eval ─► JSONL trace
+                                       │                              │
+                                       │                              └─► .aeris/traces/&lt;id&gt;.jsonl
+                                       └─► exit non-zero al primo errore strutturale
+</code></pre>
+<p><strong>Exit code matrix</strong> — un codice per categoria di violazione, scriptable in CI:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Causa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td>Esecuzione ok</td>
+</tr>
+<tr>
+<td><code>64</code></td>
+<td>Errore di parse / type / contratto</td>
+</tr>
+<tr>
+<td><code>65</code></td>
+<td>Capability mancante o <code>cap[*]</code> nel codice utente</td>
+</tr>
+<tr>
+<td><code>66</code></td>
+<td>Chiamata write-effectful fuori da un blocco <code>intent</code> (V2)</td>
+</tr>
+<tr>
+<td><code>67</code></td>
+<td><code>saga step</code> con <code>do</code> write e <code>undo: noop</code></td>
+</tr>
+<tr>
+<td><code>68</code></td>
+<td><code>model</code> senza <code>@vN</code> su trust boundary</td>
+</tr>
+<tr>
+<td><code>69</code></td>
+<td>Lockset stale o byte-swap di una dipendenza</td>
+</tr>
+<tr>
+<td><code>70</code></td>
+<td>Ciclo dichiarato in <code>agent_net</code></td>
+</tr>
+<tr>
+<td><code>71</code></td>
+<td>Allow-list di firma eccede il ceiling del lockset</td>
+</tr>
+<tr>
+<td><code>74</code></td>
+<td>Saga in <code>PartialFailure</code> (undo esaurito le retry)</td>
+</tr>
+</tbody>
+</table>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="8" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="8" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="determinismo-e-trace">Determinismo e trace</h1>
+<div class="columns">
+<div class="column">
+<p>Il <strong>trace JSONL</strong> è sempre attivo. Ogni interazione con il mondo non-deterministico finisce in una riga:</p>
+<ul>
+<li><code>cap.ai.*</code> → <code>prompt</code>, <code>model</code>, <code>response</code>, <code>tokens</code>, <code>ts</code></li>
+<li><code>cap.clock.now()</code> → timestamp letto</li>
+<li><code>cap.random.next()</code> → valore generato</li>
+<li>HTTP / shell → hash di request e response</li>
+</ul>
+<p><strong><code>aeris replay &lt;trace&gt; &lt;source&gt;</code></strong> rigioca il programma:</p>
+<ul>
+<li>Legge dal nastro invece di chiamare il mondo</li>
+<li>Bit-identical sul subset deterministico</li>
+<li><code>--live</code> re-issue rete e LLM (per debug differenziale)</li>
+</ul>
+<p><code>aeris trace diff</code> allinea due trace per <code>(scope, ordinal)</code> e segnala le divergenze.</p>
+</div>
+<div class="column">
+<pre><code class="language-json"><span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;event&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;intent_enter&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;intent&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;settle invoice batch&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;scope&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;main.settle&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;ts&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;2026-05-16T08:30:00Z&quot;</span><span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;event&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;ai_call&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;scope&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;classify&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;prompt&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;Classify the invoice...&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;model&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;claude-opus-4-7&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;response&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;{\&quot;kind\&quot;:\&quot;utilities\&quot;}&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;tokens&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-number">142</span><span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;event&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;http_request&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;scope&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;main.settle.charge&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;url&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;https://api.acme.com/charge&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;idempotency_key&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;blake3:7a3f...&quot;</span><span class="hljs-punctuation">,</span>
+ <span class="hljs-attr">&quot;req_hash&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;...&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;resp_hash&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;...&quot;</span><span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;event&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;intent_exit&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;outcome&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;ok&quot;</span><span class="hljs-punctuation">}</span>
+</code></pre>
+</div>
+</div>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="9" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="9" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="lockset-come-centro-di-gravit%C3%A0">Lockset come centro di gravità</h1>
+<p><code>aeris.toml</code> raccoglie <em>tutto</em> ciò che era sparso fra env var, manifest e config:</p>
+<pre><code class="language-toml"><span class="hljs-section">[project]</span>
+<span class="hljs-attr">name</span>  = <span class="hljs-string">&quot;settle-pipeline&quot;</span>
+<span class="hljs-attr">aeris</span> = <span class="hljs-string">&quot;0.2.0&quot;</span>
+
+<span class="hljs-section">[deps]</span>
+<span class="hljs-attr">deploy</span> = { source = <span class="hljs-string">&quot;github.com/acmecorp/aeris-devops&quot;</span>,
+           <span class="hljs-attr">version</span> = <span class="hljs-string">&quot;1.2.0&quot;</span>, hash = <span class="hljs-string">&quot;blake3:...&quot;</span> }
+
+<span class="hljs-section">[caps]</span>
+<span class="hljs-attr">required</span>        = <span class="hljs-literal">true</span>                          <span class="hljs-comment"># strict mode (M15)</span>
+<span class="hljs-attr">http.allow</span>      = [<span class="hljs-string">&quot;api.acme.com&quot;</span>]
+<span class="hljs-attr">fs.allow_write</span>  = [<span class="hljs-string">&quot;./out/**&quot;</span>]
+<span class="hljs-attr">ai.models</span>       = [<span class="hljs-string">&quot;claude-opus-4-7&quot;</span>, <span class="hljs-string">&quot;claude-haiku-4-5&quot;</span>]
+
+<span class="hljs-section">[ai.backend]</span>
+<span class="hljs-attr">kind</span> = <span class="hljs-string">&quot;http&quot;</span>
+<span class="hljs-attr">url</span>  = <span class="hljs-string">&quot;https://api.anthropic.com&quot;</span>
+<span class="hljs-attr">auth</span> = <span class="hljs-string">&quot;env:ANTHROPIC_API_KEY&quot;</span>
+
+<span class="hljs-section">[policies]</span>
+<span class="hljs-attr">active</span> = [<span class="hljs-string">&quot;production_egress&quot;</span>]
+</code></pre>
+<ul>
+<li>Hash mismatch su una dep → errore fatale <strong>prima</strong> dell'esecuzione</li>
+<li><code>main</code> riceve il <code>cap</code> <strong>sintetizzato dal lockset</strong> — nessun altro modo per fabbricare un <code>cap</code> da zero</li>
+</ul>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="10" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-class="divider" data-theme="aeris" lang="it-IT" class="divider" data-marpit-pagination="10" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--class:divider;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+
+<h1 id="sistema-di-capability">Sistema di capability</h1>
+<blockquote>
+<p>Capabilities come valori passati per parametro. La signature è il contratto. Niente namespace globale, niente effetti nascosti.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="11" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="11" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="capability-come-tipo-first-class">Capability come tipo first-class</h1>
+<div class="columns">
+<div class="column">
+<pre><code class="language-aeris">// Funzione pura: niente parametro cap → niente effetti, mai.
+fn total(items: list&lt;Invoice@v1&gt;) -&gt; decimal {
+  items.fold(0, fn(acc, it) { acc + it.amount })
+}
+
+// Funzione effettuale: l'intera surface è in firma.
+fn settle(
+  items: list&lt;Invoice@v1&gt;,
+  cap: cap[
+    http.post @ [&quot;api.acme.com&quot;],
+    audit.event,
+  ],
+) -&gt; result&lt;unit&gt; {
+  intent &quot;settle invoice batch&quot; {
+    for it in items {
+      http.post(&quot;https://api.acme.com/charge&quot;, it)?
+    }
+    audit.event(&quot;settle.complete&quot;, { count: len(items) })
+  }
+}
+</code></pre>
+</div>
+<div class="column compact">
+<ul>
+<li><code>cap[op @ [&quot;allow-list&quot;]]</code> — il tipo elenca le operazioni concesse e i loro vincoli</li>
+<li>Allow-list per host, path glob, model, bucket, queue, ...</li>
+<li>Una funzione <strong>senza</strong> parametro <code>cap</code> non può fare IO/rete/AI: il parser rifiuta <code>http.post(...)</code> se nessun <code>cap</code> in scope contiene <code>http.post</code></li>
+<li>Il body resolution lega <code>&lt;module&gt;.&lt;op&gt;(...)</code> al <code>cap</code> ricevuto — non c'è namespace globale</li>
+</ul>
+<blockquote>
+<p>Object-capability security applicato agli effetti esterni, non all'aliasing di memoria.</p>
+</blockquote>
+</div>
+</div>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="12" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="12" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="narrowing-e-regole-di-escape">Narrowing e regole di escape</h1>
+<div class="columns">
+<div class="column">
+<pre><code class="language-aeris">fn settle(items, cap: cap[
+  http.post @ [&quot;api.acme.com&quot;, &quot;api.stripe.com&quot;],
+  fs.write_file @ [&quot;./out/**&quot;],
+]) {
+  // Restringo prima di passare a charge:
+  // mai broadening, sempre subset.
+  charge(items, cap.subset[
+    http.post @ [&quot;api.stripe.com&quot;]
+  ])
+}
+
+fn charge(items, cap: cap[http.post @ [&quot;api.stripe.com&quot;]]) {
+  intent &quot;charge cards&quot; {
+    for it in items { http.post(it.endpoint, it)? }
+  }
+}
+</code></pre>
+</div>
+<div class="column compact">
+<p><strong>Regole strutturali (verificate da M2):</strong></p>
+<ul>
+<li><code>cap.subset[...]</code> ammette solo restringimenti — broadening rifiutato</li>
+<li><code>cap</code> non può essere salvato in record, ritornato come tipo non-cap, inviato in un <code>channel</code></li>
+<li><code>cap[*]</code> proibito nel codice utente (E65)</li>
+<li>Solo <code>main</code> riceve il <code>cap</code> sintetizzato dal lockset</li>
+</ul>
+<blockquote>
+<p>Un cap che scende lungo l'albero delle chiamate può solo restringersi. Un'attacco che inietta una chiamata a <code>evil.com</code> muore al parser, non in produzione.</p>
+</blockquote>
+</div>
+</div>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="13" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="13" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="body-resolution">Body resolution</h1>
+<p><code>http.post(...)</code> <strong>non</strong> è una chiamata a un namespace globale. È risolta verso il <code>cap</code> in scope.</p>
+<pre><code class="language-aeris">use http                                          // rende il modulo visibile
+
+fn ping_status() -&gt; int {
+  http.get(&quot;https://api.acme.com/health&quot;)?.status // E65: nessun cap in scope
+}
+
+fn ping_status_ok(cap: cap[http.get @ [&quot;api.acme.com&quot;]]) -&gt; int {
+  http.get(&quot;https://api.acme.com/health&quot;)?.status // ok
+}
+</code></pre>
+<ul>
+<li>Importare un modulo capability-bearing <strong>non</strong> introduce alcuna funzione globale <code>http.post</code></li>
+<li>Aggiungere <code>use http</code> in cima al file non abilita niente; serve il <code>cap</code> nella firma</li>
+<li>Un LLM che genera codice e dimentica di dichiarare la capability fallisce <strong>al compile time</strong>, non in runtime</li>
+</ul>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="14" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="14" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="surface-lock--v3">Surface lock — V3</h1>
+<p>Per ogni funzione <code>pub</code>, la sua effect surface va in <code>.aeris/surface.lock</code>:</p>
+<pre><code class="language-toml"><span class="hljs-section">[settle]</span>
+<span class="hljs-attr">caps</span> = [
+  <span class="hljs-string">&quot;http.post @ [\&quot;api.acme.com\&quot;]&quot;</span>,
+  <span class="hljs-string">&quot;audit.event&quot;</span>,
+]
+
+<span class="hljs-section">[total]</span>
+<span class="hljs-attr">caps</span> = []
+</code></pre>
+<ul>
+<li>Una PR che amplia una surface (aggiunge una sub-cap) <strong>deve</strong> rigenerare il lockfile</li>
+<li>Il diff del <code>surface.lock</code> appare come <strong>primo hunk</strong> nella review</li>
+<li>Le contrazioni non richiedono re-lock</li>
+<li><code>aeris fmt --narrow-caps</code> (V1) propone restringimenti basati sull'uso reale del body</li>
+</ul>
+<blockquote>
+<p>Una PR LLM-generata che aggiunge una chiamata di rete a una funzione prima air-gapped è visibile a colpo d'occhio nella review.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="15" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-class="divider" data-theme="aeris" lang="it-IT" class="divider" data-marpit-pagination="15" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--class:divider;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+
+<h1 id="contracts-intent-model">Contracts, intent, model</h1>
+<blockquote>
+<p>Tre costrutti per portare il <em>perché</em> dentro la grammatica: pre/post-condizioni, intent obbligatorio sui write, schemi versionati ai trust boundary.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="16" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="16" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="contracts--requires--ensures">Contracts — <code>requires:</code> / <code>ensures:</code></h1>
+<pre><code class="language-aeris">fn pay(
+  amount: decimal,
+  account: string,
+  cap: cap[http.post @ [&quot;api.stripe.com&quot;]],
+) -&gt; result&lt;Receipt@v1&gt;
+  requires: amount &gt; 0
+  requires: len(account) == 26
+  ensures:  result.ok implies result.value.amount == amount
+{
+  intent &quot;charge customer&quot; {
+    let resp = http.post(&quot;https://api.stripe.com/v1/charges&quot;,
+                          { amount, account })?
+    Ok(Receipt@v1 { amount, txn_id: resp.id })
+  }
+}
+</code></pre>
+<ul>
+<li>Pre-condizioni controllate <strong>all'ingresso</strong>, post-condizioni a <strong>ogni return path</strong></li>
+<li>Violazione → <code>ContractViolation</code>, flush della trace, exit 64</li>
+<li><strong>Non</strong> catchabile da <code>?</code> — è un errore strutturale, non un <code>Err</code> di dominio</li>
+<li>Niente SMT, niente proof obligations: tutto runtime, errori actionable</li>
+</ul>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="17" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="17" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="intent-obbligatorio--v2">Intent obbligatorio — V2</h1>
+<p>Ogni chiamata <strong>write-effectful</strong> deve stare dentro un blocco <code>intent &quot;...&quot;</code>.</p>
+<div class="columns">
+<div class="column">
+<pre><code class="language-aeris">// E66 — parse-time error:
+// &quot;missing enclosing intent for write-effectful call&quot;
+fn rotate_cert(cap: cap[fs.write_file @ [&quot;/etc/ssl/**&quot;]]) {
+  fs.write_file(&quot;/etc/ssl/new.pem&quot;, new_pem())?
+}
+</code></pre>
+<pre><code class="language-aeris">// OK — intent dichiara il perché.
+fn rotate_cert(cap: cap[fs.write_file @ [&quot;/etc/ssl/**&quot;]]) {
+  intent &quot;rotate TLS cert before 30-day expiry&quot; {
+    fs.write_file(&quot;/etc/ssl/new.pem&quot;, new_pem())?
+  }
+}
+</code></pre>
+</div>
+<div class="column compact">
+<p><strong>Op write-effectful</strong>: <code>cap.fs.write*</code>, <code>cap.http.{post,put,patch,delete}</code>, <code>cap.kube.apply</code>, <code>cap.audit.*</code>, <code>cap.ai.*</code></p>
+<p><strong>Trace events:</strong></p>
+<ul>
+<li><code>intent_enter</code> — stringa, scope, ts</li>
+<li><code>intent_exit</code> — outcome, durata</li>
+<li>ogni evento dentro il body porta <code>&quot;intent&quot;: &quot;...&quot;</code> come campo</li>
+</ul>
+<blockquote>
+<p>Il <em>perché</em> diventa antenato grammaticale di ogni effetto. Una PR non può nascondere una write nel silenzio.</p>
+</blockquote>
+</div>
+</div>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="18" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="18" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="model-versionato--vn">Model versionato — <code>@vN</code></h1>
+<pre><code class="language-aeris">model Invoice@v1 {
+  id:       uuid
+  amount:   decimal where amount &gt; 0
+  customer: string  where len(customer) &lt;= 64
+  status:   InvoiceStatus
+
+  where: status == Cancelled implies amount == 0   // invariante cross-field
+}
+
+// Bare `Invoice` senza @vN su un trust boundary → exit 68.
+fn ingest(raw: string) -&gt; result&lt;Invoice@v1&gt; {
+  json.decode&lt;Invoice@v1&gt;(raw)        // validazione automatica al confine
+}
+</code></pre>
+<ul>
+<li>Validazione <strong>automatica</strong> sui trust boundary: HTTP ingress, <code>json.decode</code>, agent boundary</li>
+<li><code>where</code> per campo (predicato) e <code>where:</code> record-level (invariante cross-field)</li>
+<li>Migrazione tra versioni = funzione pura <strong>esplicita</strong>, mai implicita</li>
+<li>Bare <code>Invoice</code> rifiutato al check (E68) — versioning forzato dove conta</li>
+</ul>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="19" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-class="divider" data-theme="aeris" lang="it-IT" class="divider" data-marpit-pagination="19" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--class:divider;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+
+<h1 id="saga-e-agenti">Saga e agenti</h1>
+<blockquote>
+<p>Operazioni multi-step con compensation obbligatoria. LLM unit tipati. Dataflow aciclico fra agenti.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="20" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-class="tight" data-theme="aeris" lang="it-IT" class="tight" data-marpit-pagination="20" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--class:tight;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+
+<h1 id="saga--anatomia">Saga — anatomia</h1>
+<pre><code class="language-aeris">saga settle(
+  batch: list&lt;Invoice@v1&gt;,
+  cap: cap[
+    http.post  @ [&quot;api.acme.com&quot;],
+    kube.apply @ [&quot;prod-eu-1&quot;],
+    audit.event,
+  ],
+) {
+  intent &quot;settle invoice batch and notify finance&quot;
+
+  step charge {
+    do   { for it in batch { http.post(&quot;https://api.acme.com/charge&quot;, it)? } }
+    undo { for it in batch { http.post(&quot;https://api.acme.com/refund&quot;, it)? } }
+  }
+
+  step ledger {
+    requires: charge.ok
+    do   { kube.apply(ledger_manifest(batch))? }
+    undo { kube.delete(ledger_manifest(batch))? }
+  }
+
+  step record {
+    requires: ledger.ok
+    do   { audit.event(&quot;settle.complete&quot;,    { count: len(batch) }) }
+    undo { audit.event(&quot;settle.rolled_back&quot;, { count: len(batch) }) }
+  }
+}
+</code></pre>
+<ul>
+<li><code>do</code>/<code>undo</code> obbligatori. <code>undo: noop</code> ammesso <strong>solo</strong> se il <code>do</code> non è write-effectful (E67)</li>
+<li>Esiti deterministici: <code>ok</code> | <code>rolled_back</code> | <code>PartialFailure</code> (exit 74) — mai stato a metà</li>
+</ul>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="21" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="21" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="idempotency-key--n1">Idempotency key — N1</h1>
+<p>Ogni capability di scrittura riceve automaticamente:</p>
+<pre><code class="language-text">key = blake3(trace_id ‖ step_name ‖ invocation_index)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Iniezione</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>http.post/put/patch</code></td>
+<td>Header <code>Idempotency-Key: &lt;key&gt;</code></td>
+</tr>
+<tr>
+<td><code>kube.apply</code></td>
+<td>Annotation <code>aeris.dev/idempotency-key: &lt;key&gt;</code></td>
+</tr>
+<tr>
+<td><code>rabbitmq.publish</code></td>
+<td><code>message-id: &lt;key&gt;</code></td>
+</tr>
+<tr>
+<td><code>mongodb.insert</code></td>
+<td>Sentinel field <code>_aeris_idem: &lt;key&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Replay di uno step già completato → <strong>no-op</strong> lato backend</li>
+<li>Cascading undo durante rollback è retry-driven con queste chiavi</li>
+<li>Un retry su un undo già parzialmente applicato non duplica l'effetto</li>
+</ul>
+<blockquote>
+<p>Riduce la frequenza pratica di <code>PartialFailure</code> senza pretendere di eliminarla.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="22" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="22" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="agent--single-llm-unit">Agent — single LLM unit</h1>
+<div class="columns">
+<div class="column">
+<pre><code class="language-aeris">model Invoice@v1  { id: uuid, amount: decimal where amount &gt; 0 }
+model Category@v1 { kind: string }
+
+agent classify {
+  llm:     &quot;claude-haiku-4-5&quot;
+  intent:  &quot;classify invoice into expense kind&quot;
+  prompt:  &quot;&quot;&quot;
+    Classify the invoice with amount {input.amount}.
+    Return JSON with a single field `kind`.
+  &quot;&quot;&quot;
+  accept:  Invoice@v1
+  produce: Category@v1
+  retries: 2
+  budget:  { tokens: 2_000, latency: 3s }
+}
+
+fn main(cap: cap[ai.complete @ [&quot;claude-haiku-4-5&quot;]])
+  -&gt; result&lt;Category@v1&gt;
+{
+  intent &quot;classify one invoice&quot; {
+    classify(Invoice@v1 { id: uuid_v7(), amount: 99.0 }, cap)
+  }
+}
+</code></pre>
+</div>
+<div class="column compact">
+<ul>
+<li><code>accept</code>/<code>produce</code> sono <strong><code>model@vN</code></strong> validati a ogni invocazione</li>
+<li>Routing contract auto-iniettato dal runtime nel system prompt — non scritto a mano</li>
+<li><code>retries:</code> su <code>SchemaViolation</code> con backoff</li>
+<li><code>budget:</code> per token e latency; sforamento → <code>BudgetExceeded</code>, exit 1</li>
+<li>Ogni invocazione registrata nel trace JSONL (tape recorder N3)</li>
+</ul>
+</div>
+</div>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="23" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="23" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="agent_net--dataflow-tipato">agent_net — dataflow tipato</h1>
+<pre><code class="language-aeris">agent_net invoice_pipeline {
+  flow extract  -&gt; classify  -&gt; route
+  flow classify -&gt; { audit, archive }            // fan-out type-driven
+  flow audit    -&gt; notify_finance
+
+  until: classify.confidence &gt; 0.95 || iterations &gt;= 3
+}
+</code></pre>
+<ul>
+<li><strong>DAG aciclico</strong> — ciclo dichiarato → E70 al parse</li>
+<li>Routing risolto per <strong>match <code>accept</code> <img class="emoji" draggable="false" alt="↔" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/2194.svg" data-marp-twemoji=""/> <code>produce</code></strong>: il runtime sa quale ramo prendere dai tipi</li>
+<li><code>until:</code> per loop di convergenza con bound massimo</li>
+<li>Una net può essere usata come <strong>nodo</strong> di un'altra net — composizione gerarchica</li>
+<li>Esiti: <code>ok(value)</code> o <code>Err(&quot;agent_net &lt;name&gt; exhausted&quot;)</code></li>
+</ul>
+<blockquote>
+<p>Il protocollo di routing diventa parte del <em>programma</em>, non una stringa di prompt.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="24" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-class="divider" data-theme="aeris" lang="it-IT" class="divider" data-marpit-pagination="24" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--class:divider;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+
+<h1 id="policy-refusal-limiti">Policy, refusal, limiti</h1>
+<blockquote>
+<p>Policy come costrutto. Le scelte rifiutate per principio. I limiti onesti del modello.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="25" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="25" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="policy-come-costrutto">Policy come costrutto</h1>
+<pre><code class="language-aeris">policy production_egress {
+  match:  http.*
+  deny:   url.host not in [&quot;api.acme.com&quot;, &quot;api.stripe.com&quot;]
+  audit:  { url, method }
+  when:   env == &quot;production&quot;
+}
+
+policy ai_budget {
+  match: ai.complete
+  limit: tokens_per_minute = 60_000
+  audit: { model, tokens }
+}
+</code></pre>
+<ul>
+<li>Attivata via <strong>import del modulo</strong>, <strong>attributo</strong> <code>#[policy(name)]</code>, o <strong>lockset</strong> <code>[policies] active</code></li>
+<li>Valutata su ogni chiamata che matcha — non &quot;ricordata&quot; da un system prompt</li>
+<li>Violazione → <code>PolicyViolation</code>, trace event, exit 1</li>
+<li><strong>Drift in replay</strong>: se la policy diverge fra live e replay, evento <code>policy_drift</code> nel trace</li>
+</ul>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="26" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="26" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="cose-che-il-linguaggio-rifiuta--e-perch%C3%A9">Cose che il linguaggio rifiuta — e perché</h1>
+<table>
+<thead>
+<tr>
+<th>Refusal</th>
+<th>Motivazione tecnica</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>No SMT / refinement types</strong></td>
+<td>Il verdetto del solver dipende dalla macchina → introduce non-determinismo <em>nel tooling</em>, peggio di quello che proviamo a controllare</td>
+</tr>
+<tr>
+<td><strong>No tier system</strong> (<code>draft/standard/verified</code>)</td>
+<td>La semantica del boundary fra tier è inevitabilmente confusa: cosa succede se <code>standard</code> importa <code>draft</code>? Nessuna risposta ergonomica</td>
+</tr>
+<tr>
+<td><strong>No capability inference</strong></td>
+<td>Cambi interni a un callee modificherebbero silenziosamente la surface dei caller; il diff PR diventa ingannevole</td>
+</tr>
+<tr>
+<td><strong>No soft keyword</strong></td>
+<td>Lookahead position-dependent produce bug di parsing sottili (<code>time</code> token splittato silenziosamente). <code>grep step</code> deve trovare ogni <code>step</code></td>
+</tr>
+<tr>
+<td><strong>No import di riferimenti mutabili</strong></td>
+<td>Niente <code>latest</code>, niente <code>*</code>, nessun tag git mutabile. Ogni <code>use X@vN.M.P</code> deve combaciare col lockset o fallisce alla risoluzione</td>
+</tr>
+<tr>
+<td><strong>No <code>.so</code> plugin</strong></td>
+<td>Un binario su disco introdurrebbe una effect surface invisibile al check M2. Romperebbe la verificabilità statica delle capability</td>
+</tr>
+</tbody>
+</table>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="27" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="27" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="limiti-onesti-del-modello">Limiti onesti del modello</h1>
+<table>
+<thead>
+<tr>
+<th>Limite</th>
+<th>Cosa significa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Prima esecuzione LLM non-deterministica</strong></td>
+<td>Il tape recorder rende <code>aeris replay</code> bit-identical <em>dopo</em> la prima run. Quella prima resta in balìa del modello: <code>temperature=0</code> riduce la varianza, non la elimina</td>
+</tr>
+<tr>
+<td><strong>Logica dentro capability legittima non verificata</strong></td>
+<td>Se una funzione tiene legittimamente <code>cap[audit.write]</code> e scrive l'attore sbagliato, Aeris non se ne accorge. Garantiamo visibilità (firma) e obbligo (intent, saga); la correttezza del body è responsabilità di test, review, RBAC</td>
+</tr>
+<tr>
+<td><strong>Cascading undo best-effort</strong></td>
+<td>L'<code>undo</code> di uno step può a sua volta fallire. Ritentiamo con idempotency key di N1; dopo retry, evento <code>PartialFailure</code> ed exit 74 → richiesta risoluzione umana. Limite noto del pattern SAGA, nessun linguaggio lo elimina</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Aeris è la <strong>prima linea difensiva</strong>, non l'unica. Promettere di più sarebbe disonesto con l'audience che conta (compliance, audit, security).</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 2560 1600"><foreignObject width="2560" height="1600"><section id="28" data-paginate="true" data-header="TECHNICAL PRESENTATION · v0.2" data-footer="Aeris v0.2 · interpreted language for ops, AI and governance" data-theme="aeris" lang="it-IT" data-marpit-pagination="28" style="--paginate:true;--header:TECHNICAL PRESENTATION · v0.2;--footer:Aeris v0.2 · interpreted language for ops, AI and governance;--theme:aeris;" data-marpit-pagination-total="28">
+<header>TECHNICAL PRESENTATION · v0.2</header>
+<h1 id="stato-dellimplementazione">Stato dell'implementazione</h1>
+<table>
+<thead>
+<tr>
+<th>Tag</th>
+<th>Milestone</th>
+<th>Stato</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>v0.1</strong></td>
+<td>Prototipo esplorativo: AI builtins, L2 handlers, network listeners, inline errors — senza cap typing, intent, replay</td>
+<td>legacy</td>
+</tr>
+<tr>
+<td><strong>v0.2</strong></td>
+<td>M0–M8 bootstrap → policy (parser, check, interp, trace, http, saga, manifest, model)</td>
+<td>done</td>
+</tr>
+<tr>
+<td></td>
+<td>M9–M15 AI + replay, agent_net, L2 handlers, test/fmt, diagnostics, packaging, prototype mode</td>
+<td>done</td>
+</tr>
+<tr>
+<td><strong>v0.3</strong></td>
+<td>M15B <code>enforce = off | loose | strict</code> · M24 script surface (<code>loop</code>, <code>??</code>, <code>strings.*</code>, methods, natural JSON)</td>
+<td>done</td>
+</tr>
+<tr>
+<td></td>
+<td>M16 string interpolation · M17 inline errors · M18 time control · M23 <code>model extends</code></td>
+<td>done</td>
+</tr>
+<tr>
+<td></td>
+<td>M19 AI builtins (<code>session</code>, <code>decide</code>, <code>usage</code>, <strong><code>ai.chat(dir:)</code>+<code>chat.ask</code>+<code>kb_size</code></strong>) · M21 test helpers</td>
+<td>partial</td>
+</tr>
+<tr>
+<td></td>
+<td>M20 network listeners · M22 L2 parity con v0.1</td>
+<td>deferred</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Binario v0.2: &lt; 8 MB stripped · tree-walk interpreter · zero dipendenze runtime.<br />
+M20/M22 rinviati: richiedono runtime async / SDK esterni fuori dallo scope di v0.3.</p>
+</blockquote>
+<footer>Aeris v0.2 · interpreted language for ops, AI and governance</footer>
+</section>
+<script>!function(){"use strict";const t={h1:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"1"},style:"display: block; font-size: 2em; margin-block-start: 0.67em; margin-block-end: 0.67em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h2:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"2"},style:"display: block; font-size: 1.5em; margin-block-start: 0.83em; margin-block-end: 0.83em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h3:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"3"},style:"display: block; font-size: 1.17em; margin-block-start: 1em; margin-block-end: 1em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h4:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"4"},style:"display: block; margin-block-start: 1.33em; margin-block-end: 1.33em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h5:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"5"},style:"display: block; font-size: 0.83em; margin-block-start: 1.67em; margin-block-end: 1.67em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h6:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"6"},style:"display: block; font-size: 0.67em; margin-block-start: 2.33em; margin-block-end: 2.33em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},span:{proto:()=>HTMLSpanElement},pre:{proto:()=>HTMLElement,style:"display: block; font-family: monospace; white-space: pre; margin: 1em 0; --marp-auto-scaling-white-space: pre;"}},e="data-marp-auto-scaling-wrapper",i="data-marp-auto-scaling-svg",n="data-marp-auto-scaling-container";class s extends HTMLElement{container;containerSize;containerObserver;svg;svgComputedStyle;svgPreserveAspectRatio="xMinYMid meet";wrapper;wrapperSize;wrapperObserver;constructor(){super();const t=t=>([e])=>{const{width:i,height:n}=e.contentRect;this[t]={width:i,height:n},this.updateSVGRect()};this.attachShadow({mode:"open"}),this.containerObserver=new ResizeObserver(t("containerSize")),this.wrapperObserver=new ResizeObserver((...e)=>{t("wrapperSize")(...e),this.flushSvgDisplay()})}static get observedAttributes(){return["data-downscale-only"]}connectedCallback(){this.shadowRoot.innerHTML=`\n<style>\n  svg[${i}] { display: block; width: 100%; height: auto; vertical-align: top; }\n  span[${n}] { display: table; white-space: var(--marp-auto-scaling-white-space, nowrap); width: max-content; }\n</style>\n<div ${e}>\n  <svg part="svg" ${i}>\n    <foreignObject><span ${n}><slot></slot></span></foreignObject>\n  </svg>\n</div>\n    `.split(/\n\s*/).join(""),this.wrapper=this.shadowRoot.querySelector(`div[${e}]`)??void 0;const t=this.svg;this.svg=this.wrapper?.querySelector(`svg[${i}]`)??void 0,this.svg!==t&&(this.svgComputedStyle=this.svg?window.getComputedStyle(this.svg):void 0),this.container=this.svg?.querySelector(`span[${n}]`)??void 0,this.observe()}disconnectedCallback(){this.svg=void 0,this.svgComputedStyle=void 0,this.wrapper=void 0,this.container=void 0,this.observe()}attributeChangedCallback(){this.observe()}flushSvgDisplay(){const{svg:t}=this;t&&(t.style.display="inline",requestAnimationFrame(()=>{t.style.display=""}))}observe(){this.containerObserver.disconnect(),this.wrapperObserver.disconnect(),this.wrapper&&this.wrapperObserver.observe(this.wrapper),this.container&&this.containerObserver.observe(this.container),this.svgComputedStyle&&this.observeSVGStyle(this.svgComputedStyle)}observeSVGStyle(t){const e=()=>{const i=(()=>{const e=t.getPropertyValue("--preserve-aspect-ratio");if(e)return e.trim();return`x${(({textAlign:t,direction:e})=>{if(t.endsWith("left"))return"Min";if(t.endsWith("right"))return"Max";if("start"===t||"end"===t){let i="rtl"===e;return"end"===t&&(i=!i),i?"Max":"Min"}return"Mid"})(t)}YMid meet`})();i!==this.svgPreserveAspectRatio&&(this.svgPreserveAspectRatio=i,this.updateSVGRect()),t===this.svgComputedStyle&&requestAnimationFrame(e)};e()}updateSVGRect(){let t=Math.ceil(this.containerSize?.width??0);const e=Math.ceil(this.containerSize?.height??0);void 0!==this.dataset.downscaleOnly&&(t=Math.max(t,this.wrapperSize?.width??0));const i=this.svg?.querySelector(":scope > foreignObject");if(i?.setAttribute("width",`${t}`),i?.setAttribute("height",`${e}`),this.svg&&(this.svg.setAttribute("viewBox",`0 0 ${t} ${e}`),this.svg.setAttribute("preserveAspectRatio",this.svgPreserveAspectRatio),this.svg.style.height=t<=0||e<=0?"0":""),this.container){const t=this.svgPreserveAspectRatio.toLowerCase();this.container.style.marginLeft=t.startsWith("xmid")||t.startsWith("xmax")?"auto":"0",this.container.style.marginRight=t.startsWith("xmi")?"auto":"0"}}}const r=(t,{attrs:e={},style:i})=>class extends t{constructor(...t){super(...t);for(const[t,i]of Object.entries(e))this.hasAttribute(t)||this.setAttribute(t,i);this._shadow()}static get observedAttributes(){return["data-auto-scaling"]}connectedCallback(){this._update()}attributeChangedCallback(){this._update()}_shadow(){if(!this.shadowRoot)try{this.attachShadow({mode:"open"})}catch(t){if(!(t instanceof Error&&"NotSupportedError"===t.name))throw t}return this.shadowRoot}_update(){const t=this._shadow();if(t){const e=i?`<style>:host { ${i} }</style>`:"";let n="<slot></slot>";const{autoScaling:s}=this.dataset;if(void 0!==s){n=`<marp-auto-scaling exportparts="svg:auto-scaling" ${"downscale-only"===s?"data-downscale-only":""}>${n}</marp-auto-scaling>`}t.innerHTML=e+n}}};let o;const a=Symbol(),l=()=>o??(o=!!document.createElement("div",{is:"marp-auto-scaling"}).outerHTML.startsWith("<div is"),o);let c;const d="marpitSVGPolyfill:setZoomFactor,",h=Symbol(),g=Symbol();const p=()=>{const t="Apple Computer, Inc."===navigator.vendor,e=t?[v]:[],i={then:e=>(t?(async()=>{if(void 0===c){const t=document.createElement("canvas");t.width=10,t.height=10;const e=t.getContext("2d"),i=new Image(10,10),n=new Promise(t=>{i.addEventListener("load",()=>t())});i.crossOrigin="anonymous",i.src="data:image/svg+xml;charset=utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2210%22%20height%3D%2210%22%20viewBox%3D%220%200%201%201%22%3E%3CforeignObject%20width%3D%221%22%20height%3D%221%22%20requiredExtensions%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxhtml%22%3E%3Cdiv%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxhtml%22%20style%3D%22width%3A%201px%3B%20height%3A%201px%3B%20background%3A%20red%3B%20position%3A%20relative%22%3E%3C%2Fdiv%3E%3C%2FforeignObject%3E%3C%2Fsvg%3E",await n,e.drawImage(i,0,0),c=e.getImageData(5,5,1,1).data[3]<128}return c})().then(t=>{null==e||e(t?[v]:[])}):null==e||e([]),i)};return Object.assign(e,i)};let m,u;function v(t){const e="object"==typeof t&&t.target||document,i="object"==typeof t?t.zoom:t;window[g]||(Object.defineProperty(window,g,{configurable:!0,value:!0}),document.body.style.zoom=1.0001,document.body.offsetHeight,document.body.style.zoom=1,window.addEventListener("message",({data:t,origin:e})=>{if(e===window.origin)try{if(t&&"string"==typeof t&&t.startsWith(d)){const[,e]=t.split(","),i=Number.parseFloat(e);Number.isNaN(i)||(u=i)}}catch(t){console.error(t)}}));let n=!1;Array.from(e.querySelectorAll("svg[data-marpit-svg]"),t=>{var e,s,r,o;t.style.transform||(t.style.transform="translateZ(0)");const a=i||u||t.currentScale||1;m!==a&&(m=a,n=a);const l=t.getBoundingClientRect(),{length:c}=t.children;for(let i=0;i<c;i+=1){const n=t.children[i];if(n.getScreenCTM){const t=n.getScreenCTM();if(t){const i=null!==(s=null===(e=n.x)||void 0===e?void 0:e.baseVal.value)&&void 0!==s?s:0,c=null!==(o=null===(r=n.y)||void 0===r?void 0:r.baseVal.value)&&void 0!==o?o:0,d=n.children.length;for(let e=0;e<d;e+=1){const s=n.children[e];if("SECTION"===s.tagName){const{style:e}=s;e.transformOrigin||(e.transformOrigin=`${-i}px ${-c}px`),e.transform=`scale(${a}) matrix(${t.a}, ${t.b}, ${t.c}, ${t.d}, ${t.e-l.left}, ${t.f-l.top}) translateZ(0.0001px)`;break}}}}}}),!1!==n&&Array.from(e.querySelectorAll("iframe"),({contentWindow:t})=>{null==t||t.postMessage(`${d}${n}`,"null"===window.origin?"*":window.origin)})}function w({once:t=!1,target:e=document}={}){const i=function(t=document){if(t[h])return t[h];let e=!0;const i=()=>{e=!1,delete t[h]};Object.defineProperty(t,h,{configurable:!0,value:i});let n=[],s=!1;(async()=>{try{n=await p()}finally{s=!0}})();const r=()=>{for(const e of n)e({target:t});s&&0===n.length||e&&window.requestAnimationFrame(r)};return r(),i}(e);return t?(i(),()=>{}):i}m=1,u=void 0;const b=Symbol(),y=(e=document)=>{if("undefined"==typeof window)throw new Error("Marp Core's browser script is valid only in browser context.");if(((e=document)=>{const i=window[a];i||customElements.define("marp-auto-scaling",s);for(const n of Object.keys(t)){const s=`marp-${n}`,o=t[n].proto();l()&&o!==HTMLElement?i||customElements.define(s,r(o,{style:t[n].style}),{extends:n}):(i||customElements.define(s,r(HTMLElement,t[n])),e.querySelectorAll(`${n}[is="${s}"]`).forEach(t=>{t.outerHTML=t.outerHTML.replace(new RegExp(`^<${n}`,"i"),`<${s}`).replace(new RegExp(`</${n}>$`,"i"),`</${s}>`)}))}window[a]=!0})(e),e[b])return e[b];const i=w({target:e}),n=()=>{i(),delete e[b]},o=Object.assign(n,{cleanup:n,update:()=>y(e)});return Object.defineProperty(e,b,{configurable:!0,value:o}),o},f=document.currentScript;y(f?f.getRootNode():document)}();
+</script></foreignObject></svg></div><script>/*!! License: https://unpkg.com/@marp-team/marp-cli@4.4.0/lib/bespoke.js.LICENSE.txt */
+!function(){"use strict";function e(e){return e&&e.__esModule&&Object.prototype.hasOwnProperty.call(e,"default")?e.default:e}var t,n,r=(n||(n=1,t={from:function(e,t){var n,r=1===(e.parent||e).nodeType?e.parent||e:document.querySelector(e.parent||e),o=[].filter.call("string"==typeof e.slides?r.querySelectorAll(e.slides):e.slides||r.children,function(e){return"SCRIPT"!==e.nodeName}),i={},a=function(e,t){return(t=t||{}).index=o.indexOf(e),t.slide=e,t},s=function(e,t){i[e]=(i[e]||[]).filter(function(e){return e!==t})},l=function(e,t){return(i[e]||[]).reduce(function(e,n){return e&&!1!==n(t)},!0)},c=function(e,t){o[e]&&(n&&l("deactivate",a(n,t)),n=o[e],l("activate",a(n,t)))},d=function(e,t){var r=o.indexOf(n)+e;l(e>0?"next":"prev",a(n,t))&&c(r,t)},u={off:s,on:function(e,t){return(i[e]||(i[e]=[])).push(t),s.bind(null,e,t)},fire:l,slide:function(e,t){if(!arguments.length)return o.indexOf(n);l("slide",a(o[e],t))&&c(e,t)},next:d.bind(null,1),prev:d.bind(null,-1),parent:r,slides:o,destroy:function(e){l("destroy",a(n,e)),i={}}};return(t||[]).forEach(function(e){e(u)}),n||c(0),u}}),t),o=e(r);const i=document.body,a=(...e)=>history.replaceState(...e),s="",l="presenter",c="next",d="overview",u=["",l,d,c],f="bespoke-marp-",m=`data-${f}`,g=(e,{protocol:t,host:n,pathname:r,hash:o}=location)=>{const i=e.toString();return`${t}//${n}${r}${i?"?":""}${i}${o}`},p=()=>i.dataset.bespokeView,v=e=>new URLSearchParams(location.search).get(e),h=(e,t={})=>{const n={location,setter:a,...t},r=new URLSearchParams(n.location.search);for(const t of Object.keys(e)){const n=e[t];"string"==typeof n?r.set(t,n):r.delete(t)}try{n.setter({...window.history.state??{}},"",g(r,n.location))}catch(e){console.error(e)}},w=(()=>{const e="bespoke-marp";try{return localStorage.setItem(e,e),localStorage.removeItem(e),!0}catch{return!1}})(),y=e=>{try{return localStorage.getItem(e)}catch{return null}},b=(e,t)=>{try{return localStorage.setItem(e,t),!0}catch{return!1}},k=e=>{try{return localStorage.removeItem(e),!0}catch{return!1}},x=(e,t)=>{const n="aria-hidden";t?e.setAttribute(n,"true"):e.removeAttribute(n)},E=e=>{e.parent.classList.add(`${f}parent`),e.slides.forEach(e=>e.classList.add(`${f}slide`)),e.on("activate",t=>{const n=`${f}active`,r=t.slide,o=r.classList,i=!o.contains(n);if(e.slides.forEach(e=>{e.classList.remove(n),x(e,!0)}),o.add(n),x(r,!1),i){const e=`${n}-ready`;o.add(e),document.body.clientHeight,o.remove(e)}})},$=e=>{let t=0,n=0;Object.defineProperty(e,"fragments",{enumerable:!0,value:e.slides.map(e=>[null,...e.querySelectorAll("[data-marpit-fragment]")])});const r=r=>void 0!==e.fragments[t][n+r],o=(r,o)=>{t=r,n=o,e.fragments.forEach((e,t)=>{e.forEach((e,n)=>{if(null==e)return;const i=t<r||t===r&&n<=o;e.setAttribute(`${m}fragment`,(i?"":"in")+"active");const a=`${m}current-fragment`;t===r&&n===o?e.setAttribute(a,"current"):e.removeAttribute(a)})}),e.fragmentIndex=o;const i={slide:e.slides[r],index:r,fragments:e.fragments[r],fragmentIndex:o};e.fire("fragment",i)};e.on("next",({fragment:i=!0})=>{if(i){if(r(1))return o(t,n+1),!1;const i=t+1;e.fragments[i]&&o(i,0)}else{const r=e.fragments[t].length;if(n+1<r)return o(t,r-1),!1;const i=e.fragments[t+1];i&&o(t+1,i.length-1)}}),e.on("prev",({fragment:i=!0})=>{if(r(-1)&&i)return o(t,n-1),!1;const a=t-1;e.fragments[a]&&o(a,e.fragments[a].length-1)}),e.on("slide",({index:t,fragment:n})=>{let r=0;if(void 0!==n){const o=e.fragments[t];if(o){const{length:e}=o;r=-1===n?e-1:Math.min(Math.max(n,0),e-1)}}o(t,r)}),o(0,0)},L=document,S=()=>!(!L.fullscreenEnabled&&!L.webkitFullscreenEnabled),P=()=>!(!L.fullscreenElement&&!L.webkitFullscreenElement),_=e=>{e.fullscreen=()=>{S()&&(async()=>{P()?(L.exitFullscreen||L.webkitExitFullscreen)?.call(L):((e=L.body)=>{(e.requestFullscreen||e.webkitRequestFullscreen)?.call(e)})()})()},document.addEventListener("keydown",t=>{"f"!==t.key&&"F11"!==t.key||t.altKey||t.ctrlKey||t.metaKey||!S()||(e.fullscreen(),t.preventDefault())})},O=`${f}inactive`,T=(e=2e3)=>({parent:t,fire:n})=>{const r=t.classList,o=e=>n(`marp-${e?"":"in"}active`);let i;const a=()=>{i&&clearTimeout(i),i=setTimeout(()=>{r.add(O),o()},e),r.contains(O)&&(r.remove(O),o(!0))};for(const e of["mousedown","mousemove","touchend"])document.addEventListener(e,a);setTimeout(a,0)},I=["AUDIO","BUTTON","INPUT","SELECT","TEXTAREA","VIDEO"],M=e=>{e.parent.addEventListener("keydown",e=>{if(!e.target)return;const t=e.target;(I.includes(t.nodeName)||"true"===t.contentEditable)&&e.stopPropagation()})},A=e=>{window.addEventListener("load",()=>{for(const t of e.slides){const e=t.querySelector("marp-auto-scaling, [data-auto-scaling], [data-marp-fitting]");t.setAttribute(`${m}load`,e?"":"hideable")}})},C=({interval:e=250}={})=>t=>{document.addEventListener("keydown",e=>{if(" "===e.key&&e.shiftKey)t.prev();else if("ArrowLeft"===e.key||"ArrowUp"===e.key||"PageUp"===e.key)t.prev({fragment:!e.shiftKey});else if(" "!==e.key||e.shiftKey)if("ArrowRight"===e.key||"ArrowDown"===e.key||"PageDown"===e.key)t.next({fragment:!e.shiftKey});else if("End"===e.key)t.slide(t.slides.length-1,{fragment:-1});else{if("Home"!==e.key)return;t.slide(0)}else t.next();e.preventDefault()});let n,r,o=0;t.parent.addEventListener("wheel",i=>{let a=!1;const s=(e,t)=>{e&&(a=a||((e,t)=>((e,t)=>{const n="X"===t?"Width":"Height";return e[`client${n}`]<e[`scroll${n}`]})(e,t)&&((e,t)=>{const{overflow:n}=e,r=e[`overflow${t}`];return"auto"===n||"scroll"===n||"auto"===r||"scroll"===r})(getComputedStyle(e),t))(e,t)),e?.parentElement&&s(e.parentElement,t)};if(0!==i.deltaX&&s(i.target,"X"),0!==i.deltaY&&s(i.target,"Y"),a)return;i.preventDefault();const l=Math.sqrt(i.deltaX**2+i.deltaY**2);if(void 0!==i.wheelDelta){if(void 0===i.webkitForce&&Math.abs(i.wheelDelta)<40)return;if(i.deltaMode===i.DOM_DELTA_PIXEL&&l<4)return}else if(i.deltaMode===i.DOM_DELTA_PIXEL&&l<12)return;r&&clearTimeout(r),r=setTimeout(()=>{n=0},e);const c=Date.now()-o<e,d=l<=n;if(n=l,c||d)return;let u;(i.deltaX>0||i.deltaY>0)&&(u="next"),(i.deltaX<0||i.deltaY<0)&&(u="prev"),u&&(t[u](),o=Date.now())})},D=(e=`.${f}osc`)=>{const t=document.querySelector(e);if(!t)return()=>{};const n=(e,n)=>{t.querySelectorAll(`[${m}osc=${JSON.stringify(e)}]`).forEach(n)};if(S()||n("fullscreen",e=>e.style.display="none"),!w){const e=(e,t)=>{e.disabled=!0,e.title=`${t} is disabled due to restricted localStorage.`};n("presenter",t=>e(t,"Presenter view")),n("overview",t=>e(t,"Overview view"))}return e=>{t.addEventListener("click",t=>{if(t.target instanceof HTMLElement){const{bespokeMarpOsc:n}=t.target.dataset;n&&t.target.blur();const r={fragment:!t.shiftKey};"next"===n?e.next(r):"prev"===n?e.prev(r):"fullscreen"===n?e?.fullscreen():"presenter"===n?e.openPresenterView():"overview"===n&&e.toggleOverviewView()}}),e.parent.appendChild(t),e.on("activate",({index:t})=>{n("page",n=>n.textContent=`Page ${t+1} of ${e.slides.length}`)}),e.on("fragment",({index:t,fragments:r,fragmentIndex:o})=>{n("prev",e=>e.disabled=0===t&&0===o),n("next",n=>n.disabled=t===e.slides.length-1&&o===r.length-1)}),e.on("marp-active",()=>x(t,!1)),e.on("marp-inactive",()=>x(t,!0)),S()&&(e=>{for(const t of["","webkit"])L.addEventListener(t+"fullscreenchange",e)})(()=>n("fullscreen",e=>e.classList.toggle("exit",S()&&P())))}},N=e=>{if(e.syncKey&&"string"==typeof e.syncKey)return!0;throw new Error("The current instance of Bespoke.js is incompatible with Marp bespoke sync plugin.")},B=(e={})=>{const t=e.key||window.history.state?.marpBespokeSyncKey||Math.random().toString(36).slice(2),n=`bespoke-marp-sync-${t}`;var r;r={marpBespokeSyncKey:t},h({},{setter:(e,...t)=>a({...e,...r},...t)});const o=()=>{const e=y(n);return e?JSON.parse(e):Object.create(null)},i=e=>{const t=o(),r={...t,...e(t)};return b(n,JSON.stringify(r)),r},s=()=>{window.removeEventListener("pageshow",s),i(e=>({reference:(e.reference||0)+1}))};return e=>{s(),Object.defineProperty(e,"syncKey",{value:t,enumerable:!0});let r=!0;setTimeout(()=>{e.on("fragment",e=>{r&&i(()=>({index:e.index,fragmentIndex:e.fragmentIndex}))})},0),window.addEventListener("storage",t=>{if(t.key===n&&t.oldValue&&t.newValue){const n=JSON.parse(t.oldValue),o=JSON.parse(t.newValue);if(n.index!==o.index||n.fragmentIndex!==o.fragmentIndex)try{r=!1,e.slide(o.index,{fragment:o.fragmentIndex,forSync:!0})}finally{r=!0}}});const a=()=>{const{reference:e}=o();void 0===e||e<=1?k(n):i(()=>({reference:e-1}))};window.addEventListener("pagehide",e=>{e.persisted&&window.addEventListener("pageshow",s),a()}),e.on("destroy",a)}},K=e=>{w&&document.addEventListener("keydown",t=>{("o"!==t.key||t.altKey||t.ctrlKey||t.metaKey)&&"Escape"!==t.key||(t.preventDefault(),e())})};let q=null;const V=({closeOnSelect:e=!0}={})=>t=>{N(t);const n=n=>{const r=(()=>{if(!q||!q.isConnected){q=document.createElement("div"),q.className=`${f}overview`,q.inert=!0;const n=document.createElement("iframe");n.src=(()=>{const n=new URLSearchParams(location.search);return n.set("view","overview"),n.set("sync",t.syncKey),e&&n.set("closeOnSelect","1"),g(n)})(),q.append(n),document.body.append(q)}return q})(),o=n??!r.dataset.open;setTimeout(()=>{if(r.dataset.open=o?"1":"",r.inert=!o,t.skipTransition=o,o){const e=r.querySelector("iframe");try{e?.contentWindow?.focus()}catch{e?.focus()}}else window.focus()},0)};Object.defineProperties(t,{toggleOverviewView:{enumerable:!0,value:n}}),window.addEventListener("message",e=>{e.origin===window.origin&&"closeOverview"===e.data&&n(!1)}),K(n)},j=e=>{const{title:t}=document;document.title="[Overview]"+(t?` - ${t}`:"");const n=!!v("closeOnSelect"),r=()=>{window.parent.postMessage("closeOverview","null"===window.origin?"*":window.origin)};if(e.slides.forEach((t,o)=>{t.tabIndex=0;const i=()=>{e.slide(o,{fragment:-1}),n&&r()};t.addEventListener("click",i),t.addEventListener("keydown",e=>{"Enter"!==e.key&&" "!==e.key||(e.preventDefault(),i())})}),window.addEventListener("keydown",t=>{const n=e.slide(),r=t=>{const r=t=>{const n=e.slides[t].getBoundingClientRect();return[Math.round((n.left+n.right)/2),Math.round((n.top+n.bottom)/2)]};let o=null,i=n;do{const e=r(i);if(o){if(Math.abs(e[0]-o[0])<2)return i}else o=e;i+=t}while(i>=0&&i<e.slides.length);return n};if("ArrowLeft"===t.key)e.slide(Math.max(n-1,0),{fragment:-1});else if("ArrowRight"===t.key)e.slide(Math.min(n+1,e.slides.length-1),{fragment:-1});else if("ArrowUp"===t.key)e.slide(r(-1),{fragment:-1});else if("ArrowDown"===t.key)e.slide(r(1),{fragment:-1});else if("End"===t.key)e.slide(e.slides.length-1,{fragment:-1});else{if("Home"!==t.key)return;e.slide(0,{fragment:-1})}t.preventDefault();const o=e.slide();e.slides[o]?.focus?.(),e.slides[o]?.scrollIntoView?.({behavior:"smooth",block:"nearest"})}),e.on("slide",({index:t})=>{e.slides[t]?.scrollIntoView?.({behavior:"smooth",block:"nearest"})}),window.parent!==window){K(r);const e=document.createElement("header");e.className=`${f}overview-header`;const t=document.createElement("button");t.className=`${f}overview-close`,t.type="button",t.title="Close overview",t.textContent=t.title,t.addEventListener("click",r),e.append(t),document.body.prepend(e)}},F=()=>{const e=p();return{[s]:V(),[l]:V({closeOnSelect:!1}),[d]:j}[e]},U=e=>{window.addEventListener("message",t=>{if(t.origin!==window.origin)return;const[n,r]=t.data.split(":");if("navigate"===n){const[t,n]=r.split(",");let o=Number.parseInt(t,10),i=Number.parseInt(n,10)+1;i>=e.fragments[o].length&&(o+=1,i=0),e.slide(o,{fragment:i})}})};var R,X,H,W,J,Y,z,G={exports:{}},Q=(R||(R=1,G.exports=(X=["area","base","br","col","command","embed","hr","img","input","keygen","link","meta","param","source","track","wbr"],H=function(e){return String(e).replace(/[&<>"']/g,function(e){return"&"+W[e]+";"})},W={"&":"amp","<":"lt",">":"gt",'"':"quot","'":"apos"},J="dangerouslySetInnerHTML",Y={className:"class",htmlFor:"for"},z={},function(e,t){var n=[],r="";t=t||{};for(var o=arguments.length;o-- >2;)n.push(arguments[o]);if("function"==typeof e)return t.children=n.reverse(),e(t);if(e){if(r+="<"+e,t)for(var i in t)!1!==t[i]&&null!=t[i]&&i!==J&&(r+=" "+(Y[i]?Y[i]:H(i))+'="'+H(t[i])+'"');r+=">"}if(-1===X.indexOf(e)){if(t[J])r+=t[J].__html;else for(;n.length;){var a=n.pop();if(a)if(a.pop)for(var s=a.length;s--;)n.push(a[s]);else r+=!0===z[a]?a:H(a)}r+=e?"</"+e+">":""}return z[r]=!0,r})),G.exports),Z=e(Q);const ee=({children:e})=>Z(null,null,...e),te=`${f}presenter-`,ne={container:`${te}container`,dragbar:`${te}dragbar-container`,next:`${te}next`,nextContainer:`${te}next-container`,noteContainer:`${te}note-container`,noteWrapper:`${te}note-wrapper`,noteButtons:`${te}note-buttons`,infoContainer:`${te}info-container`,infoPageArea:`${te}info-page-area`,infoPage:`${te}info-page`,infoPagePrev:`${te}info-page-prev`,infoPageNext:`${te}info-page-next`,noteButtonsBigger:`${te}note-bigger`,noteButtonsSmaller:`${te}note-smaller`,infoTime:`${te}info-time`,infoTimer:`${te}info-timer`},re=e=>{const{title:t}=document;document.title="[Presenter view]"+(t?` - ${t}`:"");const n={},r=e=>(n[e]=n[e]||document.querySelector(`.${e}`),n[e]);document.body.appendChild((e=>{const t=document.createElement("div");return t.className=ne.container,t.appendChild(e),t.insertAdjacentHTML("beforeend",Z(ee,null,Z("div",{class:ne.nextContainer},Z("iframe",{class:ne.next,src:"?view=next"})),Z("div",{class:ne.dragbar}),Z("div",{class:ne.noteContainer},Z("div",{class:ne.noteWrapper}),Z("div",{class:ne.noteButtons},Z("button",{class:ne.noteButtonsSmaller,tabindex:"-1",title:"Smaller notes font size"},"Smaller notes font size"),Z("button",{class:ne.noteButtonsBigger,tabindex:"-1",title:"Bigger notes font size"},"Bigger notes font size"))),Z("div",{class:ne.infoContainer},Z("div",{class:ne.infoPageArea},Z("button",{class:ne.infoPagePrev,tabindex:"-1",title:"Previous"},"Previous"),Z("button",{class:ne.infoPage}),Z("button",{class:ne.infoPageNext,tabindex:"-1",title:"Next"},"Next")),Z("time",{class:ne.infoTime,title:"Current time"}),Z("time",{class:ne.infoTimer,title:"Timer"})))),t})(e.parent)),(e=>{let t=!1;r(ne.dragbar).addEventListener("mousedown",()=>{t=!0,r(ne.dragbar).classList.add("active")}),window.addEventListener("mouseup",()=>{t=!1,r(ne.dragbar).classList.remove("active")}),window.addEventListener("mousemove",e=>{if(!t)return;const n=e.clientX/document.documentElement.clientWidth*100;r(ne.container).style.setProperty("--bespoke-marp-presenter-split-ratio",`${Math.max(0,Math.min(100,n))}%`)}),r(ne.nextContainer).addEventListener("click",()=>e.next());const n=r(ne.next),o=(i=n,(e,t)=>i.contentWindow?.postMessage(`navigate:${e},${t}`,"null"===window.origin?"*":window.origin));var i;n.addEventListener("load",()=>{r(ne.nextContainer).classList.add("active"),o(e.slide(),e.fragmentIndex),e.on("fragment",({index:e,fragmentIndex:t})=>o(e,t))});const a=document.querySelectorAll(".bespoke-marp-note");a.forEach(e=>{e.addEventListener("keydown",e=>e.stopPropagation()),r(ne.noteWrapper).appendChild(e)}),e.on("activate",()=>a.forEach(t=>t.classList.toggle("active",t.dataset.index==e.slide())));let s=0;const l=e=>{s=Math.max(-5,s+e),r(ne.noteContainer).style.setProperty("--bespoke-marp-note-font-scale",(1.2**s).toFixed(4))},c=()=>l(1),d=()=>l(-1),u=r(ne.noteButtonsBigger),f=r(ne.noteButtonsSmaller);u.addEventListener("click",()=>{u.blur(),c()}),f.addEventListener("click",()=>{f.blur(),d()}),document.addEventListener("keydown",e=>{"+"===e.key&&c(),"-"===e.key&&d()},!0);const m=r(ne.infoPage);e.on("activate",({index:t})=>{m.textContent=`${t+1} / ${e.slides.length}`}),m.addEventListener("click",()=>{m.blur(),e.toggleOverviewView()});const g=r(ne.infoPagePrev),p=r(ne.infoPageNext);g.addEventListener("click",t=>{g.blur(),e.prev({fragment:!t.shiftKey})}),p.addEventListener("click",t=>{p.blur(),e.next({fragment:!t.shiftKey})}),e.on("fragment",({index:t,fragments:n,fragmentIndex:r})=>{g.disabled=0===t&&0===r,p.disabled=t===e.slides.length-1&&r===n.length-1});let v=new Date;const h=()=>{const e=new Date,t=e=>`${Math.floor(e)}`.padStart(2,"0"),n=e.getTime()-v.getTime(),o=t(n/1e3%60),i=t(n/1e3/60%60),a=t(n/36e5%24);r(ne.infoTime).textContent=e.toLocaleTimeString(),r(ne.infoTimer).textContent=`${a}:${i}:${o}`};h(),setInterval(h,250),r(ne.infoTimer).addEventListener("click",()=>{v=new Date})})(e)},oe=e=>{N(e),Object.defineProperties(e,{openPresenterView:{enumerable:!0,value:ie},presenterUrl:{enumerable:!0,get:ae}}),w&&document.addEventListener("keydown",t=>{"p"!==t.key||t.altKey||t.ctrlKey||t.metaKey||(t.preventDefault(),e.openPresenterView())})};function ie(){const{max:e,floor:t}=Math,n=e(t(.85*window.innerWidth),640),r=e(t(.85*window.innerHeight),360);return window.open(this.presenterUrl,te+this.syncKey,`width=${n},height=${r},menubar=no,toolbar=no`)}function ae(){const e=new URLSearchParams(location.search);return e.set("view","presenter"),e.set("sync",this.syncKey),g(e)}const se=e=>{const t=p();return t===c&&e.appendChild(document.createElement("span")),{[s]:oe,[l]:re,[c]:U}[t]},le=e=>{e.on("activate",t=>{document.querySelectorAll(".bespoke-progress-parent > .bespoke-progress-bar").forEach(n=>{n.style.flexBasis=100*t.index/(e.slides.length-1)+"%"})})},ce=e=>{const t=Number.parseInt(e,10);return Number.isNaN(t)?null:t},de=(e={})=>{const t={history:!0,...e};return e=>{let n=!0;const r=e=>{const t=n;try{return n=!0,e()}finally{n=t}},o=(t={fragment:!0})=>{let n=t.fragment?ce(v("f")||""):null;((t,n)=>{const{min:r,max:o}=Math,{fragments:i,slides:a}=e,s=o(0,r(t,a.length-1)),l=o(0,r(n||0,i[s].length-1));s===e.slide()&&l===e.fragmentIndex||e.slide(s,{fragment:l})})((()=>{if(location.hash){const[t]=location.hash.slice(1).split(":~:");if(/^\d+$/.test(t))return(ce(t)??1)-1;const r=document.getElementById(t)||document.querySelector(`a[name="${CSS.escape(t)}"]`);if(r){const{length:t}=e.slides;for(let o=0;o<t;o+=1)if(e.slides[o].contains(r)){const t=e.fragments?.[o],i=r.closest("[data-marpit-fragment]");if(t&&i){const e=t.indexOf(i);e>=0&&(n=e)}return o}}}return 0})(),n)};e.on("fragment",({index:e,fragmentIndex:r})=>{n||h({f:0===r||r.toString()},{location:{...location,hash:`#${e+1}`},setter:(...e)=>t.history?history.pushState(...e):history.replaceState(...e)})}),setTimeout(()=>{o(),window.addEventListener("hashchange",()=>r(()=>{o({fragment:!1}),h({f:void 0})})),window.addEventListener("popstate",()=>{n||r(()=>o())}),n=!1},0)}},{PI:ue,abs:fe,sqrt:me,atan2:ge}=Math,pe={passive:!0},ve=({slope:e=-.7,swipeThreshold:t=30}={})=>n=>{let r;const o=n.parent,i=e=>{const t=o.getBoundingClientRect();return{x:e.pageX-(t.left+t.right)/2,y:e.pageY-(t.top+t.bottom)/2}};o.addEventListener("touchstart",({touches:e})=>{r=1===e.length?i(e[0]):void 0},pe),o.addEventListener("touchmove",e=>{if(r)if(1===e.touches.length){e.preventDefault();const t=i(e.touches[0]),n=t.x-r.x,o=t.y-r.y;r.delta=me(fe(n)**2+fe(o)**2),r.radian=ge(n,o)}else r=void 0}),o.addEventListener("touchend",o=>{if(r){if(r.delta&&r.delta>=t&&r.radian){const t=(r.radian-e+ue)%(2*ue)-ue;n[t<0?"next":"prev"](),o.stopPropagation()}r=void 0}},pe)},he=new Map;he.clear(),he.set("none",{backward:{both:void 0,incoming:void 0,outgoing:void 0},forward:{both:void 0,incoming:void 0,outgoing:void 0}});const we={both:"",outgoing:"outgoing-",incoming:"incoming-"},ye={forward:"",backward:"-backward"},be=e=>`--marp-bespoke-transition-animation-${e}`,ke=e=>`--marp-transition-${e}`,xe=be("name"),Ee=be("duration"),$e=e=>new Promise(t=>{const n={},r=document.createElement("div"),o=e=>{r.remove(),t(e)};r.addEventListener("animationstart",()=>o(n)),Object.assign(r.style,{animationName:e,animationDuration:"1s",animationFillMode:"both",animationPlayState:"paused",position:"absolute",pointerEvents:"none"}),document.body.appendChild(r);const i=getComputedStyle(r).getPropertyValue(ke("duration"));i&&Number.parseFloat(i)>=0&&(n.defaultDuration=i),((e,t)=>{requestAnimationFrame(()=>{e.style.animationPlayState="running",requestAnimationFrame(()=>t(void 0))})})(r,o)}),Le=async e=>he.has(e)?he.get(e):(e=>{const t={},n=[];for(const[r,o]of Object.entries(we))for(const[i,a]of Object.entries(ye)){const s=`marp-${o}transition${a}-${e}`;n.push($e(s).then(e=>{t[i]=t[i]||{},t[i][r]=e?{...e,name:s}:void 0}))}return Promise.all(n).then(()=>t)})(e).then(t=>(he.set(e,t),t)),Se=e=>Object.values(e).flatMap(Object.values).every(e=>!e),Pe=(e,{type:t,backward:n})=>{const r=e[n?"backward":"forward"],o=(()=>{const e=r[t],n=e=>({[xe]:e.name});if(e)return n(e);if(r.both){const e=n(r.both);return"incoming"===t&&(e[be("direction")]="reverse"),e}})();return!o&&n?Pe(e,{type:t,backward:!1}):o||{[xe]:"__bespoke_marp_transition_no_animation__"}},_e=e=>{if(e)try{const t=JSON.parse(e);if((e=>{if("object"!=typeof e)return!1;const t=e;return"string"==typeof t.name&&(void 0===t.duration||"string"==typeof t.duration)})(t))return t}catch{}},Oe="_tSId",Te="_tA",Ie="bespoke-marp-transition-warming-up",Me=window.matchMedia("(prefers-reduced-motion: reduce)"),Ae="__bespoke_marp_transition_reduced_outgoing__",Ce="__bespoke_marp_transition_reduced_incoming__",De={forward:{both:void 0,incoming:{name:Ce},outgoing:{name:Ae}},backward:{both:void 0,incoming:{name:Ce},outgoing:{name:Ae}}},Ne=e=>{if(!document.startViewTransition)return;const t=t=>(void 0!==t&&(e._tD=t),e._tD);let n;t(!1),((...e)=>{CSS.registerProperty({name:ke("duration"),syntax:"<time>",inherits:!0,initialValue:"-1s"});const t=[...new Set(e).values()];return Promise.all(t.map(e=>Le(e))).then()})(...Array.from(document.querySelectorAll("section[data-transition], section[data-transition-back]")).flatMap(e=>[e.dataset.transition,e.dataset.transitionBack].flatMap(e=>{const t=_e(e);return[t?.name,t?.builtinFallback?`__builtin__${t.name}`:void 0]}).filter(e=>!!e))).then(()=>{document.querySelectorAll("style").forEach(e=>{e.innerHTML=e.innerHTML.replace(/--marp-transition-duration:[^;}]*[;}]/g,e=>e.slice(0,-1)+"!important"+e.slice(-1))})});const r=(n,{back:r,cond:o})=>i=>{const a=t();if(a)return!!i[Te]||!("object"!=typeof a||(a.skipTransition(),!i.forSync));if(e.skipTransition)return!0;if(!o(i))return!0;const s=e.slides[e.slide()],l=()=>i.back??r,c="data-transition"+(l()?"-back":""),d=s.querySelector(`section[${c}]`);if(!d)return!0;const u=_e(d.getAttribute(c)??void 0);return!u||((async(e,{builtinFallback:t=!0}={})=>{let n=await Le(e);if(Se(n)){if(!t)return;return n=await Le(`__builtin__${e}`),Se(n)?void 0:n}return n})(u.name,{builtinFallback:u.builtinFallback}).then(e=>{if(!e){t(!0);try{n(i)}finally{t(!1)}return}let r=e;Me.matches&&(console.warn("Use a constant animation to transition because preferring reduced motion by viewer has detected."),r=De);const o=document.getElementById(Oe);o&&o.remove();const a=document.createElement("style");a.id=Oe,document.head.appendChild(a),((e,t)=>{const n=[`:root{${ke("direction")}:${t.backward?-1:1};}`,":root:has(.bespoke-marp-inactive){cursor:none;}"],r=t=>{const n=e[t].both?.defaultDuration||e[t].outgoing?.defaultDuration||e[t].incoming?.defaultDuration;return"forward"===t?n:n||r("forward")},o=t.duration||r(t.backward?"backward":"forward");void 0!==o&&n.push(`::view-transition-group(*){${Ee}:${o};}`);const i=e=>Object.entries(e).map(([e,t])=>`${e}:${t};`).join("");return n.push(`::view-transition-old(root){${i(Pe(e,{...t,type:"outgoing"}))}}`,`::view-transition-new(root){${i(Pe(e,{...t,type:"incoming"}))}}`),n})(r,{backward:l(),duration:u.duration}).forEach(e=>a.sheet?.insertRule(e));const s=document.documentElement.classList;s.add(Ie);let c=!1;const d=()=>{c||(n(i),c=!0,s.remove(Ie))},f=()=>{t(!1),a.remove(),s.remove(Ie)};try{t(!0);const e=document.startViewTransition(d);t(e),e.finished.finally(f)}catch(e){console.error(e),d(),f()}}),!1)};e.on("prev",r(t=>e.prev({...t,[Te]:!0}),{back:!0,cond:e=>e.index>0&&!((e.fragment??1)&&n.fragmentIndex>0)})),e.on("next",r(t=>e.next({...t,[Te]:!0}),{cond:t=>t.index+1<e.slides.length&&!(n.fragmentIndex+1<n.fragments.length)})),setTimeout(()=>{e.on("slide",r(t=>e.slide(t.index,{...t,[Te]:!0}),{cond:t=>{const n=e.slide();return t.index!==n&&(t.back=t.index<n,!0)}}))},0),e.on("fragment",e=>{n=e})};let Be;const Ke=()=>(void 0===Be&&(Be="wakeLock"in navigator&&navigator.wakeLock),Be),qe=async()=>{const e=Ke();if(e)try{return await e.request("screen")}catch(e){console.warn(e)}return null},Ve=async()=>{if(!Ke())return;let e;const t=()=>{e&&"visible"===document.visibilityState&&qe()};for(const e of["visibilitychange","fullscreenchange"])document.addEventListener(e,t);return e=await qe(),e};((e=document.getElementById(":$p"))=>{(()=>{const e=v("view");i.dataset.bespokeView=u.some(t=>t&&t===e)?e:""})();const t=(e=>{const t=v(e);return h({[e]:void 0}),t})("sync")||void 0;o.from(e,((...e)=>{const t=u.findIndex(e=>p()===e);return e.map(([e,n])=>e[t]&&n).filter(e=>e)})([[1,1,1,0],B({key:t})],[[1,1,0,1],se(e)],[[1,1,0,0],M],[[1,1,1,1],E],[[1,0,0,0],T()],[[1,1,1,1],A],[[1,1,1,1],de({history:!1})],[[1,1,0,0],C()],[[1,1,1,0],_],[[1,0,0,0],le],[[1,1,0,0],ve()],[[1,0,0,0],D()],[[1,1,1,0],F()],[[1,0,0,0],Ne],[[1,1,1,1],$],[[1,1,1,0],Ve]))})()}();</script><script>window.__marpCliWatchWS="ws://localhost:37717/a2db5a5d169440583ad1a3caa751006699422a459017209809df08181e1d6012";!function(){"use strict";const e=(n,o=!1)=>{const t=new WebSocket(n);return t.addEventListener("open",()=>{console.info("[Marp CLI] Observing the change of file..."),o&&location.reload()}),t.addEventListener("close",()=>{console.warn("[Marp CLI] WebSocket for file watcher was disconnected. Try re-connecting in 5000ms..."),setTimeout(()=>e(n,!0),5e3)}),t.addEventListener("message",e=>{"reload"===e.data&&location.reload()}),t};(()=>{const n=window.__marpCliWatchWS;n&&e(n)})()}();</script></body></html>

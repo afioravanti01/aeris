@@ -1,4 +1,4 @@
-//! Hand-rolled TOML reader covering the shape of `lockset.toml`
+//! Hand-rolled TOML reader covering the shape of `aeris.toml`
 //! (M7.T1).
 //!
 //! Aeris ships as a single static binary (thesis § 2). Pulling in
@@ -631,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn full_lockset_parses() {
+    fn full_manifest_parses() {
         // The canonical fixture from `language.md` § 24.1.
         let src = r#"
             [project]

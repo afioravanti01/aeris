@@ -10,7 +10,7 @@
 //!   68 — model version conflict
 //!   69 — lockfile drift (hash mismatch)
 //!   70 — cycle in `agent_net`
-//!   71 — allow-list violation (signature outside lockset ceiling)
+//!   71 — allow-list violation (signature outside manifest ceiling)
 
 use crate::syntax::token::Span;
 
@@ -123,10 +123,10 @@ pub enum CheckErrorKind {
     MissingAgentField { agent: String, field: String },
     /// M2.T6 (§ 8.3.2): a function or saga signature requested an
     /// allow-list entry that is not present in the project's
-    /// `lockset.toml [caps]` ceiling. Exit code 71. `op` is the
+    /// `aeris.toml [caps]` ceiling. Exit code 71. `op` is the
     /// `<module>.<operation>` form (e.g. `http.post`); `entry` is the
     /// concrete allow-list entry that lies outside the ceiling
-    /// (e.g. `"evil.com"`); `family` names the lockset section that
+    /// (e.g. `"evil.com"`); `family` names the manifest section that
     /// would have to authorise it (e.g. `"http.allow"`).
     AllowListOutsideLockset {
         op: String,

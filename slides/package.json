@@ -1,0 +1,14 @@
+{
+  "name": "aeris-slides",
+  "private": true,
+  "scripts": {
+    "prep:html": "mkdir -p dist && ln -sfn ../img dist/img && ln -sfn ../resources dist/resources",
+    "dev":   "npm run prep:html && marp --watch --html --allow-local-files presentation.md --theme-set theme --output dist/index.html",
+    "build": "npm run prep:html && marp presentation.md --html --allow-local-files --theme-set theme --output dist/index.html",
+    "pdf":   "marp presentation.md --html --allow-local-files --theme-set theme --pdf --output dist/aeris.pdf",
+    "pptx":  "marp presentation.md --html --allow-local-files --theme-set theme --pptx --output dist/aeris.pptx"
+  },
+  "devDependencies": {
+    "@marp-team/marp-cli": "^4.1.1"
+  }
+}

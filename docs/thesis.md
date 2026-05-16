@@ -349,6 +349,21 @@ Industrial precedent: Erlang process isolation, Pony's reference
 capabilities. **Not novel research** — applied engineering of a
 well-understood model.
 
+**Enforcement is a project decision** (v0.3, `language.md` § 8.4.1).
+A project that does not need audit may run with
+`aeris.toml [caps] enforce = "off"`: the cap discipline is relaxed,
+`main` receives `cap[*]`, and the script feels like an interpreted
+language without capability ceremony. The structural invariants of
+§§ 8.2 / 8.4 (sagas with `undo`, mandatory `intent` on writes) also
+relax at this level — they are reciprocal to *audit* of authority,
+and audit is what the project just opted out of. A project that
+*does* need audit flips to `enforce = "strict"` (or the intermediate
+`"loose"` middle gear) and recovers the full v0.2 surface
+mechanically: `aeris fmt --narrow-caps` derives the per-function
+signatures from the body. The commitment in this section is that
+the *strict* form remains the canonical one — the off / loose modes
+are escape hatches, not substitutes for the discipline they relax.
+
 ### 8.2 Side-effects are logically reversible or refused
 
 A pipeline-style construct (`saga`) is the only place where multi-step
@@ -481,17 +496,17 @@ LLM-generated identifier never collides with a keyword by surprise.
 
 There is no `latest` version specifier. There is no `*`. There is no
 mutable git tag form. Every `use X@vN.M.P` either matches a `[deps]`
-entry in `lockset.toml` exactly or fails at resolution time.
+entry in `aeris.toml` exactly or fails at resolution time.
 
 **The cost we accept**: republishing a library requires a new alias
 or a lockfile bump. The gain: "what version is in this build?" is
-a textual question answerable from `lockset.toml` without running
+a textual question answerable from `aeris.toml` without running
 anything.
 
 ### 9.6 No native shared-object plug-ins
 
 Aeris does not load `.so` / `.dll` modules at runtime. User-land
-libraries fetched through the lockset / registry are pure `.aer`
+libraries fetched through the manifest / registry are pure `.aer`
 source; the bytes are blake3-hashed before they execute. Runtime
 extensions that need native code (HTTP fetcher, `kubectl` /
 `docker` subprocess wrappers, future TLS pinning) live as native
@@ -564,7 +579,7 @@ opt-in.
 
 ### N4 — Network egress allowlist as capability parameter
 
-`cap.http` is constructed from an allowlist declared in `lockset.toml`.
+`cap.http` is constructed from an allowlist declared in `aeris.toml`.
 A `cap.http.get(url: "evil.com")` against an out-of-list domain raises
 a runtime `PolicyViolation` and emits a trace event. Defense-in-depth
 against adversarial LLM injections.
