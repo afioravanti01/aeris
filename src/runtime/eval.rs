@@ -1135,6 +1135,22 @@ fn eval_expr(e: &Expr, env: &mut Env) -> Result<Flow, EvalError> {
         Expr::Float(f, _) => Ok(Flow::Value(Value::Float(*f))),
         Expr::Bool(b, _) => Ok(Flow::Value(Value::Bool(*b))),
         Expr::Str(s, _) => Ok(Flow::Value(Value::Str(s.clone()))),
+        Expr::StrInterp(parts, span) => {
+            let mut buf = String::new();
+            for part in parts {
+                match part {
+                    crate::syntax::ast::StrInterpPart::Text(t) => buf.push_str(t),
+                    crate::syntax::ast::StrInterpPart::Interp(inner) => {
+                        match eval_expr(inner, env)? {
+                            Flow::Value(v) => buf.push_str(&stringify_for_interp(&v)),
+                            other => return Ok(other),
+                        }
+                    }
+                }
+            }
+            let _ = span;
+            Ok(Flow::Value(Value::Str(buf)))
+        }
         Expr::Bytes(b, _) => Ok(Flow::Value(Value::Bytes(b.clone()))),
         Expr::Char(c, _) => Ok(Flow::Value(Value::Char(*c))),
         Expr::Date(s, _) => Ok(Flow::Value(Value::Date(s.clone()))),
@@ -5834,12 +5850,36 @@ fn list_pat_matches(
     }
 }
 
+/// Display rule for `{ expr }` interpolation segments. Strings pass
+/// through verbatim; primitives use their natural textual form; other
+/// values fall back to `Debug` so the user sees something rather than
+/// nothing. Kept here so the parser stays unaware of `Value`.
+fn stringify_for_interp(v: &Value) -> String {
+    match v {
+        Value::Str(s) => s.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => format!("{f}"),
+        Value::Bool(b) => if *b { "true" } else { "false" }.into(),
+        Value::Char(c) => c.to_string(),
+        Value::Date(s) | Value::Timestamp(s) | Value::Duration(s) => s.clone(),
+        Value::Unit => String::new(),
+        other => format!("{other:?}"),
+    }
+}
+
 fn eval_literal_pattern(e: &Expr) -> Result<Value, EvalError> {
     match e {
         Expr::Int(n, _) => Ok(Value::Int(*n)),
         Expr::Float(f, _) => Ok(Value::Float(*f)),
         Expr::Bool(b, _) => Ok(Value::Bool(*b)),
         Expr::Str(s, _) => Ok(Value::Str(s.clone())),
+        Expr::StrInterp(_, span) => Err(EvalError::new(
+            EvalErrorKind::Io {
+                op: "match".into(),
+                message: "interpolated strings are not valid as match patterns".into(),
+            },
+            *span,
+        )),
         Expr::Char(c, _) => Ok(Value::Char(*c)),
         Expr::Date(s, _) => Ok(Value::Date(s.clone())),
         Expr::Timestamp(s, _) => Ok(Value::Timestamp(s.clone())),
@@ -6596,6 +6636,65 @@ mod tests {
     fn t6_check_error_returns_at_least_64() {
         // `Foo` is unknown — type resolver flags it with exit 64.
         assert!(run_exit("fn main() -> Foo {}") >= 64);
+    }
+
+    // ---- M16 — string interpolation `{x}` at runtime ----
+
+    #[test]
+    fn m16_interpolation_concatenates_simple_var() {
+        let src = r#"
+            fn main() -> string {
+                let name = "Aeris"
+                let version = 2
+                "Welcome to {name} v{version}."
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Str(s) => assert_eq!(s, "Welcome to Aeris v2."),
+            other => panic!("expected Str, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m16_interpolation_evaluates_arithmetic_expression() {
+        let src = r#"
+            fn main() -> string {
+                "The result of 3 * 7 is {3 * 7}."
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Str(s) => assert_eq!(s, "The result of 3 * 7 is 21."),
+            other => panic!("expected Str, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m16_interpolation_escapes_keep_literal_braces() {
+        let src = r#"
+            fn main() -> string {
+                "raw: \{not interp\}"
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Str(s) => assert_eq!(s, "raw: {not interp}"),
+            other => panic!("expected Str, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m16_plain_string_round_trips_through_fmt() {
+        // M12.T5 promised `fmt(fmt(x)) == fmt(x)`. After M16 the
+        // formatter must escape literal braces so a JSON-shaped string
+        // round-trips unchanged.
+        let src = "record R { x: int }\nfn main() -> string { \"\\{\\}\" }";
+        let m = crate::syntax::parse(src).unwrap();
+        let fmt1 = crate::syntax::fmt::format_module(&m, src);
+        let m2 = crate::syntax::parse(&fmt1).unwrap();
+        let fmt2 = crate::syntax::fmt::format_module(&m2, &fmt1);
+        assert_eq!(fmt1, fmt2);
     }
 
     // ---- M4.T2 — `cap.subset[..]` runtime narrowing ----
@@ -7747,7 +7846,7 @@ mod tests {
         let src = r#"
             model Order@v1 { total: int where total > 0 }
             fn main() -> result<Order@v1> {
-                let s = "{\"total\": 42}"
+                let s = "\{\"total\": 42\}"
                 json.decode<Order@v1>(s)
             }
         "#;
@@ -7767,7 +7866,7 @@ mod tests {
         let src = r#"
             model Order@v1 { total: int where total > 0 }
             fn main() -> result<Order@v1> {
-                let s = "{\"total\": 0}"
+                let s = "\{\"total\": 0\}"
                 json.decode<Order@v1>(s)
             }
         "#;
@@ -7779,7 +7878,7 @@ mod tests {
         let src = r#"
             model User@v1 { id: int, name: string }
             fn main() -> result<User@v1> {
-                let s = "{\"id\": 1}"
+                let s = "\{\"id\": 1\}"
                 json.decode<User@v1>(s)
             }
         "#;
@@ -7792,7 +7891,7 @@ mod tests {
         let src = r#"
             model User@v1 { id: int }
             fn main() -> result<User@v1> {
-                let s = "{\"id\": 1, \"foo\": \"x\"}"
+                let s = "\{\"id\": 1, \"foo\": \"x\"\}"
                 json.decode<User@v1>(s)
             }
         "#;
@@ -7805,7 +7904,7 @@ mod tests {
         let src = r#"
             model User@v1 { id: int }
             fn main() -> result<User@v2> {
-                let s = "{\"id\": 1}"
+                let s = "\{\"id\": 1\}"
                 json.decode<User@v2>(s)
             }
         "#;
@@ -7818,7 +7917,7 @@ mod tests {
         let src = r#"
             model User@v1 { id: int }
             fn main() -> result<User@v1> {
-                let s = "{\"id\": \"oops\"}"
+                let s = "\{\"id\": \"oops\"\}"
                 json.decode<User@v1>(s)
             }
         "#;
@@ -7831,7 +7930,7 @@ mod tests {
         let src = r#"
             model Flag@v1 { ok: bool where ok }
             fn main() -> result<Flag@v1> {
-                let s = "{\"ok\": true}"
+                let s = "\{\"ok\": true\}"
                 json.decode<Flag@v1>(s)
             }
         "#;
@@ -7847,7 +7946,7 @@ mod tests {
                 where: hi >= lo
             }
             fn main() -> result<Range@v1> {
-                let s = "{\"lo\": 5, \"hi\": 1}"
+                let s = "\{\"lo\": 5, \"hi\": 1\}"
                 json.decode<Range@v1>(s)
             }
         "#;
@@ -7860,7 +7959,7 @@ mod tests {
         let src = r#"
             model Order@v1 { total: int where total > 0 }
             fn main() -> result<Order@v1> {
-                let resp = HttpResponse { status: 200, body: "{\"total\": 99}" }
+                let resp = HttpResponse { status: 200, body: "\{\"total\": 99\}" }
                 http.body<Order@v1>(resp)
             }
         "#;
@@ -7876,7 +7975,7 @@ mod tests {
         let src = r#"
             model Order@v1 { total: int where total > 0 }
             fn main() -> result<Order@v1> {
-                let resp = HttpResponse { status: 200, body: "{\"total\": 0}" }
+                let resp = HttpResponse { status: 200, body: "\{\"total\": 0\}" }
                 http.body<Order@v1>(resp)
             }
         "#;
@@ -9195,7 +9294,7 @@ mod tests {
         let mut env = Env::new().with_tracer(tracer.clone());
         env.bind_let("cap", cap(vec![(vec!["rabbitmq", "publish"], None)], false));
         env.idempotency_key = Some(std::rc::Rc::new("amqp-msg-77".into()));
-        let expr = parse_expression(r#"rabbitmq.publish("orders", "{}")"#).unwrap();
+        let expr = parse_expression(r#"rabbitmq.publish("orders", "\{\}")"#).unwrap();
         let _ = eval_expr(&expr, &mut env)
             .and_then(|f| f.into_value(expr.span()))
             .unwrap();
@@ -9219,7 +9318,7 @@ mod tests {
         let tracer = Tracer::in_memory();
         let mut env = Env::new().with_tracer(tracer.clone());
         env.bind_let("cap", cap(vec![(vec!["rabbitmq", "publish"], None)], false));
-        let expr = parse_expression(r#"rabbitmq.publish("orders", "{}")"#).unwrap();
+        let expr = parse_expression(r#"rabbitmq.publish("orders", "\{\}")"#).unwrap();
         let _ = eval_expr(&expr, &mut env)
             .and_then(|f| f.into_value(expr.span()))
             .unwrap();
@@ -10465,7 +10564,7 @@ mod tests {
             saga notify(cap: cap[rabbitmq.publish]) {
                 intent "notify"
                 step send {
-                    do { rabbitmq.publish("orders", "{}") }
+                    do { rabbitmq.publish("orders", "\{\}") }
                     undo noop
                 }
             }

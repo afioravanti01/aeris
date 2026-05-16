@@ -117,7 +117,7 @@ Module responsibilities (one-liners):
 | M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | done |
 | M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done (CI-driven packaging deferred, § 9) |
 | M15 | Capability prototype mode | `[caps] required` flag in lockset; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
-| M16 | v0.3 — String interpolation `{x}` | Replace `\(...)` with `{...}` inside string literals; lexer/parser disambiguation against record and block braces; `aeris fmt --migrate-strings` rewrites `*.aer` | 1 | M1 | pending |
+| M16 | v0.3 — String interpolation `{x}` | Replace `\(...)` with `{...}` inside string literals; lexer/parser disambiguation against record and block braces; `aeris fmt --migrate-strings` rewrites `*.aer` | 1 | M1 | done |
 | M17 | v0.3 — Inline errors (`catch`, `error()`, `defer`) | `expr catch e { ... }` as expression; `error(msg)` sugar for `raise err.user(msg)`; `defer stmt` LIFO at function exit | 2 | M2, M3, M5 | pending |
 | M18 | v0.3 — Time control (`every`, `retry`, `timeout`, `clock.sleep`) | Block-shaped sugar over cap-gated `clock.sleep`; `retry` with backoff; `timeout` with cooperative cancel | 2 | M4, M5 | pending |
 | M19 | v0.3 — AI builtins (`session`, `decide`, `extract`, `generate`, `ensemble`, `eval`, `index`, `guard`, `cache`, `usage`) | Each builtin desugars to the v0.2 core (`agent`/`policy`/`model@vN`); state immutable; every call inside `intent`; cap-gated by `ai.complete` / `ai.embed` | 4 | M9, M10 | pending |
@@ -375,12 +375,12 @@ concern program structure, not authority distribution.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M16.T1 | Lexer: parse `{ <expr> }` inside `"..."` and `"""..."""` as an interpolation segment | A string literal becomes a stream of `(text \| expr)*`; existing `\(...)` is removed | § 2.4, § 11 | pending |
-| M16.T2 | Disambiguate `{` between interpolation, record literal, block expression. Interpolation only valid lexically inside a double-quoted string token | `User { x: 1 }` and `{ let x = 1; x }` still parse correctly outside strings | § 2.4 | pending |
-| M16.T3 | Escape: `\{` and `\}` for literal braces inside strings; `{{` and `}}` are NOT supported (one rule wins) | Fixture: `"x = \{1\}"` → `x = {1}` | § 2.4 | pending |
-| M16.T4 | `aeris fmt --migrate-strings`: rewrites every `\(<expr>)` to `{<expr>}` in `*.aer`; idempotent | 50 round-trip fixtures | § 25.2 | pending |
-| M16.T5 | Rewrite all `aeris-tests/`, `examples/`, `src/templates/` to use `{x}` | `every_example_checks_clean` and the lib test suite stay green | § 11 | pending |
-| M16.T6 | `language.md § 2.4` updated; old `\(...)` removed from the spec | Spec source updated | § 2.4 | pending |
+| M16.T1 | Lexer: parse `{ <expr> }` inside `"..."` and `"""..."""` as an interpolation segment | A string literal becomes a stream of `(text \| expr)*`; existing `\(...)` is removed | § 2.4, § 11 | done |
+| M16.T2 | Disambiguate `{` between interpolation, record literal, block expression. Interpolation only valid lexically inside a double-quoted string token | `User { x: 1 }` and `{ let x = 1; x }` still parse correctly outside strings | § 2.4 | done |
+| M16.T3 | Escape: `\{` and `\}` for literal braces inside strings; `{{` and `}}` are NOT supported (one rule wins) | Fixture: `"x = \{1\}"` → `x = {1}` | § 2.4 | done |
+| M16.T4 | `aeris fmt --migrate-strings`: rewrites every `\(<expr>)` to `{<expr>}` in `*.aer`; idempotent | 50 round-trip fixtures | § 25.2 | done |
+| M16.T5 | Rewrite all `aeris-tests/`, `examples/`, `src/templates/` to use `{x}` | `every_example_checks_clean` and the lib test suite stay green | § 11 | done |
+| M16.T6 | `language.md § 2.4` updated; old `\(...)` removed from the spec | Spec source updated | § 2.4 | done |
 
 ### 5.17 M17 — Inline errors: `catch`, `error()`, `defer` (2 weeks)
 

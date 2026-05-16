@@ -345,7 +345,7 @@ mod tests {
         let src = r#"
             pub fn settle(cap: cap[http.post, audit.event]) {
                 intent "x" {
-                    http.post("u", "{}")
+                    http.post("u", "\{\}")
                     audit.event("ok", { x: 1 })
                 }
             }
@@ -483,7 +483,7 @@ mod tests {
         let old = render_surface_lock(
             &compute_surface(&one(
                 "s.aer",
-                "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"{}\") } }",
+                "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"\\{\\}\") } }",
             ))
             .unwrap(),
         );
@@ -492,7 +492,7 @@ mod tests {
                 "s.aer",
                 r#"pub fn settle(cap: cap[http.post, audit.event]) {
                     intent "x" {
-                        http.post("u", "{}")
+                        http.post("u", "\{\}")
                         audit.event("ok", { x: 1 })
                     }
                 }"#,

@@ -40,7 +40,7 @@ fn run_saga_collect_kinds(src: &str) -> Vec<String> {
 fn criterion_2_v2_rejects_effectful_call_outside_intent() {
     let bad = r#"
         fn settle(cap: cap[http.post]) {
-            http.post("https://api.acme.com/x", "{}")
+            http.post("https://api.acme.com/x", "\{\}")
         }
     "#;
     let m = parse(bad).expect("parse");
@@ -53,7 +53,7 @@ fn criterion_2_v2_rejects_effectful_call_outside_intent() {
     let good = r#"
         fn settle(cap: cap[http.post]) {
             intent "settle" {
-                http.post("https://api.acme.com/x", "{}")
+                http.post("https://api.acme.com/x", "\{\}")
             }
         }
     "#;
@@ -169,7 +169,7 @@ fn criterion_6_surface_diff_is_first_hunk_when_committed_lock_is_stale() {
     let computed = surface::render_surface_lock(
         &surface::compute_surface(&[(
             "src/main.aer".to_string(),
-            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"{}\") } }"
+            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"\\{\\}\") } }"
                 .to_string(),
         )])
         .unwrap(),
@@ -193,7 +193,7 @@ fn criterion_6_surface_diff_is_first_hunk_when_committed_lock_is_stale() {
 fn criterion_2_lockset_aware_path_agrees_on_in_intent_pattern() {
     let src = r#"
         fn settle(cap: cap[http.post]) {
-            intent "x" { http.post("u", "{}") }
+            intent "x" { http.post("u", "\{\}") }
         }
     "#;
     let m = parse(src).expect("parse");

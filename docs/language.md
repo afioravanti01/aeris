@@ -162,7 +162,7 @@ parsing, not the position-dependent lexing § 9.4 prohibits.
 42         42_000        0xff       0b1010       // integer
 3.14       1.5e-3                                // float
 true       false                                 // bool
-"hello"    "with \(name)"                        // string, interpolation
+"hello"    "with {name}"     "x = {f(g(1, 2))}"  // string, interpolation
 b"raw"     b"\xff\x00"                           // bytes
 '\n'                                             // char
 [1, 2, 3]                                        // list
@@ -177,6 +177,16 @@ Date, timestamp, and duration are *literal* forms recognised by the
 lexer (the pattern `\d{4}-\d{2}-\d{2}` is always a date, never an
 arithmetic subtraction). This is not a soft keyword — the recognition
 is purely lexical and unconditional, never position-dependent.
+
+**String interpolation (M16).** Inside a double-quoted string literal,
+a `{` introduces an interpolation segment that ends at the matching
+`}` (braces nest, so `"x = {f(g(1, 2))}"` is one segment with body
+`f(g(1, 2))`). The body is parsed as an expression and the runtime
+concatenates the stringified result. A literal `{` or `}` is written
+as `\{` or `\}`; there is no `{{`/`}}` doubling rule. An empty segment
+`"{}"` is a lex error — escape it as `"\{\}"` when you need the empty
+JSON object. The legacy `\(...)` form from v0.2.0-dev is removed in
+v0.3; `aeris fmt --migrate-strings` does the one-shot rewrite.
 
 ### 2.5 Comments
 

@@ -435,7 +435,7 @@ mod tests {
         // the operations the body actually uses.
         let src = r#"
             fn pay(cap: cap[http]) {
-                intent "pay" { http.post("https://api.acme.com/c", "{}") }
+                intent "pay" { http.post("https://api.acme.com/c", "\{\}") }
             }
         "#;
         let xs = one(src);
@@ -449,7 +449,7 @@ mod tests {
     fn unused_op_in_explicit_list_is_dropped() {
         let src = r#"
             fn pay(cap: cap[http.get, http.post]) {
-                intent "p" { http.post("https://x/y", "{}") }
+                intent "p" { http.post("https://x/y", "\{\}") }
             }
         "#;
         let xs = one(src);
@@ -464,7 +464,7 @@ mod tests {
     fn allow_list_narrows_to_actually_used_hosts() {
         let src = r#"
             fn pay(cap: cap[http.post @ ["api.acme.com", "api.stripe.com"]]) {
-                intent "p" { http.post("https://api.acme.com/x", "{}") }
+                intent "p" { http.post("https://api.acme.com/x", "\{\}") }
             }
         "#;
         let xs = one(src);
@@ -478,7 +478,7 @@ mod tests {
     fn fn_already_minimal_emits_no_suggestion() {
         let src = r#"
             fn pay(cap: cap[http.post @ "api.acme.com"]) {
-                intent "p" { http.post("https://api.acme.com/x", "{}") }
+                intent "p" { http.post("https://api.acme.com/x", "\{\}") }
             }
         "#;
         assert!(one(src).is_empty());
@@ -524,7 +524,7 @@ mod tests {
     fn render_narrowing_diff_is_empty_when_all_minimal() {
         let src = r#"
             fn pay(cap: cap[http.post @ "x"]) {
-                intent "p" { http.post("https://x/y", "{}") }
+                intent "p" { http.post("https://x/y", "\{\}") }
             }
         "#;
         let m = parse(src).unwrap();
@@ -535,7 +535,7 @@ mod tests {
     fn render_narrowing_diff_contains_minus_and_plus_lines() {
         let src = r#"
             fn pay(cap: cap[http]) {
-                intent "p" { http.post("https://x/y", "{}") }
+                intent "p" { http.post("https://x/y", "\{\}") }
             }
         "#;
         let m = parse(src).unwrap();
@@ -565,7 +565,7 @@ mod tests {
         // broadens authority.
         let src = r#"
             fn pay(cap: cap[http.post @ "api.acme.com"]) {
-                intent "p" { http.post("https://api.stripe.com/x", "{}") }
+                intent "p" { http.post("https://api.stripe.com/x", "\{\}") }
             }
         "#;
         let xs = one(src);

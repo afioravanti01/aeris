@@ -702,7 +702,7 @@ mod tests {
             saga charge(cap: cap[http.post @ ["api.acme.com"]]) {
                 intent "charge"
                 step pay {
-                    do { http.post("https://api.acme.com/charge", "{}")? }
+                    do { http.post("https://api.acme.com/charge", "\{\}")? }
                     undo noop
                 }
             }
@@ -746,8 +746,8 @@ mod tests {
             saga settle(cap: cap[http.post @ ["api.acme.com"]]) {
                 intent "settle"
                 step charge {
-                    do   { http.post("https://api.acme.com/charge", "{}")? }
-                    undo { http.post("https://api.acme.com/refund", "{}")? }
+                    do   { http.post("https://api.acme.com/charge", "\{\}")? }
+                    undo { http.post("https://api.acme.com/refund", "\{\}")? }
                 }
             }
         "#);
@@ -825,7 +825,7 @@ mod tests {
     fn v2_http_post_without_intent_rejected_with_66() {
         let src = r#"
             fn f(cap: cap[http.post]) -> result<unit> {
-                http.post("https://x.example/charge", "{}")?
+                http.post("https://x.example/charge", "\{\}")?
             }
         "#;
         let es = errs(src);
@@ -841,7 +841,7 @@ mod tests {
         ok(r#"
             fn f(cap: cap[http.post]) -> result<unit> {
                 intent "send the charge" {
-                    http.post("https://x.example/charge", "{}")?
+                    http.post("https://x.example/charge", "\{\}")?
                 }
             }
         "#);
@@ -963,7 +963,7 @@ mod tests {
             fn f(cap: cap[http.post]) {
                 if cond {
                     for i in 0..3 {
-                        http.post("u", "{}")
+                        http.post("u", "\{\}")
                     }
                 }
             }
@@ -990,8 +990,8 @@ mod tests {
         // OUTSIDE — the `intent` block has already closed by then.
         let src = r#"
             fn f(cap: cap[http.post]) {
-                intent "first" { http.post("u1", "{}") }
-                http.post("u2", "{}")
+                intent "first" { http.post("u1", "\{\}") }
+                http.post("u2", "\{\}")
             }
         "#;
         let es = errs(src);
@@ -1012,8 +1012,8 @@ mod tests {
             saga settle(cap: cap[http.post @ ["api.acme.com"]]) {
                 intent "settle batch"
                 step charge {
-                    do   { http.post("https://api.acme.com/charge", "{}")? }
-                    undo { http.post("https://api.acme.com/refund", "{}")? }
+                    do   { http.post("https://api.acme.com/charge", "\{\}")? }
+                    undo { http.post("https://api.acme.com/refund", "\{\}")? }
                 }
             }
         "#);
@@ -1126,7 +1126,7 @@ mod tests {
         ok(r#"
             fn forward(cap: cap[http.post @ ["api.x.com"]]) -> result<unit> {
                 let inner = cap.subset[http.post @ ["api.x.com"]]
-                intent "x" { http.post("https://api.x.com/u", "{}")? }
+                intent "x" { http.post("https://api.x.com/u", "\{\}")? }
             }
         "#);
     }
@@ -1136,7 +1136,7 @@ mod tests {
         // V2 (66) and NoCapInScope (65) both fire — they catch
         // distinct properties. Both are surfaced.
         let src = r#"
-            fn evil() { http.post("u", "{}") }
+            fn evil() { http.post("u", "\{\}") }
         "#;
         let es = errs(src);
         assert!(es

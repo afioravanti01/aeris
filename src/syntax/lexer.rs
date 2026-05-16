@@ -699,7 +699,13 @@ impl<'a> Lexer<'a> {
 
     fn lex_string(&mut self, start: usize) -> Result<TokenKind, LexError> {
         self.advance(); // opening "
-        let mut s = String::new();
+        // We start in plain-text mode and switch to a `StrInterp`
+        // token the first time we see an unescaped `{`. Until then
+        // we accumulate into `text` and return the simpler `Str`
+        // variant on close.
+        let mut text = String::new();
+        let mut segments: Vec<crate::syntax::token::StrSegment> = Vec::new();
+        let mut has_interp = false;
         loop {
             if self.eof() {
                 return Err(self.err(LexErrorKind::UnterminatedString, start));
@@ -707,70 +713,117 @@ impl<'a> Lexer<'a> {
             match self.peek() {
                 b'"' => {
                     self.advance();
-                    return Ok(TokenKind::Str(s));
+                    if has_interp {
+                        if !text.is_empty() {
+                            segments.push(crate::syntax::token::StrSegment::Text(text));
+                        }
+                        return Ok(TokenKind::StrInterp(segments));
+                    }
+                    return Ok(TokenKind::Str(text));
                 }
                 b'\\' => {
                     self.advance();
                     let esc = self.peek();
                     match esc {
                         b'n' => {
-                            s.push('\n');
+                            text.push('\n');
                             self.advance();
                         }
                         b't' => {
-                            s.push('\t');
+                            text.push('\t');
                             self.advance();
                         }
                         b'r' => {
-                            s.push('\r');
+                            text.push('\r');
                             self.advance();
                         }
                         b'\\' => {
-                            s.push('\\');
+                            text.push('\\');
                             self.advance();
                         }
                         b'"' => {
-                            s.push('"');
+                            text.push('"');
                             self.advance();
                         }
                         b'\'' => {
-                            s.push('\'');
+                            text.push('\'');
                             self.advance();
                         }
                         b'0' => {
-                            s.push('\0');
+                            text.push('\0');
                             self.advance();
                         }
-                        b'(' => {
-                            // Interpolation: preserve `\(...)` verbatim for the parser.
-                            s.push('\\');
-                            s.push('(');
+                        // M16 — `\{` and `\}` are the only way to embed
+                        // literal curly braces in a string. There is no
+                        // `{{`/`}}` doubling rule.
+                        b'{' => {
+                            text.push('{');
                             self.advance();
-                            let mut depth: u32 = 1;
-                            while depth > 0 {
-                                if self.eof() {
-                                    return Err(self.err(LexErrorKind::UnterminatedString, start));
-                                }
-                                let c = self.peek();
-                                if c == b'(' {
-                                    depth += 1;
-                                }
-                                if c == b')' {
-                                    depth -= 1;
-                                    if depth == 0 {
-                                        s.push(')');
-                                        self.advance();
-                                        break;
-                                    }
-                                }
-                                s.push(c as char);
-                                self.advance();
-                            }
+                        }
+                        b'}' => {
+                            text.push('}');
+                            self.advance();
                         }
                         other => {
                             return Err(self.err(LexErrorKind::InvalidEscape(other as char), start));
                         }
                     }
+                }
+                b'{' => {
+                    // M16 — open interpolation. Capture the raw source
+                    // between `{` and the matching `}` so the parser can
+                    // re-lex it as an expression. We track depth so
+                    // record literals and blocks nest correctly.
+                    let interp_open = self.pos;
+                    self.advance();
+                    let inner_start = self.pos;
+                    let mut depth: u32 = 1;
+                    while depth > 0 {
+                        if self.eof() {
+                            return Err(self.err(LexErrorKind::UnterminatedString, start));
+                        }
+                        let c = self.peek();
+                        if c == b'"' {
+                            // A nested string would need its own escape
+                            // logic; v0.3 disallows that for now to keep
+                            // the lexer simple. The migrator (M16.T4)
+                            // never produces nested strings.
+                            return Err(self.err(LexErrorKind::UnterminatedString, start));
+                        }
+                        if c == b'{' {
+                            depth += 1;
+                        } else if c == b'}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        let len = utf8_char_len(c);
+                        for _ in 0..len {
+                            self.advance();
+                        }
+                        continue;
+                    }
+                    let raw = self.src[inner_start..self.pos].to_string();
+                    if raw.trim().is_empty() {
+                        return Err(self.err(LexErrorKind::InvalidEscape('{'), interp_open));
+                    }
+                    self.advance(); // closing `}`
+                    if !text.is_empty() {
+                        segments.push(crate::syntax::token::StrSegment::Text(std::mem::take(
+                            &mut text,
+                        )));
+                    }
+                    segments.push(crate::syntax::token::StrSegment::Interp {
+                        source: raw,
+                        offset: inner_start,
+                    });
+                    has_interp = true;
+                }
+                b'}' => {
+                    // A bare `}` outside an interpolation is a typo —
+                    // require the explicit `\}` escape (M16 § 11.1).
+                    return Err(self.err(LexErrorKind::InvalidEscape('}'), self.pos));
                 }
                 b => {
                     // Multi-byte UTF-8 chars push themselves verbatim.
@@ -779,7 +832,7 @@ impl<'a> Lexer<'a> {
                     for _ in 0..len {
                         self.advance();
                     }
-                    s.push_str(&self.src[ch_start..self.pos]);
+                    text.push_str(&self.src[ch_start..self.pos]);
                 }
             }
         }
@@ -1099,16 +1152,77 @@ mod tests {
     }
 
     #[test]
-    fn string_interpolation_preserved_verbatim() {
-        // `\(name)` is preserved as the literal substring `\(name)` for the parser.
-        let toks = kinds_of(r#""hi \(name)""#);
-        assert_eq!(toks, vec![TokenKind::Str("hi \\(name)".to_string())]);
+    fn m16_string_interpolation_single_var_produces_two_segments() {
+        use crate::syntax::token::StrSegment;
+        let toks = kinds_of(r#""hi {name}""#);
+        match &toks[0] {
+            TokenKind::StrInterp(segs) => {
+                assert_eq!(segs.len(), 2);
+                assert!(matches!(&segs[0], StrSegment::Text(t) if t == "hi "));
+                match &segs[1] {
+                    StrSegment::Interp { source, .. } => assert_eq!(source, "name"),
+                    _ => panic!("expected Interp, got {:?}", segs[1]),
+                }
+            }
+            other => panic!("expected StrInterp, got {other:?}"),
+        }
     }
 
     #[test]
-    fn string_interpolation_handles_nested_parens() {
-        let toks = kinds_of(r#""x = \(f(g(1, 2)))""#);
-        assert_eq!(toks, vec![TokenKind::Str("x = \\(f(g(1, 2)))".to_string())]);
+    fn m16_string_interpolation_balances_nested_braces() {
+        use crate::syntax::token::StrSegment;
+        // `{ a: 1 }` inside a string is a record literal expression;
+        // the lexer captures the whole thing as a single interp body.
+        let toks = kinds_of(r#""x = {{ a: 1 }}""#);
+        // outer braces here are LITERAL because `\{`/`\}` escapes are
+        // the only way to embed `{`/`}`. So this raw input means: open
+        // interpolation, body `{ a: 1 }`, close interpolation.
+        match &toks[0] {
+            TokenKind::StrInterp(segs) => {
+                assert_eq!(segs.len(), 2);
+                match &segs[1] {
+                    StrSegment::Interp { source, .. } => {
+                        assert_eq!(source.trim(), "{ a: 1 }");
+                    }
+                    _ => panic!("expected Interp, got {:?}", segs[1]),
+                }
+            }
+            other => panic!("expected StrInterp, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m16_string_literal_escape_for_braces() {
+        let toks = kinds_of(r#""body \{\}""#);
+        assert_eq!(toks, vec![TokenKind::Str("body {}".to_string())]);
+    }
+
+    #[test]
+    fn m16_string_without_braces_is_plain_str() {
+        // No `{` ⇒ TokenKind::Str, not StrInterp.
+        assert_eq!(
+            kinds_of(r#""no interp here""#),
+            vec![TokenKind::Str("no interp here".to_string())]
+        );
+    }
+
+    #[test]
+    fn m16_empty_interpolation_is_lex_error() {
+        let res = super::tokenize(r#""bad {} here""#);
+        assert!(res.is_err(), "expected error on `{{}}`");
+    }
+
+    #[test]
+    fn m16_bare_close_brace_is_lex_error() {
+        let res = super::tokenize(r#""oops }""#);
+        assert!(res.is_err(), "expected error on bare `}}` outside interp");
+    }
+
+    #[test]
+    fn m16_legacy_backslash_paren_now_lex_error() {
+        // `\(...)` was an escape in v0.2.0; M16 removes it.
+        let res = super::tokenize(r#""x = \(name)""#);
+        assert!(res.is_err(), "legacy `\\(...)` must now be rejected");
     }
 
     #[test]

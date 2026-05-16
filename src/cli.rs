@@ -53,6 +53,11 @@ enum Command {
         /// than its body actually uses. Linter only — never rewrites.
         #[arg(long = "narrow-caps")]
         narrow_caps: bool,
+        /// One-shot migrator for M16. Rewrites the legacy
+        /// `\(<expr>)` interpolation form into `{ <expr> }` in every
+        /// `*.aer` under `path`. Idempotent: a second run is a no-op.
+        #[arg(long = "migrate-strings")]
+        migrate_strings: bool,
     },
     /// Run tests
     Test { path: Option<String> },
@@ -123,8 +128,11 @@ pub fn run() -> ExitCode {
             path,
             check,
             narrow_caps,
+            migrate_strings,
         } => {
-            if narrow_caps {
+            if migrate_strings {
+                cmd_fmt_migrate_strings(&path)
+            } else if narrow_caps {
                 cmd_fmt_narrow_caps(&path)
             } else {
                 cmd_fmt(&path, check)
@@ -185,6 +193,129 @@ fn cmd_fmt_narrow_caps(path: &str) -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// `aeris fmt --migrate-strings <path>` (M16.T4). Rewrites every
+/// occurrence of the legacy interpolation form `\(<expr>)` inside a
+/// double-quoted string into the M16 form `{ <expr> }`. The operation
+/// is byte-level and idempotent: a string that has no `\(` is left
+/// untouched. Files that do not contain `\(` at all are not rewritten.
+fn cmd_fmt_migrate_strings(path: &str) -> ExitCode {
+    let mut targets: Vec<std::path::PathBuf> = Vec::new();
+    let p = Path::new(path);
+    if p.is_dir() {
+        collect_aer_paths(p, &mut targets);
+    } else if p.is_file() {
+        targets.push(p.to_path_buf());
+    } else {
+        eprintln!("aeris: cannot migrate `{path}` — no such file or directory");
+        return ExitCode::from(1);
+    }
+    targets.sort();
+    let mut errors = false;
+    let mut touched = 0usize;
+    for target in &targets {
+        let src = match fs::read_to_string(target) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("aeris: cannot read {}: {e}", target.display());
+                errors = true;
+                continue;
+            }
+        };
+        let migrated = match migrate_backslash_paren(&src) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("aeris: cannot migrate {}: {e}", target.display());
+                errors = true;
+                continue;
+            }
+        };
+        if migrated != src {
+            if let Err(e) = fs::write(target, &migrated) {
+                eprintln!("aeris: cannot write {}: {e}", target.display());
+                errors = true;
+            } else {
+                eprintln!("aeris: migrated {}", target.display());
+                touched += 1;
+            }
+        }
+    }
+    eprintln!("aeris: {touched}/{} files rewritten", targets.len());
+    if errors {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Byte-level transformer used by `cmd_fmt_migrate_strings`. Walks the
+/// source, tracks whether we are inside a `"..."` literal (respecting
+/// `\"` escapes), and replaces any `\(<expr>)` with `{<expr>}`. Outside
+/// strings the input is passed through untouched.
+fn migrate_backslash_paren(src: &str) -> Result<String, String> {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c != b'"' {
+            out.push(c as char);
+            i += 1;
+            continue;
+        }
+        // Enter a string literal — copy verbatim until the matching
+        // closing quote, but rewrite each `\(...)` encountered along
+        // the way.
+        out.push('"');
+        i += 1;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'(' {
+                // Found a legacy interpolation. Capture body up to the
+                // matching `)` with paren nesting.
+                i += 2;
+                let body_start = i;
+                let mut depth: u32 = 1;
+                while i < bytes.len() && depth > 0 {
+                    match bytes[i] {
+                        b'(' => depth += 1,
+                        b')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                if depth != 0 {
+                    return Err("unterminated `\\(...)` in string literal".into());
+                }
+                let body = &src[body_start..i];
+                out.push('{');
+                out.push_str(body);
+                out.push('}');
+                i += 1;
+                continue;
+            }
+            if b == b'\\' && i + 1 < bytes.len() {
+                // Pass through any other escape so this is purely a
+                // syntactic rewrite of `\(...)` and nothing else.
+                out.push('\\');
+                out.push(bytes[i + 1] as char);
+                i += 2;
+                continue;
+            }
+            out.push(b as char);
+            i += 1;
+            if b == b'"' {
+                break;
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// `aeris fmt <path> [--check]` (M12.T5 / M12.T7). Formats the file
@@ -879,7 +1010,7 @@ mod tests {
             saga s(cap: cap[http.post]) {
                 intent "x"
                 step go {
-                    do { http.post("u", "{}")? }
+                    do { http.post("u", "\{\}")? }
                     undo noop
                 }
             }
@@ -934,7 +1065,7 @@ mod tests {
         fs::create_dir_all(&src_dir).unwrap();
         fs::write(
             src_dir.join("main.aer"),
-            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"{}\") } }",
+            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"\\{\\}\") } }",
         )
         .unwrap();
         fs::write(
@@ -961,7 +1092,7 @@ mod tests {
         fs::create_dir_all(&src_dir).unwrap();
         fs::write(
             src_dir.join("main.aer"),
-            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"{}\") } }",
+            "pub fn settle(cap: cap[http.post]) { intent \"x\" { http.post(\"u\", \"\\{\\}\") } }",
         )
         .unwrap();
         let mut files: Vec<(String, String)> = Vec::new();
@@ -1028,7 +1159,7 @@ mod tests {
     fn cmd_fmt_narrow_caps_exits_one_on_broad_signature() {
         let p = write_temp(r#"
             fn pay(cap: cap[http]) {
-                intent "p" { http.post("https://api.acme.com/x", "{}") }
+                intent "p" { http.post("https://api.acme.com/x", "\{\}") }
             }
         "#);
         let exit = cmd_fmt_narrow_caps(p.to_str().unwrap());
@@ -1040,7 +1171,7 @@ mod tests {
     fn cmd_fmt_narrow_caps_exits_zero_on_already_minimal_signature() {
         let p = write_temp(r#"
             fn pay(cap: cap[http.post @ "api.acme.com"]) {
-                intent "p" { http.post("https://api.acme.com/x", "{}") }
+                intent "p" { http.post("https://api.acme.com/x", "\{\}") }
             }
         "#);
         let exit = cmd_fmt_narrow_caps(p.to_str().unwrap());
@@ -1073,5 +1204,39 @@ mod tests {
         // ExitCode does not implement PartialEq; compare via debug repr.
         assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::SUCCESS));
         let _ = fs::remove_file(&p);
+    }
+
+    // ---- M16.T4 — `aeris fmt --migrate-strings` ----
+
+    #[test]
+    fn m16_migrate_single_interp() {
+        let input = r#"fn main() -> string { "hi \(name)" }"#;
+        let out = super::migrate_backslash_paren(input).unwrap();
+        assert_eq!(out, r#"fn main() -> string { "hi {name}" }"#);
+    }
+
+    #[test]
+    fn m16_migrate_nested_parens() {
+        let input = r#""x = \(f(g(1, 2)))""#;
+        let out = super::migrate_backslash_paren(input).unwrap();
+        assert_eq!(out, r#""x = {f(g(1, 2))}""#);
+    }
+
+    #[test]
+    fn m16_migrate_is_idempotent() {
+        let input = r#""no legacy here {name}""#;
+        let out1 = super::migrate_backslash_paren(input).unwrap();
+        let out2 = super::migrate_backslash_paren(&out1).unwrap();
+        assert_eq!(out1, input);
+        assert_eq!(out2, out1);
+    }
+
+    #[test]
+    fn m16_migrate_preserves_non_string_braces() {
+        // Record literals and block expressions outside string tokens
+        // must not be touched.
+        let input = "fn main() -> int { let r = R { x: 1 }; r.x }";
+        let out = super::migrate_backslash_paren(input).unwrap();
+        assert_eq!(out, input);
     }
 }

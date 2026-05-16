@@ -336,8 +336,8 @@ mod tests {
             saga charge(cap: cap[http.post @ ["evil.com"]]) {
                 intent "x"
                 step pay {
-                    do   { http.post("https://evil.com/c", "{}")? }
-                    undo { http.post("https://evil.com/r", "{}")? }
+                    do   { http.post("https://evil.com/c", "\{\}")? }
+                    undo { http.post("https://evil.com/r", "\{\}")? }
                 }
             }
         "#;
@@ -422,7 +422,7 @@ mod tests {
         // in both modes.
         let aer = r#"
             fn pay() {
-                http.post("https://x/y", "{}")
+                http.post("https://x/y", "\{\}")
             }
         "#;
         let proto = check_with(fixture_prototype(), aer);
@@ -436,7 +436,7 @@ mod tests {
         let aer = r#"
             saga s(cap: cap[http.post]) {
                 intent "x"
-                step a { do { http.post("u", "{}")? } undo noop }
+                step a { do { http.post("u", "\{\}")? } undo noop }
             }
         "#;
         let proto = check_with(fixture_prototype(), aer);

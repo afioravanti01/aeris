@@ -131,6 +131,25 @@ fn fmt_expr_at(e: &Expr, out: &mut String, outer: u8, side: u8) {
             out.push_str(&escape_str(s));
             out.push('"');
         }
+        Expr::StrInterp(parts, _) => {
+            // M16: re-emit `{ <expr> }` for every Interp part. Text
+            // segments use the same escape pass as Expr::Str so any
+            // literal `{`/`}` round-trips correctly.
+            out.push('"');
+            for part in parts {
+                match part {
+                    crate::syntax::ast::StrInterpPart::Text(t) => {
+                        out.push_str(&escape_str(t));
+                    }
+                    crate::syntax::ast::StrInterpPart::Interp(e) => {
+                        out.push('{');
+                        fmt_expr_at(e, out, 0, 0);
+                        out.push('}');
+                    }
+                }
+            }
+            out.push('"');
+        }
         Expr::Bytes(b, _) => {
             out.push_str("b\"");
             for byte in b {
@@ -1171,6 +1190,11 @@ fn escape_str(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\t' => out.push_str("\\t"),
             '\r' => out.push_str("\\r"),
+            // M16: a `{` or `}` inside a plain string must be re-emitted
+            // as `\{` / `\}` so it parses back as literal text, not as
+            // an interpolation marker.
+            '{' => out.push_str("\\{"),
+            '}' => out.push_str("\\}"),
             _ => out.push(c),
         }
     }

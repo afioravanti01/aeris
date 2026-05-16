@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn v2_diagnostic_links_to_section_10_1() {
         let r = rendered(
-            "fn f(cap: cap[http.post]) { http.post(\"u\", \"{}\") }",
+            "fn f(cap: cap[http.post]) { http.post(\"u\", \"\\{\\}\") }",
             |k| matches!(k, CheckErrorKind::MissingIntentForWriteCall { .. }),
         );
         assert!(r.contains("error[E66]"));
@@ -424,7 +424,7 @@ mod tests {
         let src = r#"
             saga s(cap: cap[http.post]) {
                 intent "x"
-                step a { do { http.post("u", "{}")? } undo noop }
+                step a { do { http.post("u", "\{\}")? } undo noop }
             }
         "#;
         let r = rendered(src, |k| {
@@ -504,12 +504,12 @@ mod tests {
             ("fn f() -> result<cap[fs.read_file]> {}", 65),
             ("fn f() { http.get(\"https://x\") }", 65),
             ("fn f(cap: cap[fs.read_file]) { intent \"x\" { fs.write_file(\"/x\", \"y\")? } }", 65),
-            ("fn f(cap: cap[http.post]) { http.post(\"u\", \"{}\") }", 66),
+            ("fn f(cap: cap[http.post]) { http.post(\"u\", \"\\{\\}\") }", 66),
             ("fn f(cap: cap[fs.write_file]) { fs.write_file(\"/x\", \"y\") }", 66),
             ("fn f(cap: cap[audit.event]) { audit.event(\"oops\", { x: 1 }) }", 66),
             ("fn f(cap: cap[ai.complete]) -> result<string> { ai.complete(\"p\") }", 66),
             ("fn f(cap: cap[shell.exec]) { shell.exec(\"ls\") }", 66),
-            ("saga s(cap: cap[http.post]) { intent \"x\" step a { do { http.post(\"u\", \"{}\")? } undo noop } }", 67),
+            ("saga s(cap: cap[http.post]) { intent \"x\" step a { do { http.post(\"u\", \"\\{\\}\")? } undo noop } }", 67),
             ("saga r(cap: cap[audit.event]) { intent \"x\" step a { do { audit.event(\"x\", { a: 1 }) } undo noop } }", 67),
             ("agent a { intent: \"x\" prompt: \"p\" accept: i produce: o }", 64),
         ];
@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn missing_intent_suggests_wrapping_in_intent_block() {
         let h = hint_for(
-            "fn f(cap: cap[http.post]) { http.post(\"u\", \"{}\") }",
+            "fn f(cap: cap[http.post]) { http.post(\"u\", \"\\{\\}\") }",
             |k| matches!(k, CheckErrorKind::MissingIntentForWriteCall { .. }),
         )
         .unwrap();
@@ -641,7 +641,7 @@ mod tests {
         let src = r#"
             saga s(cap: cap[http.post]) {
                 intent "x"
-                step a { do { http.post("u", "{}")? } undo noop }
+                step a { do { http.post("u", "\{\}")? } undo noop }
             }
         "#;
         let h = hint_for(src, |k| {

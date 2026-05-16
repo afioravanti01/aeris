@@ -7,8 +7,8 @@ saga rotate(cap: cap[http.post @ "vault.acme.com", audit.event]) {
   intent "rotate the production webhook secret"
 
   step issue {
-    do   { http.post("https://vault.acme.com/rotate", "{}")? }
-    undo { http.post("https://vault.acme.com/revoke", "{}")? }
+    do   { http.post("https://vault.acme.com/rotate", "\{\}")? }
+    undo { http.post("https://vault.acme.com/revoke", "\{\}")? }
   }
 
   step log {

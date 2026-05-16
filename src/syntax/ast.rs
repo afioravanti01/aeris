@@ -529,15 +529,27 @@ pub enum ListPatElem {
 }
 
 /// Aeris expression AST (§§ 5–6 of `language.md`).
+/// One piece of an interpolated string literal in the AST (M16).
+/// `Text` holds the decoded literal portion; `Interp` holds the
+/// already-parsed expression captured between `{` and `}`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StrInterpPart {
+    Text(String),
+    Interp(Expr),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     // ---- atomic literals ----
     Int(i64, Span),
     Float(f64, Span),
     Bool(bool, Span),
-    /// Raw string content as produced by the lexer; `\(...)` interpolation
-    /// segments are preserved verbatim for later expansion (M3).
+    /// Plain string literal. `\{`/`\}` already decoded.
     Str(String, Span),
+    /// String literal with at least one `{ <expr> }` interpolation
+    /// segment (M16). Each `Part::Interp` carries an already-parsed
+    /// expression; the runtime stringifies it and concatenates.
+    StrInterp(Vec<StrInterpPart>, Span),
     Bytes(Vec<u8>, Span),
     Char(char, Span),
     Date(String, Span),
@@ -713,6 +725,7 @@ impl Expr {
             | Expr::Float(_, s)
             | Expr::Bool(_, s)
             | Expr::Str(_, s)
+            | Expr::StrInterp(_, s)
             | Expr::Bytes(_, s)
             | Expr::Char(_, s)
             | Expr::Date(_, s)

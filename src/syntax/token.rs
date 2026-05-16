@@ -38,7 +38,13 @@ pub enum TokenKind {
     // Literals
     Int(i64),
     Float(f64),
-    Str(String), // interpolations \(...) preserved verbatim for the parser
+    /// Plain string literal — no interpolation. `\{`/`\}` already
+    /// decoded into the contained characters.
+    Str(String),
+    /// String literal that contains at least one `{ <expr> }`
+    /// interpolation segment (M16). The parser re-lexes each
+    /// `StrSegment::Interp` source as an expression.
+    StrInterp(Vec<StrSegment>),
     Bytes(Vec<u8>),
     Char(char),
     Date(String),      // 2026-05-07
@@ -100,6 +106,20 @@ pub enum TokenKind {
 
     // End-of-input sentinel
     Eof,
+}
+
+/// One piece of an interpolated string literal (M16). The lexer
+/// preserves the source range of every `Interp` segment so the parser
+/// can re-lex it as an expression with correct line/col diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StrSegment {
+    /// Literal text, with the `\n` / `\t` / `\\` / `\"` / `\{` / `\}`
+    /// escapes already decoded.
+    Text(String),
+    /// `{ <expr> }` interpolation: the raw source between (but not
+    /// including) the braces, plus the absolute byte offset of the
+    /// opening `{` so the parser can compute spans inside it.
+    Interp { source: String, offset: usize },
 }
 
 /// Reserved keywords listed in `docs/language.md` § 2.3.

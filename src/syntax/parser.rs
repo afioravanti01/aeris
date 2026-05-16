@@ -1885,6 +1885,33 @@ impl Parser {
                 self.advance();
                 Ok(Expr::Str(s, tok.span))
             }
+            TokenKind::StrInterp(segs) => {
+                let segs = segs.clone();
+                let outer = tok.span;
+                self.advance();
+                let mut parts: Vec<crate::syntax::ast::StrInterpPart> = Vec::new();
+                for seg in segs {
+                    match seg {
+                        crate::syntax::token::StrSegment::Text(t) => {
+                            parts.push(crate::syntax::ast::StrInterpPart::Text(t));
+                        }
+                        crate::syntax::token::StrSegment::Interp { source, .. } => {
+                            // Re-lex the captured body as an expression.
+                            // Diagnostics inside the interp body fall
+                            // back to the outer string's span; sub-span
+                            // precision is left to a future refinement.
+                            let expr = super::parse_expression(&source).map_err(|e| {
+                                ParseError {
+                                    kind: e.kind,
+                                    span: outer,
+                                }
+                            })?;
+                            parts.push(crate::syntax::ast::StrInterpPart::Interp(expr));
+                        }
+                    }
+                }
+                Ok(Expr::StrInterp(parts, outer))
+            }
             TokenKind::Bytes(b) => {
                 let b = b.clone();
                 self.advance();
@@ -2344,6 +2371,7 @@ impl Parser {
             TokenKind::Int(_)
             | TokenKind::Float(_)
             | TokenKind::Str(_)
+            | TokenKind::StrInterp(_)
             | TokenKind::Char(_)
             | TokenKind::Date(_)
             | TokenKind::Timestamp(_)
@@ -2686,6 +2714,7 @@ impl Parser {
             TokenKind::Int(_)
                 | TokenKind::Float(_)
                 | TokenKind::Str(_)
+                | TokenKind::StrInterp(_)
                 | TokenKind::Bytes(_)
                 | TokenKind::Char(_)
                 | TokenKind::Date(_)
@@ -3315,8 +3344,8 @@ mod top_level_tests {
                 intent "rotate the production webhook secret"
 
                 step issue {
-                    do   { http.post("/rotate", "{}")? }
-                    undo { http.post("/revoke", "{}")? }
+                    do   { http.post("/rotate", "\{\}")? }
+                    undo { http.post("/revoke", "\{\}")? }
                 }
 
                 step log {
@@ -3682,6 +3711,23 @@ mod expr_tests {
             Expr::Float(f, _) => format!("{f}"),
             Expr::Bool(b, _) => b.to_string(),
             Expr::Str(s, _) => format!("\"{}\"", s.replace('"', "\\\"")),
+            Expr::StrInterp(parts, _) => {
+                let mut buf = String::from("\"");
+                for part in parts {
+                    match part {
+                        crate::syntax::ast::StrInterpPart::Text(t) => {
+                            buf.push_str(&t.replace('"', "\\\""));
+                        }
+                        crate::syntax::ast::StrInterpPart::Interp(e) => {
+                            buf.push('{');
+                            buf.push_str(&dump(e));
+                            buf.push('}');
+                        }
+                    }
+                }
+                buf.push('"');
+                buf
+            }
             Expr::Bytes(_, _) => "<bytes>".to_string(),
             Expr::Char(c, _) => format!("'{c}'"),
             Expr::Date(s, _) => format!("date:{s}"),
@@ -3962,11 +4008,25 @@ mod expr_tests {
     }
 
     #[test]
-    fn lit_string_interpolation_preserved() {
-        // Interpolation segments are kept verbatim per language.md § 2.4.
-        let e = p(r#""hi \(name)""#);
+    fn m16_lit_string_interpolation_parses_to_strinterp() {
+        // M16: `{x}` becomes `Expr::StrInterp` with a `Text`+`Interp`
+        // pair. Names inside the braces are full sub-expressions.
+        let e = p(r#""hi {name}""#);
         match e {
-            Expr::Str(s, _) => assert_eq!(s, "hi \\(name)"),
+            Expr::StrInterp(parts, _) => {
+                assert_eq!(parts.len(), 2);
+                match &parts[0] {
+                    crate::syntax::ast::StrInterpPart::Text(t) => assert_eq!(t, "hi "),
+                    other => panic!("{other:?}"),
+                }
+                match &parts[1] {
+                    crate::syntax::ast::StrInterpPart::Interp(inner) => match inner {
+                        Expr::Ident(n, _) => assert_eq!(n, "name"),
+                        other => panic!("{other:?}"),
+                    },
+                    other => panic!("{other:?}"),
+                }
+            }
             other => panic!("{other:?}"),
         }
     }
