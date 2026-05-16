@@ -117,8 +117,18 @@ Module responsibilities (one-liners):
 | M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | done |
 | M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done (CI-driven packaging deferred, § 9) |
 | M15 | Capability prototype mode | `[caps] required` flag in lockset; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
+| M16 | v0.3 — String interpolation `{x}` | Replace `\(...)` with `{...}` inside string literals; lexer/parser disambiguation against record and block braces; `aeris fmt --migrate-strings` rewrites `*.aer` | 1 | M1 | pending |
+| M17 | v0.3 — Inline errors (`catch`, `error()`, `defer`) | `expr catch e { ... }` as expression; `error(msg)` sugar for `raise err.user(msg)`; `defer stmt` LIFO at function exit | 2 | M2, M3, M5 | pending |
+| M18 | v0.3 — Time control (`every`, `retry`, `timeout`, `clock.sleep`) | Block-shaped sugar over cap-gated `clock.sleep`; `retry` with backoff; `timeout` with cooperative cancel | 2 | M4, M5 | pending |
+| M19 | v0.3 — AI builtins (`session`, `decide`, `extract`, `generate`, `ensemble`, `eval`, `index`, `guard`, `cache`, `usage`) | Each builtin desugars to the v0.2 core (`agent`/`policy`/`model@vN`); state immutable; every call inside `intent`; cap-gated by `ai.complete` / `ai.embed` | 4 | M9, M10 | pending |
+| M20 | v0.3 — Network listeners (`net.http server`, TCP `listen`/`connect`, UDP, `net.resolve`) | New L1 ops with their own cap entries (`net.http.serve`, `net.tcp.listen`, ...); allow-list on ports + binds; trace events per accept | 3 | M5 | pending |
+| M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | pending |
+| M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | pending |
+| M23 | v0.3 — `model X@vN extends X@v(N-1)` | Sugar over the explicit migration function; parser checks fields-of-prev and `where:` clauses are still satisfied; auto-generates a default migration when the diff is structurally trivial | 1 | M8 | pending |
 
-**Total**: 48 engineering-weeks. Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
+**v0.2 total**: 48 engineering-weeks (M0–M15). Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
+
+**v0.3 total**: 17 engineering-weeks (M16–M23) on top of v0.2. M16 lands first because it is a lexer change that ripples through every other milestone's fixtures.
 
 ---
 
@@ -361,6 +371,103 @@ The orthogonal rules (E66 intent, E67 saga undo, E71 lockset
 ceiling, E65 `cap[*]` ban) remain active in both modes — they
 concern program structure, not authority distribution.
 
+### 5.16 M16 — String interpolation `{x}` (1 week)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M16.T1 | Lexer: parse `{ <expr> }` inside `"..."` and `"""..."""` as an interpolation segment | A string literal becomes a stream of `(text \| expr)*`; existing `\(...)` is removed | § 2.4, § 11 | pending |
+| M16.T2 | Disambiguate `{` between interpolation, record literal, block expression. Interpolation only valid lexically inside a double-quoted string token | `User { x: 1 }` and `{ let x = 1; x }` still parse correctly outside strings | § 2.4 | pending |
+| M16.T3 | Escape: `\{` and `\}` for literal braces inside strings; `{{` and `}}` are NOT supported (one rule wins) | Fixture: `"x = \{1\}"` → `x = {1}` | § 2.4 | pending |
+| M16.T4 | `aeris fmt --migrate-strings`: rewrites every `\(<expr>)` to `{<expr>}` in `*.aer`; idempotent | 50 round-trip fixtures | § 25.2 | pending |
+| M16.T5 | Rewrite all `aeris-tests/`, `examples/`, `src/templates/` to use `{x}` | `every_example_checks_clean` and the lib test suite stay green | § 11 | pending |
+| M16.T6 | `language.md § 2.4` updated; old `\(...)` removed from the spec | Spec source updated | § 2.4 | pending |
+
+### 5.17 M17 — Inline errors: `catch`, `error()`, `defer` (2 weeks)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M17.T1 | Parser: `<expr> catch <ident> { <block> }` as a postfix expression. Type: if `<expr>: result<T>`, `catch` returns `T` and the block runs only on `Err(_)`; the bound `<ident>` is `err`. The block must itself return `T` or `raise` | 15 fixtures; type error if `<expr>` is not a `result<T>` | § 11 | pending |
+| M17.T2 | Builtin `error(msg: string) -> err` returns the `err.user(msg)` variant. NOT a `raise` — it constructs the value. `raise error("...")` is the throw form | 5 fixtures | § 18 | pending |
+| M17.T3 | Parser: `defer <stmt>` registers a closure to run LIFO at function exit (also on `?`, `raise`, contract violation). Captures `let` bindings by value; `cap` must be `cap.subset[..]` if the deferred stmt is write-effectful (V2 still applies inside the deferred block: it must be wrapped in `intent`) | 10 fixtures: pure, `?`-on-exit, raise-on-exit, saga rollback path | § 11 | pending |
+| M17.T4 | Trace events `defer_enter` / `defer_exit` for every executed deferred block; failure inside a deferred block surfaces but does not preempt other defers | Golden trace `defer_order.jsonl` | § 20.1 | pending |
+| M17.T5 | Cap-system: `defer` body resolves against the enclosing `cap`; static check rejects a deferred write-effectful op without intent (E66) | Negative fixtures | § 8.2 | pending |
+| M17.T6 | `aeris check --explain 75` (new exit code) for a misuse of `catch` on a non-`result` expression | Manpage entry | § 25.3 | pending |
+
+### 5.18 M18 — Time control: `every`, `retry`, `timeout`, `clock.sleep` (2 weeks)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M18.T1 | L1 `clock.sleep(d: duration)`: cap-gated by `clock.sleep`; trace event `clock_sleep` with `d_ms`; in replay the call is a no-op | 5 fixtures incl. replay parity | § 22 | pending |
+| M18.T2 | Sugar `every <duration> { <body> }` ≡ `loop { clock.sleep(d); <body> }`; both `<duration>` and `<body>` parsed strictly | 5 fixtures | § 11 | pending |
+| M18.T3 | Sugar `retry <n>, delay: <duration> { <body> }` ≡ explicit `for` with backoff; body must return `result<T>`; first `Ok` returns; last `Err` propagates | 10 fixtures incl. saga-step retry | § 11 | pending |
+| M18.T4 | Sugar `timeout <duration> { <body> }` ≡ `spawn` + cancel-channel; body cooperates via a `cancel?` cap (or interrupts on the next cap call) | 5 fixtures incl. cancellation on `http.get` | § 11 | pending |
+| M18.T5 | Trace events: `every_iter`, `retry_attempt`, `timeout_fired` | 1 golden per construct | § 20.1 | pending |
+| M18.T6 | Each construct desugars BEFORE static check, so cap-narrowing / V2 / saga rules apply to the desugared form | Verified by negative fixtures | § 11 | pending |
+
+### 5.19 M19 — AI builtins (4 weeks)
+
+The acceptance for the whole milestone is: each builtin desugars to
+v0.2 primitives (`agent`, `policy`, `model@vN`, `ai.complete`,
+`ai.embed`). State is always immutable — a session is a value, not an
+object — so `aeris replay` stays bit-identical.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M19.T1 | `ai.session(system: string, model: string) -> session` — opaque immutable value; `.ask(prompt) -> (session, string)` returns a new session with the prompt and reply appended. Auto-compaction at 40 messages keeps `system` + last 20 + a `summary` produced by a hidden `agent`. Must be called inside `intent` | 8 fixtures incl. compaction trigger | § 11 | pending |
+| M19.T2 | `ai.decide(prompt, choices: list<string>, retries: int) -> string` desugars to a one-off `agent` with `produce: enum {...}` synthesized from `choices` | 5 fixtures | § 11 | pending |
+| M19.T3 | `ai.extract<Model@vN>(from: string, instruction: string?) -> Model@vN` and `ai.generate<Model@vN>(count: int, constraints: string?) -> list<Model@vN>` desugar to typed agents | 10 fixtures incl. schema violation retries | § 16 | pending |
+| M19.T4 | `ai.ensemble(prompt, models: list<string>, strategy: "majority"\|"unanimous"\|"first") -> { answer, confidence: float, dissent: list }` — fan-out via `agent_net`; cap requires the union of all `models` | 6 fixtures, one per strategy + edge cases | § 14 | pending |
+| M19.T5 | `ai.eval(output: string, criteria: string, scale: int?, judge_model: string?) -> { score, reasoning }` — LLM as judge; one hidden `agent` per call | 5 fixtures | § 11 | pending |
+| M19.T6 | `ai.index() -> kb` + `kb.add(id, text)` + `kb.search(query, top_k) -> list<{id, text, score}>` — in-memory keyword index (BM25 or token Jaccard); persists under `.aeris/kb/<id>.json` when `kb.save(path)` is called | 6 fixtures incl. ranking determinism | § 11 | pending |
+| M19.T7 | `ai.guard(input_policy: string, output_policy: string, on_violation: closure)` returns a wrapper agent that activates both policies for the inner call | 4 fixtures | § 15 | pending |
+| M19.T8 | `ai.cache(strategy: "hash"\|"prompt", ttl: duration)` — on-disk cache at `.aeris/cache/`; hit hash on `(prompt, model)` returns the cached `(response, tokens)` and replays the original `ai_call` event | 5 fixtures incl. replay parity | § 20.3 | pending |
+| M19.T9 | `ai.usage() -> { total_tokens, cost_usd, calls }` — accumulator owned by the tracer; resets at process start | 3 fixtures | § 20.1 | pending |
+| M19.T10 | CLI: `aeris chat [--system <s>] [--model <m>]` opens a REPL; each turn is an `ai.session` call. Not a builtin — it is a top-level subcommand | 1 integration test that pipes a fixture transcript | § 25.1 | pending |
+| M19.T11 | Every builtin requires `intent`; static check rejects bare use; cap entries declared per builtin | 1 negative fixture per builtin | § 10.1, § 8.2 | pending |
+
+### 5.20 M20 — Network listeners (3 weeks)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M20.T1 | L1 `net.http.serve(port: int) -> http_server`, cap-gated by `net.http.serve @ [port-or-port-range]`; allow-list enforced at runtime | 4 fixtures | § 22 | pending |
+| M20.T2 | `http_server.accept() -> http_req` — blocking; req carries `method, path, query, headers, body, remote_addr` | 3 fixtures | § 22 | pending |
+| M20.T3 | `req.reply(status, body, content_type)` writes the response | 3 fixtures | § 22 | pending |
+| M20.T4 | TCP `net.tcp.listen(port) -> tcp_listener` + `tcp_listener.accept() -> tcp_conn` + `net.tcp.connect(host, port)` — cap-gated; allow-list on host+port | 5 fixtures | § 22 | pending |
+| M20.T5 | UDP `net.udp.bind(port?) -> udp_sock`, `.send(host, port, bytes)`, `.recv() -> (bytes, sender)` | 4 fixtures | § 22 | pending |
+| M20.T6 | `net.resolve(host) -> string` (first A record); cap-gated by `net.resolve` | 2 fixtures, second one mocked | § 22 | pending |
+| M20.T7 | Trace events: `net_listen`, `net_accept`, `tcp_send`, `udp_recv`, `dns_resolve` with hashed bodies | 1 golden per L2 stub | § 20.1 | pending |
+| M20.T8 | Every listener is shut down on `aeris run` exit (no leaked sockets); test asserts ports are free after run | 1 integration test | — | pending |
+
+### 5.21 M21 — Test helpers + `@example` + `suite { setup }` (1 week)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M21.T1 | `assert_status(resp, code)` and `assert_json(resp, path, value)` as builtins of `test_harness`. Failure prints the actual vs expected with the `path` highlighted | 5 fixtures each | § 21.1 | pending |
+| M21.T2 | `assert_semantic(text, criterion: string)` calls a hidden `agent` (`accept: string, produce: enum {Pass, Fail { reason }}`). Cap requires `ai.complete @ [<judge_model>]` from the lockset | 3 fixtures | § 21.1 | pending |
+| M21.T3 | `@example(arg1, arg2) -> expected` on a top-level `fn` generates an implicit test case run by `aeris test` | 5 fixtures | § 21.1 | pending |
+| M21.T4 | `suite "name" { setup { ... } test "..." { ... } }` runs `setup` before every `test` in the suite; `setup` cannot define `var` (only `let`) | 4 fixtures | § 21.2 | pending |
+| M21.T5 | `aeris doc` extracts `@example` entries into the JSONL output | Snapshot test | § 25.1 | pending |
+
+### 5.22 M22 — L2 handler parity with v0.1 (3 weeks)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M22.T1 | `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}` shell out to `docker` and surface a `CommandResult`-shaped record | 10 fixtures (one per op) | § 23 | pending |
+| M22.T2 | `kube.{describe,rollout,scale,logs}` shell out to `kubectl` | 4 fixtures | § 23 | pending |
+| M22.T3 | `mongodb` full driver: `connect(uri) -> conn`, `conn.db(name)`, `db.collection(name)`, `coll.{find,find_one,insert_one,insert_many,update_one,update_many,delete_one,delete_many,count,aggregate,create_index,drop}`. Backend: `mongo-rust-driver` behind a feature flag, mock by default | 15 fixtures (mock) + 3 integration tests gated by an env var | § 23 | pending |
+| M22.T4 | `minio` full ops: `get`, `put`, `delete`, `exists`, `stat`, `list`, `buckets`, `bucket_exists`, `mb`, `rb` | 10 fixtures | § 23 | pending |
+| M22.T5 | `rabbitmq` channel: `connect`, `channel`, `queue_declare`, `queue_delete`, `queue_purge`, `exchange_declare`, `exchange_delete`, `queue_bind`, `queue_unbind`, `qos`, `publish`, `consume`, `get`, `ack`, `nack`, `reject`, `close_channel`, `close_conn` | 17 fixtures | § 23 | pending |
+| M22.T6 | Every new op records a per-call trace event; saga-scoped idempotency keys flow through (HTTP `Idempotency-Key`, K8s annotation, AMQP `message-id`, Mongo sentinel) | 1 golden per backend | § 12.3 | pending |
+
+### 5.23 M23 — `model X@vN extends X@v(N-1)` (1 week)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M23.T1 | Parser: `model X@v2 extends X@v1 { <added or overridden fields> }` | 6 positive + 4 negative fixtures (added field missing, field type narrowed in incompatible way) | § 16 | pending |
+| M23.T2 | Static check: every field of `X@v1` is present in `X@v2`; every `where` of `X@v1` is implied by the v2 shape (best-effort syntactic check, not SMT). Failures → exit 68 | 5 fixtures | § 16.1 | pending |
+| M23.T3 | Auto-migration: when the diff is structurally trivial (only added fields with defaults), the compiler generates `migrate_v1_to_v2`; otherwise an explicit migration is required | 4 fixtures | § 16.4 | pending |
+| M23.T4 | `aeris doc` emits the `extends` chain | Snapshot test | § 25.1 | pending |
+
 ---
 
 ## 6. Test artifacts
@@ -465,6 +572,12 @@ L = likelihood (L/M/H), I = impact (L/M/H).
 These items are deliberately deferred. Each has a sketch of *what
 would have to change* if a v0.3 wanted to admit them.
 
+> The v1 toolkit (AI builtins, network listeners, inline error
+> handling, time-control sugar, expanded L2 handlers, model `extends`)
+> was originally listed here and is now scheduled by M16–M23 (§ 5);
+> § 11 explains how each piece is re-incorporated without violating
+> the thesis.
+
 | Item | Why deferred | Path to admission |
 |---|---|---|
 | Bytecode VM / JIT | Tree-walk evaluator hits performance targets (M14.T3 = 5× CPython); JIT triples implementation complexity | Replace `runtime`'s eval submodule; keep AST and stdlib stable |
@@ -494,6 +607,197 @@ This file IS the tracker. To update:
 
 A milestone moves to `done` only after § 7.2 is satisfied. There is
 no "soft done".
+
+---
+
+## 11. v0.3 — Re-importing v0.1 features under v0.2 principles
+
+The v0.3 milestones (M16–M23) re-introduce constructs that existed in
+the legacy Aeris codebase but were left out of v0.2 on purpose. The
+constraint is non-negotiable: every re-imported construct **must obey
+the thesis and `language.md` rules already in place** — V2 intent,
+the typed `cap` system, replay determinism, the closed `err` enum,
+and the V3 surface lock.
+
+This section records the tension each construct creates and how it is
+resolved. Implementers must read it before opening a PR for the
+corresponding milestone.
+
+### 11.1 String interpolation `{x}` (M16)
+
+**Tension.** The brace `{` already terminates record literals
+(`User { x: 1 }`) and block expressions (`{ let x = 1; x }`).
+Reintroducing `{...}` inside strings creates two lexical contexts for
+the same brace.
+
+**Resolution.** Interpolation lives **inside the string token**.
+The lexer enters interpolation mode on `"` and exits on the matching
+`"`; inside that mode, an unescaped `{` starts an embedded expression
+that ends at the matching `}`. Outside a string token the brace
+parses as before. `\{` and `\}` are the only escape; no `{{` doubling.
+
+**Impact on the trace.** None — interpolation is a parsing concern.
+The compiled AST is identical to what `\(...)` produced.
+
+### 11.2 `expr catch err { ... }` (M17)
+
+**Tension.** v0.2 already has `result<T>` + `?` + `match`. A
+`catch` postfix risks duplicating the error machinery and inviting
+sloppy exception handling.
+
+**Resolution.** `catch` is **strictly syntactic sugar** over `match`:
+
+```aeris
+let body = http.get(url)? catch err { default_response() }
+// desugars to:
+let body = match http.get(url) {
+  Ok(v)  -> v,
+  Err(_) -> default_response(),
+}
+```
+
+The block must itself return `T` or `raise`. `catch` cannot suppress
+a `ContractViolation` or a `PolicyViolation` — they remain fatal as
+per § 18.4.
+
+### 11.3 `error(msg)` (M17)
+
+**Tension.** A function returning a freshly-raised error invites the
+open-string error-class anti-pattern v0.2 was designed to reject.
+
+**Resolution.** `error(msg)` constructs the `err.user(msg)` variant of
+the closed `err` enum (§ 18.1). It is a value, not a control-flow
+operator; only `raise error(...)` (or `Err(error(...))`) actually
+throws. The other eight variants (`io`, `net`, `schema`, `contract`,
+`policy`, `budget`, `partial_failure`, `llm`) remain inaccessible to
+the user constructor.
+
+### 11.4 `defer stmt` (M17)
+
+**Tension.** Deferred side effects break the V2 promise that every
+write-effectful call sits inside an `intent`, because the call site
+is at function exit, not at the lexical point of `defer`.
+
+**Resolution.** A `defer` body is treated as if it were inlined at
+every function exit point for the purpose of static checks. The body
+must therefore wrap any write-effectful call in `intent` and the
+enclosing function's `cap` must already permit those operations. The
+runtime emits `defer_enter`/`defer_exit` events at execution time so
+the trace preserves the original lexical order.
+
+### 11.5 `every` / `retry` / `timeout` (M18)
+
+**Tension.** Each of these blocks hides a wait or a cancel — invisible
+to the cap system unless treated carefully.
+
+**Resolution.** All three desugar before the static checker runs:
+
+- `every <d> { body }` ≡ `loop { clock.sleep(d); body }`. Requires
+  `cap[clock.sleep]`.
+- `retry <n>, delay: <d> { body }` ≡ a `for` loop with attempt-bounded
+  exponential `clock.sleep` between attempts; the body must yield
+  `result<T>`; first `Ok` wins, last `Err` propagates.
+- `timeout <d> { body }` ≡ `spawn`+cancel-channel; cancellation is
+  cooperative on the next cap call (matches the M5 / M19.1 model).
+
+Because desugaring happens pre-check, the cap-narrowing rule, V2
+intent rule, and saga-step rules all apply naturally.
+
+### 11.6 The AI builtin family (M19)
+
+**Tension.** Every v1 builtin (`ai.session`, `ai.decide`, `ai.extract`,
+`ai.generate`, `ai.ensemble`, `ai.eval`, `ai.index`, `ai.guard`,
+`ai.cache`, `ai.usage`) hid state and side-effects that the v0.2 trace
+cannot model deterministically. The cap-system would lose its teeth if
+these calls bypassed `agent`/`model@vN`.
+
+**Resolution.** Every builtin is a thin desugarer over the v0.2 core:
+
+| Builtin | Desugars to |
+|---|---|
+| `ai.session` | a `record Session { system, model, history }` plus a pure function `Session.ask` that calls a hidden `agent { accept: HistoryPair@v1, produce: string }`. State is **immutable**: `.ask` returns `(new_session, reply)` |
+| `ai.decide` | one-shot `agent` with `produce: enum {<choices>}` synthesised at parse time |
+| `ai.extract<M>` / `ai.generate<M>` | one-shot typed `agent`; `accept: string`, `produce: M` |
+| `ai.ensemble` | `agent_net` with `flow source -> { a, b, c }` and a `terminal merge` agent that applies the strategy |
+| `ai.eval` | typed agent `accept: (output, criteria), produce: { score, reasoning }` |
+| `ai.index` | a pure data structure under `.aeris/kb/<id>.json`; `.search` is a pure ranking function (no LLM call), so it stays out of `intent` |
+| `ai.guard` | wraps a call site with two policy activations (input / output) |
+| `ai.cache` | replays the recorded `ai_call` event from `.aeris/cache/` when the `(prompt, model)` hash hits |
+| `ai.usage` | a counter the tracer already maintains; just a getter |
+
+Each builtin must be called inside `intent` (the `ai.index.search`
+exception is a pure read that returns no LLM data). The cap-system
+gates every builtin on `ai.complete` and/or `ai.embed`.
+
+The `aeris chat` REPL is **not a builtin** — it is a top-level CLI
+subcommand (M19.T10) that wraps `ai.session` with stdin/stdout.
+
+### 11.7 Network listeners (M20)
+
+**Tension.** A v1 HTTP server gave the program ambient authority to
+receive any request on any port. Antithetical to the cap system.
+
+**Resolution.** Each listener op has its own cap entry with an
+allow-list: `net.http.serve @ [8080]`, `net.tcp.listen @ [...]`,
+`net.tcp.connect @ ["redis:6379"]`, `net.udp.bind @ [...]`,
+`net.resolve @ ["*.acme.com"]`. The trace records `net_listen`,
+`net_accept`, `tcp_send`, `udp_recv`, `dns_resolve` events with hashed
+payloads, identical to the client-side `http.*` shape.
+
+### 11.8 Test helpers + `@example` + `suite { setup }` (M21)
+
+**Tension.** v0.2 keeps tests as plain `test "name" { ... }`. Adding
+shorthands risks balkanising the test surface.
+
+**Resolution.** All four shorthands are mechanical sugar:
+
+- `assert_status` / `assert_json` build a `match` on the response shape.
+- `assert_semantic` desugars to a hidden judge `agent`; it is the only
+  one that requires `cap[ai.complete]`.
+- `@example(args) -> expected` annotation generates an implicit
+  `test "<fn>::example_<n>" { ... }` block at parse time.
+- `suite "..." { setup { } test "..." {} }` desugars to a list of
+  individual test blocks each prefixed by the `setup` body inlined.
+  `setup` cannot introduce `var` (function-scope only), so the inlining
+  is invisible to the trace.
+
+### 11.9 L2 handler parity (M22)
+
+**Tension.** The v1 handlers exposed dozens of operations per backend.
+Expanding to that surface is straightforward in code but inflates the
+attack surface and the cap vocabulary.
+
+**Resolution.** Each new op gets its own cap path
+(`docker.exec`, `kube.scale`, `mongodb.aggregate`, ...) and a per-op
+trace event with the backend-specific fields it already exhibits in
+v1. The runtime backend is **shell-out wrapping** (Docker, kubectl) or
+a feature-flagged Rust client (`mongo-rust-driver`, `lapin`, `aws-sdk-s3`
+configured for S3-compatible endpoints); mocks are the default in CI.
+
+### 11.10 `model X@v2 extends X@v1` (M23)
+
+**Tension.** v0.2 chose explicit migration functions to avoid hidden
+schema-evolution surprises.
+
+**Resolution.** `extends` is sugar; the parser still requires an
+explicit `migrate_v1_to_v2(old: X@v1) -> X@v2` function **unless** the
+diff is structurally trivial (only added fields, each with a default).
+In the trivial case the compiler generates the migration; in any
+other case the omitted migration is a compile error.
+
+### 11.11 Acceptance for v0.3 as a whole
+
+A v0.3 tag (`v0.3.0`) requires:
+
+- M16 → M23 all `done`, each with positive and negative fixtures.
+- `cargo test --test release_thesis_section_13` still green —
+  the six criteria of `thesis.md § 13` remain mechanically verifiable.
+- `aeris fmt --migrate-strings` runs idempotently on the entire
+  codebase (M16 is invasive: every fixture migrates).
+- A new release smoke test, `tests/release_v03_inventory.rs`, that
+  exercises one fixture per v0.3 construct and asserts it desugars to
+  the expected v0.2 AST. This is the gate that proves no construct
+  escapes the principles.
 
 ---
 
