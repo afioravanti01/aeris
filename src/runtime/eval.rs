@@ -2657,6 +2657,13 @@ fn lookup_builtin(module: &str, op: &str) -> Option<Builtin> {
         ("ai", "chat") => builtin_ai_chat,
         ("ai", "embed") => builtin_ai_embed,
         ("ai", "tools") => builtin_ai_tools,
+        // M19 v0.3 — extended AI toolkit (subset). Each builtin is a
+        // thin wrapper over ai.complete / ai.embed so cap-gating and
+        // the V2 intent rule cover the new surface automatically.
+        ("ai", "session") => builtin_ai_session,
+        ("ai", "session_ask") => builtin_ai_session_ask,
+        ("ai", "decide") => builtin_ai_decide,
+        ("ai", "usage") => builtin_ai_usage,
         ("audit", "event") => builtin_audit_event,
         ("kube", "apply") => builtin_kube_apply,
         ("kube", "delete") => builtin_kube_delete,
@@ -4740,6 +4747,258 @@ fn builtin_ai_tools(env: &Env, args: &[Value], span: Span) -> Result<Value, Eval
     })?;
     record_ai_event(env, "tools", &model, &prompt, &resp);
     Ok(Value::ok(Value::Str(resp)))
+}
+
+// ====================================================================
+//  M19 — extended AI toolkit (v0.3)
+// ====================================================================
+
+/// M19.T1 — `ai.session(system, model) -> session`.
+/// Immutable session value: a record `{ system, model, history }`
+/// where `history` is a list of `{ role, content }` records. The
+/// value carries no hidden state, so replay stays bit-identical.
+fn builtin_ai_session(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("ai.session", 2, args, span)?;
+    let system = expect_string("ai.session system", &args[0], span)?;
+    let model = expect_string("ai.session model", &args[1], span)?;
+    let _ = env; // session does not run a call; cap-gating fires on session_ask
+    Ok(Value::Record(crate::runtime::value::RecordValue {
+        name: Some("Session".into()),
+        fields: vec![
+            ("system".into(), Value::Str(system)),
+            ("model".into(), Value::Str(model)),
+            ("history".into(), Value::List(Vec::new())),
+        ],
+    }))
+}
+
+/// M19.T1 — `ai.session_ask(session, prompt) -> (session, reply)`.
+/// Returns a fresh session with the prompt + reply appended to
+/// history, plus the assistant reply. The original session is
+/// unchanged. Auto-compaction kicks in past 40 entries, keeping the
+/// system message + the last 20 entries.
+fn builtin_ai_session_ask(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("ai.session_ask", 2, args, span)?;
+    let session = match &args[0] {
+        Value::Record(r) if r.name.as_deref() == Some("Session") => r.clone(),
+        other => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type(format!(
+                    "ai.session_ask expects a Session record, got {}",
+                    value_kind(other)
+                )),
+                span,
+            ))
+        }
+    };
+    let prompt = expect_string("ai.session_ask prompt", &args[1], span)?;
+    // Pull system + model + history out of the session record.
+    let system = match session.fields.iter().find(|(k, _)| k == "system") {
+        Some((_, Value::Str(s))) => s.clone(),
+        _ => "".to_string(),
+    };
+    let model_str = match session.fields.iter().find(|(k, _)| k == "model") {
+        Some((_, Value::Str(s))) => s.clone(),
+        _ => "".to_string(),
+    };
+    let mut history: Vec<Value> = match session.fields.iter().find(|(k, _)| k == "history") {
+        Some((_, Value::List(xs))) => xs.clone(),
+        _ => Vec::new(),
+    };
+    // Verify the active cap permits ai.complete on this model.
+    // ai.session_ask delegates to ai.complete, so we authorise on it.
+    let allowed_model = enforce_ai_cap(env, "complete", span)?;
+    if !allowed_model.is_empty() && !model_str.is_empty() && allowed_model != model_str {
+        return Err(EvalError::new(
+            EvalErrorKind::PolicyViolation {
+                op: "ai.session_ask".into(),
+                target: model_str,
+            },
+            span,
+        ));
+    }
+    // Compose the full transcript-style prompt: system + history + new.
+    let mut composed = String::new();
+    if !system.is_empty() {
+        composed.push_str("system: ");
+        composed.push_str(&system);
+        composed.push('\n');
+    }
+    for entry in &history {
+        if let Value::Record(r) = entry {
+            let role = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "role")
+                .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.as_str()) } else { None })
+                .unwrap_or("?");
+            let content = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "content")
+                .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.as_str()) } else { None })
+                .unwrap_or("");
+            composed.push_str(role);
+            composed.push_str(": ");
+            composed.push_str(content);
+            composed.push('\n');
+        }
+    }
+    composed.push_str("user: ");
+    composed.push_str(&prompt);
+    let reply = run_ai_backend(env, "session_ask", &model_str, &composed).map_err(|m| {
+        EvalError::new(
+            EvalErrorKind::Io {
+                op: "ai.session_ask".into(),
+                message: m,
+            },
+            span,
+        )
+    })?;
+    record_ai_event(env, "session_ask", &model_str, &composed, &reply);
+    // Append the new exchange.
+    let make_entry = |role: &str, content: &str| -> Value {
+        Value::Record(crate::runtime::value::RecordValue {
+            name: None,
+            fields: vec![
+                ("role".into(), Value::Str(role.into())),
+                ("content".into(), Value::Str(content.into())),
+            ],
+        })
+    };
+    history.push(make_entry("user", &prompt));
+    history.push(make_entry("assistant", &reply));
+    // Auto-compaction: keep system + last 20 entries past 40 total.
+    if history.len() > 40 {
+        let keep = history.split_off(history.len() - 20);
+        history = keep;
+    }
+    let new_session = Value::Record(crate::runtime::value::RecordValue {
+        name: Some("Session".into()),
+        fields: vec![
+            ("system".into(), Value::Str(system)),
+            ("model".into(), Value::Str(model_str)),
+            ("history".into(), Value::List(history)),
+        ],
+    });
+    Ok(Value::Tuple(vec![new_session, Value::Str(reply)]))
+}
+
+/// M19.T2 — `ai.decide(prompt, choices, retries?) -> string`.
+/// Augments the prompt with a fixed pick-one contract, calls
+/// ai.complete, and returns one of the choices. If the reply does
+/// not name any choice, the function returns the first one (the
+/// retry-bounded variant lives behind the `retries` argument).
+fn builtin_ai_decide(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err(EvalError::new(
+            EvalErrorKind::Arity {
+                name: "ai.decide".into(),
+                expected: 2,
+                found: args.len(),
+            },
+            span,
+        ));
+    }
+    let prompt = expect_string("ai.decide prompt", &args[0], span)?;
+    let choices: Vec<String> = match &args[1] {
+        Value::List(xs) => xs
+            .iter()
+            .filter_map(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+        other => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type(format!(
+                    "ai.decide expects a list of strings, got {}",
+                    value_kind(other)
+                )),
+                span,
+            ))
+        }
+    };
+    if choices.is_empty() {
+        return Err(EvalError::new(
+            EvalErrorKind::Type("ai.decide requires at least one choice".into()),
+            span,
+        ));
+    }
+    let retries = match args.get(2) {
+        Some(Value::Int(n)) if *n >= 1 => *n as u32,
+        _ => 1,
+    };
+    // ai.decide delegates to ai.complete; authorise on it.
+    let model = enforce_ai_cap(env, "complete", span)?;
+    let pick = |reply: &str| -> Option<String> {
+        // Prefer an exact match in the reply; otherwise scan for a
+        // case-insensitive substring of any choice.
+        let r = reply.trim();
+        if choices.iter().any(|c| c == r) {
+            return Some(r.to_string());
+        }
+        let r_low = r.to_lowercase();
+        choices
+            .iter()
+            .find(|c| r_low.contains(&c.to_lowercase()))
+            .cloned()
+    };
+    let augmented = format!(
+        "{prompt}\n\nReply with exactly one of: {}.",
+        choices.join(", ")
+    );
+    let mut last_reply = String::new();
+    for _ in 0..retries {
+        let reply = run_ai_backend(env, "decide", &model, &augmented).map_err(|m| {
+            EvalError::new(
+                EvalErrorKind::Io {
+                    op: "ai.decide".into(),
+                    message: m,
+                },
+                span,
+            )
+        })?;
+        record_ai_event(env, "decide", &model, &augmented, &reply);
+        if let Some(c) = pick(&reply) {
+            return Ok(Value::Str(c));
+        }
+        last_reply = reply;
+    }
+    // Fall through: the model never produced a recognised choice.
+    // Returning the first choice is the v1 fallback contract.
+    let _ = last_reply;
+    Ok(Value::Str(choices[0].clone()))
+}
+
+/// M19.T9 — `ai.usage() -> { total_tokens, cost_usd, calls }`.
+/// Pulls the counters maintained by the tracer's `ai_call` events.
+/// `cost_usd` is intentionally `0.0` in v0.3: per-model pricing is
+/// not yet plumbed through. The accumulator survives across calls
+/// in the same process.
+fn builtin_ai_usage(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("ai.usage", 0, args, span)?;
+    let (mut total_tokens, mut calls) = (0u64, 0u64);
+    if let Some(t) = env.tracer() {
+        for evt in t.events() {
+            if evt.kind == "ai_call" {
+                calls += 1;
+                if let Some((_, v)) = evt.fields.iter().find(|(k, _)| k == "tokens") {
+                    if let Ok(n) = v.parse::<u64>() {
+                        total_tokens += n;
+                    }
+                }
+            }
+        }
+    }
+    Ok(Value::Record(crate::runtime::value::RecordValue {
+        name: Some("AiUsage".into()),
+        fields: vec![
+            ("total_tokens".into(), Value::Int(total_tokens as i64)),
+            ("cost_usd".into(), Value::Float(0.0)),
+            ("calls".into(), Value::Int(calls as i64)),
+        ],
+    }))
 }
 
 // ====================================================================
@@ -6880,6 +7139,133 @@ mod tests {
     fn t6_check_error_returns_at_least_64() {
         // `Foo` is unknown — type resolver flags it with exit 64.
         assert!(run_exit("fn main() -> Foo {}") >= 64);
+    }
+
+    // ---- M19 — extended AI toolkit (subset) ----
+
+    fn ai_complete_cap_haiku() -> Value {
+        cap(
+            vec![(vec!["ai", "complete"], Some(vec!["claude-haiku-4-5"]))],
+            false,
+        )
+    }
+
+    #[test]
+    fn m19_session_value_is_immutable_record() {
+        let mut env = Env::new();
+        env.bind_let("cap", ai_complete_cap_haiku());
+        let expr = parse_expression(r#"ai.session("Be brief", "claude-haiku-4-5")"#).unwrap();
+        let v = eval_expr(&expr, &mut env)
+            .and_then(|f| f.into_value(expr.span()))
+            .unwrap();
+        match v {
+            Value::Record(r) => {
+                assert_eq!(r.name.as_deref(), Some("Session"));
+                assert!(r.fields.iter().any(|(k, _)| k == "history"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m19_session_ask_returns_new_session_and_reply() {
+        let mut env = Env::new();
+        env.bind_let("cap", ai_complete_cap_haiku());
+        let expr = parse_expression(
+            r#"{
+                let s = ai.session("be brief", "claude-haiku-4-5")
+                ai.session_ask(s, "hello")
+            }"#,
+        )
+        .unwrap();
+        let v = eval_expr(&expr, &mut env)
+            .and_then(|f| f.into_value(expr.span()))
+            .unwrap();
+        match v {
+            Value::Tuple(items) => {
+                assert_eq!(items.len(), 2);
+                // First: a Session record with non-empty history.
+                match &items[0] {
+                    Value::Record(r) => {
+                        assert_eq!(r.name.as_deref(), Some("Session"));
+                        let hist = r
+                            .fields
+                            .iter()
+                            .find(|(k, _)| k == "history")
+                            .and_then(|(_, v)| if let Value::List(xs) = v { Some(xs) } else { None })
+                            .unwrap();
+                        // 2 entries: user prompt + assistant reply.
+                        assert_eq!(hist.len(), 2);
+                    }
+                    other => panic!("expected Session, got {other:?}"),
+                }
+                // Second: the reply (any string; default mock backend
+                // echoes the prompt).
+                assert!(matches!(items[1], Value::Str(_)));
+            }
+            other => panic!("expected tuple, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m19_decide_returns_one_of_the_choices() {
+        let mut env = Env::new();
+        env.bind_let("cap", ai_complete_cap_haiku());
+        let expr =
+            parse_expression(r#"ai.decide("Pick an env", ["dev", "staging", "prod"], 2)"#).unwrap();
+        let v = eval_expr(&expr, &mut env)
+            .and_then(|f| f.into_value(expr.span()))
+            .unwrap();
+        match v {
+            Value::Str(s) => assert!(
+                ["dev", "staging", "prod"].contains(&s.as_str()),
+                "got {s}"
+            ),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m19_decide_empty_choices_is_runtime_error() {
+        let mut env = Env::new();
+        env.bind_let("cap", ai_complete_cap_haiku());
+        let expr = parse_expression(r#"ai.decide("pick", [])"#).unwrap();
+        let err = eval_expr(&expr, &mut env)
+            .and_then(|f| f.into_value(expr.span()))
+            .unwrap_err();
+        assert!(matches!(err.kind, EvalErrorKind::Type(_)));
+    }
+
+    #[test]
+    fn m19_usage_counts_calls_in_the_trace() {
+        let tracer = Tracer::in_memory();
+        let mut env = Env::new().with_tracer(tracer);
+        env.bind_let("cap", ai_complete_cap_haiku());
+        let _ = eval_expr(
+            &parse_expression(r#"ai.complete("a")"#).unwrap(),
+            &mut env,
+        )
+        .unwrap();
+        let _ = eval_expr(
+            &parse_expression(r#"ai.complete("b")"#).unwrap(),
+            &mut env,
+        )
+        .unwrap();
+        let usage = eval_expr(&parse_expression(r#"ai.usage()"#).unwrap(), &mut env)
+            .and_then(|f| f.into_value(parse_expression(r#"ai.usage()"#).unwrap().span()))
+            .unwrap();
+        match usage {
+            Value::Record(r) => {
+                let calls = r
+                    .fields
+                    .iter()
+                    .find(|(k, _)| k == "calls")
+                    .map(|(_, v)| v.clone())
+                    .unwrap();
+                assert!(matches!(calls, Value::Int(n) if n >= 2));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     // ---- M18 — every / retry / timeout / clock.sleep ----
