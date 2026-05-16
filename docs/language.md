@@ -814,6 +814,60 @@ capability call; it constructs a new cap). It:
 - never *broadens* — `cap.subset[http.post @ ["evil.com"]]` against a
   parent that did not contain `evil.com` is a parse-time error.
 
+### 8.4.1 Strict and prototype modes
+
+The capability system has two modes, selected by a project-wide flag
+in `lockset.toml`:
+
+```toml
+[caps]
+required = false   # prototype mode (default for `aeris init`)
+# required = true  # strict mode (mission-critical projects)
+```
+
+**Strict mode (`required = true`).** The behaviour described in
+§§ 8.1–8.4: every function that calls a capability operation must
+declare an enclosing `cap` parameter, and the `<module>.<op>` pair
+must appear in its `cap[...]` shape. Body-resolution failures surface
+as exit code 65 (`NoCapInScope`, `OpNotInCapSignature`).
+
+**Prototype mode (`required = false`).** The body-resolution rule is
+relaxed — a function *without* a `cap` parameter may freely call any
+capability operation. Functions that *do* declare a `cap` parameter
+are still checked normally: a developer who opts in to the discipline
+receives it. The runtime allow-list (§ 8.3.1, N4) remains enforced
+in both modes; an unauthorised host or path still raises
+`PolicyViolation` at the call site, regardless of mode.
+
+The two regimes are linked by a single migration step: flipping
+`required = false` to `required = true` re-enables every static check
+that prototype mode suppressed. The narrow-caps linter (§ 8.5) helps
+the conversion by deriving the minimal `cap[...]` shape from the
+body's actual usage and emitting it as a `diff`.
+
+The default for `aeris init` is `required = false`. The recommended
+workflow is:
+
+1. *Prototype.* Iterate freely; the lockset's allow-list still
+   prevents the program from contacting unauthorised endpoints.
+2. *Promote.* When the project becomes mission-critical, flip
+   `required = true`, run `aeris fmt --narrow-caps`, apply the
+   suggested diff, and let `aeris check` flag every remaining gap.
+
+The following invariants hold in **both** modes:
+
+- `cap[*]` remains forbidden in user source code (§ 8.4 / E65 variant
+  `CapStarInUserCode`);
+- `intent` blocks remain mandatory around write-effectful calls
+  (§ 10.1 / E66);
+- saga `step`s with a write-effectful `do` still require an explicit
+  `undo` block (§ 12.2 / E67);
+- the lockset ceiling (§ 8.3.2 / E71) is still applied to every
+  signature that declares an `@` allow-list.
+
+These rules are about program structure, not authority distribution,
+so they hold orthogonally to the capability-checking mode.
+
 ### 8.5 Capability minimisation (V1)
 
 `aeris fmt --narrow-caps` analyses each function body and rewrites the
@@ -1703,6 +1757,7 @@ utils  = { path   = "./lib/utils.aer",
            hash   = "blake3:9b18...ff02" }
 
 [caps]
+required        = true                                # § 8.4.1 — strict mode for production
 http.allow      = ["api.acme.com", "api.stripe.com"]
 fs.allow_read   = ["/etc/aeris/**", "./data/**"]
 fs.allow_write  = ["./out/**", "./.aeris/**"]

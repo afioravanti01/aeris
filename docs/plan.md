@@ -116,8 +116,9 @@ Module responsibilities (one-liners):
 | M12 | Tests + properties + `fmt` + V1 narrow-caps | `aeris test`, property shrinking, total `aeris fmt`, capability minimisation linter | 4 | M2, M3 | done |
 | M13 | Trace diff + `aeris doc` + error messages | `aeris trace diff`; `/// doc` extraction; human-grade diagnostics | 3 | M4, M9 | done |
 | M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done |
+| M15 | Capability prototype mode | `[caps] required` flag in lockset; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
 
-**Total**: 47 engineering-weeks. Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
+**Total**: 48 engineering-weeks. Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
 
 ---
 
@@ -140,10 +141,13 @@ Module responsibilities (one-liners):
 | M12 | M2, M3 | M10, M11 (tooling track is independent of L2 work) |
 | M13 | M4, M9 | M10, M11, M12 |
 | M14 | M11, M12, M13 | — |
+| M15 | M2, M7 | — (post-v0.2.0 ergonomic patch) |
 
 The plan is structured so that **after M5 there are always two
 parallelisable tracks**: the *language track* (M6 → M9 → M10) and
-the *infrastructure track* (M7 → M11 / M12 / M13).
+the *infrastructure track* (M7 → M11 / M12 / M13). M15 is an
+ergonomic patch landed after M14 to address adoption friction
+surfaced during the v0.2.0 dogfooding (§ 8.4.1 of the specification).
 
 ---
 
@@ -343,6 +347,20 @@ that the task realises.
 | M14.T7 | `aeris init` template: minimal viable project, hello-world saga, hello-world agent | Template renders into `examples/` | § 25.1, App. A–C | done |
 | M14.T8 | Release notes referencing every milestone's golden traces | `RELEASE.md` checked in | — | done |
 
+### 5.15 M15 — Capability prototype mode (1 week, post-v0.2.0)
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M15.T1 | Add `required: bool` to `[caps]` parser; default `true` | 5 lockset fixtures with explicit `required` | § 8.4.1, § 24.1 | done |
+| M15.T2 | `check::check_module_with_lockset` honours `required = false`: suppress `NoCapInScope` (E65) for fns without `cap` parameter; fns *with* `cap` still checked normally | 9 fixtures: same code passes with `required = false`, fails with `required = true` | § 8.4.1 | done |
+| M15.T3 | `aeris init` template emits `required = false` by default with explanatory comment | `src/templates/lockset.toml` | § 25.1 | done |
+| M15.T4 | Examples migration: `examples/saga` and `examples/agent_net` opt into `required = true`; `examples/hello` keeps prototype mode | `examples_check.rs` integration test still green | App. A–C | done |
+| M15.T5 | Documentation: `RELEASE.md` notes the prototype/strict workflow; `language.md § 8.4.1` updated | RELEASE.md + language.md updated | § 8.4.1 | done |
+
+The orthogonal rules (E66 intent, E67 saga undo, E71 lockset
+ceiling, E65 `cap[*]` ban) remain active in both modes — they
+concern program structure, not authority distribution.
+
 ---
 
 ## 6. Test artifacts
@@ -360,6 +378,7 @@ absence is a v0.2.0 release-blocker.
 | Round-trip fixtures | `aeris-tests/roundtrip/` | `parse → fmt → parse` byte-equal |
 | Replay parity fixtures | `aeris-tests/replay/` | Original run + `aeris replay` produce identical traces |
 | Lockset tampering vectors | `aeris-tests/lockset-attack/` | Modified bytes / hash mismatch / version drift |
+| Prototype-mode fixtures | `src/check/lockset_caps.rs::tests` (M15) | Same source passes with `required = false` and fails with `required = true` |
 
 Acceptance suite naming: every test file is `<milestone>-<task>-<short>.aer`,
 e.g. `aeris-tests/positive/M6.T2-saga-rollback.aer`. CI runs the
@@ -389,7 +408,9 @@ Three nested levels of completion. A higher level subsumes the lower.
 
 ### 7.3 v0.2.0 release done
 
-- All M0 → M14 milestones `done`.
+- All M0 → M14 milestones `done`. M15 (capability prototype mode)
+  shipped as an additional ergonomic patch on top of the v0.2.0
+  release set.
 - Six success criteria of `thesis.md § 13` reproducibly demonstrable
   on `examples/`:
   1. Compliance officer reads a saga signature and identifies all
@@ -428,6 +449,7 @@ that is itself implementable.
 | R8 | Single-binary size > 8 MB stripped (thesis § 2 violated) | L | H | Audit dep tree at M9 (LLM backend is the heaviest); fall back to feature-gated http backend |
 | R9 | Performance regression after M9 (tape recording overhead) | M | M | M14.T3 / T4 / T5 benchmarks gate every PR after M9 |
 | R10 | Documentation drift: `language.md` evolves but `plan.md` references stale sections | M | L | CI link-checker for `§ X.Y` references in `plan.md` against `language.md` headings |
+| R11 | Strict capability mode rejected by users on adoption-friction grounds | M | H | M15: `[caps] required = false` prototype mode; `aeris init` defaults to it; runtime allow-list still enforced; `aeris fmt --narrow-caps` automates the strict-mode promotion |
 
 L = likelihood (L/M/H), I = impact (L/M/H).
 

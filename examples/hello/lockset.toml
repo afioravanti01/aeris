@@ -5,5 +5,7 @@ aeris = "0.2.0"
 [deps]
 
 [caps]
-# `io.*` is diagnostic-class — no allow-list dimension. The empty
-# `[caps]` here is enough for `io.println` (§ 22).
+# Prototype mode (§ 8.4.1): functions may call capability operations
+# without declaring an enclosing `cap` parameter. `io.*` is
+# diagnostic-class and requires no allow-list dimension.
+required = false

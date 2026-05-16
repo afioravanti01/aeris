@@ -449,44 +449,35 @@ fn cmd_run(path: &str) -> ExitCode {
             return ExitCode::from(64);
         }
     };
-    let check_errs = crate::check::check_module(&module);
-    if !check_errs.is_empty() {
-        let mut max_exit: u8 = 0;
-        for err in &check_errs {
-            eprintln!(
-                "aeris: check error at line {}, col {} (exit {}): {:?}",
-                err.span.line,
-                err.span.col,
-                err.exit_code(),
-                err.kind
-            );
-            max_exit = max_exit.max(err.exit_code());
-        }
-        return ExitCode::from(max_exit);
-    }
-    // M7.T4: when a `lockset.toml` sits next to the source file, use
-    // its `[caps]` ceiling as `main`'s synthesised cap. Falls back
-    // to `cap[*]` only when no lockset is present.
+    // M7.T4 + M15: when a `lockset.toml` sits next to the source file,
+    // use its `[caps]` ceiling as `main`'s synthesised cap, and route
+    // the static checker through `check_module_with_lockset` so the
+    // `required` flag (§ 8.4.1) is honoured.
     let lockset_path = Path::new(path)
         .parent()
         .unwrap_or(Path::new("."))
         .join("lockset.toml");
-    let composed = if lockset_path.exists() {
-        match fs::read_to_string(&lockset_path)
-            .ok()
-            .and_then(|s| crate::lockset::parse_lockset(&s).ok())
-        {
-            Some(l) => {
-                eprint!("{}", l.describe_main_cap());
-                let cap = l.synthesise_main_cap();
-                let backend = l.ai_backend.clone().map(std::rc::Rc::new);
-                Some((cap, backend))
-            }
-            None => None,
-        }
-    } else {
-        None
+    let lockset_for_check = fs::read_to_string(&lockset_path)
+        .ok()
+        .and_then(|s| crate::lockset::parse_lockset(&s).ok());
+    let check_errs = match &lockset_for_check {
+        Some(l) => crate::check::check_module_with_lockset(&module, &l.caps),
+        None => crate::check::check_module(&module),
     };
+    if !check_errs.is_empty() {
+        let mut max_exit: u8 = 0;
+        for err in &check_errs {
+            eprint!("{}", crate::check::render_diagnostic(&src, err));
+            max_exit = max_exit.max(err.exit_code());
+        }
+        return ExitCode::from(max_exit);
+    }
+    let composed = lockset_for_check.as_ref().map(|l| {
+        eprint!("{}", l.describe_main_cap());
+        let cap = l.synthesise_main_cap();
+        let backend = l.ai_backend.clone().map(std::rc::Rc::new);
+        (cap, backend)
+    });
     let outcome = if let Some((cap, backend)) = composed {
         crate::runtime::eval::run_main_with_cfg(&module, cap, None, backend, false)
     } else {

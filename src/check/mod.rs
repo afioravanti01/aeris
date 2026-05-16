@@ -39,10 +39,28 @@ pub fn check_module(m: &Module) -> Vec<CheckError> {
 /// intersection check against the project's `lockset.toml [caps]`
 /// ceiling. The lockset-intersection errors are appended to the result
 /// of `check_module` so callers receive a single combined batch.
+///
+/// M15: when `caps.required == false` the checker switches to
+/// prototype mode (§ 8.4.1). Body-resolution `NoCapInScope` errors
+/// (E65) are suppressed for functions without a `cap` parameter; every
+/// other rule (`OpNotInCapSignature`, `cap[*]` ban, `intent`, saga
+/// `undo`, allow-list intersection) remains active.
 pub fn check_module_with_lockset(m: &Module, caps: &CapsCeiling) -> Vec<CheckError> {
     let mut out = resolver::check_module(m);
+    if !caps.required {
+        out.retain(|e| !is_prototype_suppressible(&e.kind, m));
+    }
     out.extend(lockset_caps::check_module_against_lockset(m, caps));
     out
+}
+
+/// Whether a check error should be suppressed under `required = false`.
+/// Today this means a single class: `NoCapInScope` raised on a function
+/// that does not declare a `cap` parameter — the prototype-mode escape
+/// hatch. `OpNotInCapSignature` remains active because the developer
+/// explicitly opted in to the discipline by writing `cap: cap[...]`.
+fn is_prototype_suppressible(kind: &CheckErrorKind, _m: &Module) -> bool {
+    matches!(kind, CheckErrorKind::NoCapInScope { .. })
 }
 
 // ====================================================================

@@ -1,7 +1,12 @@
 /// Minimum viable Aeris program — language.md Appendix A.
 ///
+/// Prototype mode (`lockset.toml [caps] required = false`): the
+/// `cap` parameter may be omitted; capability calls are still
+/// allowed and the runtime allow-list applies. Promote to strict
+/// mode (`required = true`) once the project is mission-critical.
+///
 /// Run with `aeris run examples/hello/main.aer` from the repo root.
-fn main(cap) -> result<unit> {
+fn main() -> result<unit> {
   io.println("hello, aeris")
   Ok(())
 }

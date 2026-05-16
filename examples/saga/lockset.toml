@@ -5,4 +5,7 @@ aeris = "0.2.0"
 [deps]
 
 [caps]
+# Strict mode (§ 8.4.1) — production-like: every effectful function
+# must declare its `cap[...]` shape. The example saga complies.
+required   = true
 http.allow = ["vault.acme.com"]

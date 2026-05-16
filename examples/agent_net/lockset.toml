@@ -5,6 +5,9 @@ aeris = "0.2.0"
 [deps]
 
 [caps]
+# Strict mode (§ 8.4.1) — agent invocations are mission-critical
+# enough to merit static capability checking even in the example.
+required  = true
 ai.models = ["claude-haiku-4-5", "claude-opus-4-7"]
 
 [ai.backend]

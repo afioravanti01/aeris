@@ -356,6 +356,164 @@ mod tests {
         assert!(errs(&toml, aer).is_empty());
     }
 
+    // ---- M15 — prototype-mode (caps.required = false) ----
+
+    fn check_with(toml_src: &str, aeris_src: &str) -> Vec<crate::check::CheckError> {
+        let m = crate::syntax::parse(aeris_src)
+            .unwrap_or_else(|e| panic!("parse: {e:?}"));
+        let lockset = crate::lockset::parse_lockset(toml_src).expect("lockset");
+        crate::check::check_module_with_lockset(&m, &lockset.caps)
+    }
+
+    fn fixture_strict() -> &'static str {
+        r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            required = true
+        "#
+    }
+
+    fn fixture_prototype() -> &'static str {
+        r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            required = false
+        "#
+    }
+
+    #[test]
+    fn prototype_mode_suppresses_no_cap_in_scope() {
+        // Function without `cap` parameter calls `io.println`. Strict
+        // mode rejects with E65; prototype mode accepts.
+        let aer = r#"fn say() { io.println("hi") }"#;
+        let strict = check_with(fixture_strict(), aer);
+        assert!(strict
+            .iter()
+            .any(|e| matches!(e.kind, crate::check::CheckErrorKind::NoCapInScope { .. })));
+        let proto = check_with(fixture_prototype(), aer);
+        assert!(proto
+            .iter()
+            .all(|e| !matches!(e.kind, crate::check::CheckErrorKind::NoCapInScope { .. })));
+    }
+
+    #[test]
+    fn prototype_mode_does_not_relax_op_not_in_cap() {
+        // Function declares `cap[fs.read_file]` but writes — that's
+        // an explicit opt-in to discipline. Even prototype mode keeps
+        // OpNotInCapSignature active.
+        let aer = r#"
+            fn f(cap: cap[fs.read_file]) {
+                intent "x" { fs.write_file("/x", "y") }
+            }
+        "#;
+        let proto = check_with(fixture_prototype(), aer);
+        assert!(proto
+            .iter()
+            .any(|e| matches!(e.kind, crate::check::CheckErrorKind::OpNotInCapSignature { .. })));
+    }
+
+    #[test]
+    fn prototype_mode_keeps_intent_rule_active() {
+        // E66 is about program structure, not authority — must fire
+        // in both modes.
+        let aer = r#"
+            fn pay() {
+                http.post("https://x/y", "{}")
+            }
+        "#;
+        let proto = check_with(fixture_prototype(), aer);
+        assert!(proto
+            .iter()
+            .any(|e| matches!(e.kind, crate::check::CheckErrorKind::MissingIntentForWriteCall { .. })));
+    }
+
+    #[test]
+    fn prototype_mode_keeps_saga_undo_rule_active() {
+        let aer = r#"
+            saga s(cap: cap[http.post]) {
+                intent "x"
+                step a { do { http.post("u", "{}")? } undo noop }
+            }
+        "#;
+        let proto = check_with(fixture_prototype(), aer);
+        assert!(proto
+            .iter()
+            .any(|e| matches!(e.kind, crate::check::CheckErrorKind::SagaStepUndoNoopWithWriteDo { .. })));
+    }
+
+    #[test]
+    fn prototype_mode_keeps_cap_star_ban_active() {
+        let aer = "fn f(cap: cap[*]) {}";
+        let proto = check_with(fixture_prototype(), aer);
+        assert!(proto
+            .iter()
+            .any(|e| matches!(e.kind, crate::check::CheckErrorKind::CapStarInUserCode)));
+    }
+
+    #[test]
+    fn prototype_mode_keeps_allow_list_intersection_active() {
+        // E71 still fires: prototype mode is about the *signature*
+        // requirement, not about the lockset ceiling enforcement.
+        let toml = r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            required = false
+            http.allow = ["api.acme.com"]
+        "#;
+        let aer = r#"fn pay(cap: cap[http.post @ "evil.com"]) {}"#;
+        let proto = check_with(toml, aer);
+        assert!(proto
+            .iter()
+            .any(|e| matches!(e.kind, crate::check::CheckErrorKind::AllowListOutsideLockset { .. })));
+    }
+
+    #[test]
+    fn lockset_required_default_is_true() {
+        // Absence of `required` defaults to strict mode, preserving
+        // M0–M14 behaviour for legacy locksets.
+        let toml = r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            http.allow = ["x"]
+        "#;
+        let lockset = crate::lockset::parse_lockset(toml).unwrap();
+        assert!(lockset.caps.required);
+    }
+
+    #[test]
+    fn lockset_required_explicit_false_parses() {
+        let toml = r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            required = false
+        "#;
+        let lockset = crate::lockset::parse_lockset(toml).unwrap();
+        assert!(!lockset.caps.required);
+    }
+
+    #[test]
+    fn lockset_required_non_bool_is_rejected() {
+        let toml = r#"
+            [project]
+            name = "x"
+            aeris = "0.2.0"
+            [caps]
+            required = "yes"
+        "#;
+        let err = crate::lockset::parse_lockset(toml).unwrap_err();
+        assert!(err.message.contains("caps.required"));
+    }
+
     #[test]
     fn unrelated_modules_are_not_intersected() {
         // `audit.event`, `clock.now`, `env.read`, `io.println` etc.

@@ -823,10 +823,22 @@ pub fn run_main_with_full_cfg(
             ))
         }
     };
+    // M15 — prototype mode requires a fallback path for `cap` look-ups
+    // in functions that do not declare the parameter. Register the
+    // synthesised cap into the module scope so `env.lookup("cap")`
+    // resolves through it after the function-local scopes. Functions
+    // with their own `cap: cap[...]` parameter shadow this binding
+    // normally, so strict-mode behaviour is unaffected.
+    let cap_rc = std::rc::Rc::new(cap);
+    if let Some(scope) = &env.module {
+        scope
+            .borrow_mut()
+            .insert("cap".to_string(), Value::Cap(cap_rc.clone()));
+    }
     let args: Vec<Value> = if main_closure.params.is_empty() {
         Vec::new()
     } else {
-        vec![Value::Cap(std::rc::Rc::new(cap))]
+        vec![Value::Cap(cap_rc)]
     };
     if let Some(t) = &tracer {
         t.intent_enter("aeris run", Some("main"));

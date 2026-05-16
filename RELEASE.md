@@ -13,6 +13,13 @@ the path is given so the reader can `aeris replay` it bit-identically.
 
 ## Highlights
 
+- **Two capability modes** (post-v0.2.0 / M15): `lockset.toml [caps]
+  required = false` — *prototype mode*, default for `aeris init`,
+  suppresses `NoCapInScope` so functions without a `cap` parameter
+  may freely call capability operations (the lockset's runtime
+  allow-list still applies). `required = true` — *strict mode*,
+  re-enables every static check; recommended once a project becomes
+  mission-critical. The narrow-caps linter helps the conversion.
 - **Single static binary** (`aeris`), < 8 MB stripped on Linux x86_64
   (M14.T1).
 - **Five release targets**: Linux x86_64 / arm64 (musl), macOS x86_64

@@ -51,13 +51,36 @@ pub struct DepEntry {
     pub surface_hash: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapsCeiling {
+    /// § 8.4.1 — capability checking mode. `true` (strict) forces every
+    /// effectful function to declare an enclosing `cap` parameter;
+    /// `false` (prototype) suppresses `NoCapInScope` (E65) for
+    /// functions that lack one. The runtime allow-list below applies
+    /// in both modes. `aeris init` emits `required = false`.
+    pub required: bool,
     pub http_allow: Vec<String>,
     pub fs_allow_read: Vec<String>,
     pub fs_allow_write: Vec<String>,
     pub kube_contexts: Vec<String>,
     pub ai_models: Vec<String>,
+}
+
+impl Default for CapsCeiling {
+    fn default() -> Self {
+        // Crate-internal default: strict mode preserves the original
+        // M0–M14 behaviour for tests and consumers that build a
+        // `CapsCeiling` directly. The user-facing `aeris init`
+        // template is opinionated towards prototype mode (M15.T3).
+        Self {
+            required: true,
+            http_allow: Vec::new(),
+            fs_allow_read: Vec::new(),
+            fs_allow_write: Vec::new(),
+            kube_contexts: Vec::new(),
+            ai_models: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,9 +353,17 @@ fn parse_caps(root: &BTreeMap<String, TomlValue>) -> Result<CapsCeiling, Lockset
     let table = match root.get("caps") {
         Some(TomlValue::Table(t)) => t,
         Some(_) => return Err(LocksetError::new("`[caps]` must be a table")),
+        // No `[caps]` block at all: preserve M0–M14 strict behaviour
+        // (an absent lockset already produced strict checking).
         None => return Ok(CapsCeiling::default()),
     };
     let mut out = CapsCeiling::default();
+    if let Some(v) = table.get("required") {
+        match v {
+            TomlValue::Bool(b) => out.required = *b,
+            _ => return Err(LocksetError::new("caps.required: must be a boolean")),
+        }
+    }
     if let Some(http) = table.get("http") {
         let http = expect_table(http, "caps.http")?;
         out.http_allow = required_string_array(http, "caps.http", "allow").unwrap_or_default();
