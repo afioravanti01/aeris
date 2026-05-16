@@ -1981,9 +1981,72 @@ impl Parser {
             TokenKind::Keyword(Keyword::Continue) => self.parse_continue(),
             TokenKind::Keyword(Keyword::Cap) => self.parse_cap_primary(),
             TokenKind::Keyword(Keyword::Intent) => self.parse_intent_block(),
+            TokenKind::Keyword(Keyword::Every) => self.parse_every(),
+            TokenKind::Keyword(Keyword::Retry) => self.parse_retry(),
+            TokenKind::Keyword(Keyword::Timeout) => self.parse_timeout(),
             TokenKind::Ident(_) => self.parse_ident_or_record_lit(),
             _ => Err(self.err(ParseErrorKind::Expected("expression".into()))),
         }
+    }
+
+    fn parse_every(&mut self) -> Result<Expr, ParseError> {
+        // `every <delay-expr> { <body> }` (M18.T2). Disable struct
+        // literals while parsing the delay so `every <expr> { ... }`
+        // does not mis-parse the body as a record literal.
+        let start = self.expect_kw(Keyword::Every)?.span;
+        let saved = self.allow_struct_lit;
+        self.allow_struct_lit = false;
+        let delay = self.parse_expr()?;
+        self.allow_struct_lit = saved;
+        let body = self.parse_block()?;
+        let span = Self::span_join(start, body.span);
+        Ok(Expr::Every {
+            delay: Box::new(delay),
+            body,
+            span,
+        })
+    }
+
+    fn parse_retry(&mut self) -> Result<Expr, ParseError> {
+        // `retry <n>, delay: <duration> { <body> }` (M18.T3).
+        let start = self.expect_kw(Keyword::Retry)?.span;
+        let saved = self.allow_struct_lit;
+        self.allow_struct_lit = false;
+        let attempts = self.parse_expr()?;
+        self.expect_kind(&TokenKind::Comma)?;
+        let (label, _) = self.expect_ident()?;
+        if label != "delay" {
+            return Err(self.err(ParseErrorKind::Expected("`delay:`".into())));
+        }
+        self.expect_kind(&TokenKind::Colon)?;
+        let delay = self.parse_expr()?;
+        self.allow_struct_lit = saved;
+        let body = self.parse_block()?;
+        let span = Self::span_join(start, body.span);
+        Ok(Expr::Retry {
+            attempts: Box::new(attempts),
+            delay: Box::new(delay),
+            body,
+            span,
+        })
+    }
+
+    fn parse_timeout(&mut self) -> Result<Expr, ParseError> {
+        // `timeout <duration> { <body> }` (M18.T4). Non-interrupting in
+        // v0.3: the body runs to completion and the runtime records
+        // `timeout_fired` if the elapsed wall-time exceeds the budget.
+        let start = self.expect_kw(Keyword::Timeout)?.span;
+        let saved = self.allow_struct_lit;
+        self.allow_struct_lit = false;
+        let budget = self.parse_expr()?;
+        self.allow_struct_lit = saved;
+        let body = self.parse_block()?;
+        let span = Self::span_join(start, body.span);
+        Ok(Expr::Timeout {
+            budget: Box::new(budget),
+            body,
+            span,
+        })
     }
 
     fn parse_intent_block(&mut self) -> Result<Expr, ParseError> {
@@ -3906,6 +3969,11 @@ mod expr_tests {
                 format!("(intent \"{label}\" {})", block_dump(body))
             }
             Expr::ModelRef { name, version, .. } => format!("{name}@v{version}"),
+            Expr::Every { delay, .. } => format!("(every {} ...)", dump(delay)),
+            Expr::Retry {
+                attempts, delay, ..
+            } => format!("(retry {} delay {} ...)", dump(attempts), dump(delay)),
+            Expr::Timeout { budget, .. } => format!("(timeout {} ...)", dump(budget)),
         }
     }
 

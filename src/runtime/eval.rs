@@ -727,7 +727,7 @@ fn field_budget(a: &crate::syntax::ast::AgentDecl) -> (Option<u64>, Option<u64>)
 }
 
 fn parse_duration_ms(s: &str) -> Option<u64> {
-    // Accept simple suffixed forms: `5s`, `500ms`, `1m`, `2h`.
+    // Accept simple suffixed forms: `5s`, `500ms`, `1m`, `2h`, `7d`.
     let bytes = s.as_bytes();
     if let Some(num_end) = bytes.iter().position(|b| !b.is_ascii_digit()) {
         let n: u64 = s[..num_end].parse().ok()?;
@@ -737,6 +737,7 @@ fn parse_duration_ms(s: &str) -> Option<u64> {
             "s" => n.saturating_mul(1_000),
             "m" => n.saturating_mul(60_000),
             "h" => n.saturating_mul(3_600_000),
+            "d" => n.saturating_mul(86_400_000),
             _ => return None,
         };
         Some(ms)
@@ -1275,6 +1276,133 @@ fn eval_expr(e: &Expr, env: &mut Env) -> Result<Flow, EvalError> {
                     *span,
                 )),
             }
+        }
+        Expr::Every { delay, body, span } => {
+            // M18.T2 — infinite loop with `clock.sleep(delay)` between
+            // iterations. `break` inside the body exits cleanly.
+            let d_ms = match eval_value(delay, env)? {
+                Value::Duration(s) => parse_duration_ms(&s).unwrap_or(0),
+                Value::Int(n) if n >= 0 => (n as u64) * 1000,
+                other => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "`every` requires a duration, got {}",
+                            value_kind(&other)
+                        )),
+                        *span,
+                    ))
+                }
+            };
+            loop {
+                record_event(env, "every_iter", vec![("d_ms".into(), d_ms.to_string())]);
+                match eval_block(body, env)? {
+                    Flow::Value(_) | Flow::Continue => {}
+                    Flow::Break(_) => return Ok(Flow::Value(Value::Unit)),
+                    Flow::Return(v) => return Ok(Flow::Return(v)),
+                }
+                if env.replay_tape().is_none() && d_ms > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(d_ms));
+                }
+            }
+        }
+        Expr::Retry {
+            attempts,
+            delay,
+            body,
+            span,
+        } => {
+            // M18.T3 — body returns result<T>. First Ok wins; the last
+            // Err propagates after `attempts` tries. Backoff is a
+            // constant `delay` between attempts (not exponential).
+            let n = match eval_value(attempts, env)? {
+                Value::Int(n) if n >= 1 => n as u64,
+                other => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "`retry` requires a positive int, got {}",
+                            value_kind(&other)
+                        )),
+                        *span,
+                    ))
+                }
+            };
+            let d_ms = match eval_value(delay, env)? {
+                Value::Duration(s) => parse_duration_ms(&s).unwrap_or(0),
+                Value::Int(n) if n >= 0 => (n as u64) * 1000,
+                other => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "`retry delay:` requires a duration, got {}",
+                            value_kind(&other)
+                        )),
+                        *span,
+                    ))
+                }
+            };
+            let mut last: Option<Value> = None;
+            for attempt in 0..n {
+                record_event(
+                    env,
+                    "retry_attempt",
+                    vec![("attempt".into(), attempt.to_string())],
+                );
+                let v = match eval_block(body, env)? {
+                    Flow::Value(v) => v,
+                    other => return Ok(other),
+                };
+                match v {
+                    Value::Result(Ok(inner)) => return Ok(Flow::Value(Value::ok(*inner))),
+                    Value::Result(Err(inner)) => {
+                        last = Some(*inner);
+                        if attempt + 1 < n
+                            && env.replay_tape().is_none()
+                            && d_ms > 0
+                        {
+                            std::thread::sleep(std::time::Duration::from_millis(d_ms));
+                        }
+                    }
+                    _ => {
+                        return Err(EvalError::new(
+                            EvalErrorKind::Type(
+                                "`retry` body must yield a `result<T>`".into(),
+                            ),
+                            *span,
+                        ))
+                    }
+                }
+            }
+            Ok(Flow::Value(Value::err(last.unwrap_or(Value::Unit))))
+        }
+        Expr::Timeout { budget, body, span } => {
+            // M18.T4 — non-interrupting timeout. Runs the body, records
+            // `timeout_fired` if the elapsed time exceeds `budget`.
+            let d_ms = match eval_value(budget, env)? {
+                Value::Duration(s) => parse_duration_ms(&s).unwrap_or(0),
+                Value::Int(n) if n >= 0 => (n as u64) * 1000,
+                other => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "`timeout` requires a duration, got {}",
+                            value_kind(&other)
+                        )),
+                        *span,
+                    ))
+                }
+            };
+            let started = std::time::Instant::now();
+            let r = eval_block(body, env);
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+            if elapsed_ms > d_ms {
+                record_event(
+                    env,
+                    "timeout_fired",
+                    vec![
+                        ("budget_ms".into(), d_ms.to_string()),
+                        ("elapsed_ms".into(), elapsed_ms.to_string()),
+                    ],
+                );
+            }
+            r
         }
         Expr::Catch {
             expr,
@@ -2505,6 +2633,7 @@ fn lookup_builtin(module: &str, op: &str) -> Option<Builtin> {
         ("io", "eprintln") => builtin_io_eprintln,
         ("io", "read_line") => builtin_io_read_line,
         ("clock", "now") => builtin_clock_now,
+        ("clock", "sleep") => builtin_clock_sleep,
         ("random", "next") => builtin_random_next,
         ("env", "read") => builtin_env_read,
         ("fs", "read_text") => builtin_fs_read_text,
@@ -2624,6 +2753,34 @@ fn builtin_clock_now(env: &Env, args: &[Value], span: Span) -> Result<Value, Eva
     Ok(Value::Timestamp(s))
 }
 
+/// M18.T1 — `clock.sleep(d: duration)` blocks the current thread for
+/// `d`. Cap-gated by `clock.sleep`. Under replay the call is a no-op
+/// (the original wall-time is reproduced by the trace order, not by
+/// re-sleeping). The trace event carries the requested delay in ms so
+/// `aeris trace diff` can compare timing budgets.
+fn builtin_clock_sleep(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("clock.sleep", 1, args, span)?;
+    let ms = match &args[0] {
+        Value::Duration(s) => parse_duration_ms(s).unwrap_or(0),
+        Value::Int(n) if *n >= 0 => (*n as u64) * 1000,
+        other => {
+            return Err(EvalError::new(
+                EvalErrorKind::Type(format!(
+                    "clock.sleep expects a duration, got {}",
+                    value_kind(other)
+                )),
+                span,
+            ));
+        }
+    };
+    record_event(env, "clock_sleep", vec![("d_ms".into(), ms.to_string())]);
+    if env.replay_tape().is_none() {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+    Ok(Value::Unit)
+}
+
+/// Parse a duration literal like "3s", "500ms", "2h", "7d" into
 fn builtin_random_next(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("random.next", 0, args, span)?;
     // M9.T5: under replay, drain the recorded `random_next` value.
@@ -6723,6 +6880,123 @@ mod tests {
     fn t6_check_error_returns_at_least_64() {
         // `Foo` is unknown — type resolver flags it with exit 64.
         assert!(run_exit("fn main() -> Foo {}") >= 64);
+    }
+
+    // ---- M18 — every / retry / timeout / clock.sleep ----
+
+    #[test]
+    fn m18_clock_sleep_records_trace_with_ms() {
+        let src = r#"
+            fn main(cap: cap[clock.sleep]) -> unit {
+                clock.sleep(10ms)
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let cap = cap(vec![(vec!["clock", "sleep"], None)], false);
+        let cap_inner = match cap {
+            Value::Cap(c) => (*c).clone(),
+            _ => unreachable!(),
+        };
+        let _ = super::run_main_with_full_cfg(&m, cap_inner, Some(tracer.clone()), None, None, false)
+            .unwrap();
+        let evt = tracer
+            .events()
+            .into_iter()
+            .find(|e| e.kind == "clock_sleep")
+            .expect("clock_sleep event missing");
+        assert!(evt
+            .fields
+            .iter()
+            .any(|(k, v)| k == "d_ms" && v == "10"));
+    }
+
+    #[test]
+    fn m18_retry_first_ok_wins() {
+        let src = r#"
+            fn lucky() -> result<int> { Ok(42) }
+            fn main() -> int {
+                retry 3, delay: 1ms { lucky() } catch err { -1 }
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Int(n) => assert_eq!(n, 42),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m18_retry_exhausts_and_returns_last_err() {
+        let src = r#"
+            fn always_fail() -> result<int> { Err("nope") }
+            fn main() -> result<int> {
+                retry 2, delay: 1ms { always_fail() }
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let outcome = super::run_main_with(&m, Some(tracer.clone())).unwrap();
+        match outcome {
+            Value::Result(Err(_)) => {}
+            other => panic!("expected Err after exhausting retries, got {other:?}"),
+        }
+        let attempts = tracer
+            .events()
+            .iter()
+            .filter(|e| e.kind == "retry_attempt")
+            .count();
+        assert_eq!(attempts, 2);
+    }
+
+    #[test]
+    fn m18_every_break_exits_cleanly() {
+        let src = r#"
+            fn main() -> int {
+                var i = 0
+                every 1ms {
+                    i = i + 1
+                    if i >= 3 { break }
+                }
+                i
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Int(n) => assert_eq!(n, 3),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m18_timeout_records_fired_when_budget_exceeded() {
+        let src = r#"
+            fn main(cap: cap[clock.sleep]) -> unit {
+                timeout 1ms { clock.sleep(20ms) }
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let cap = cap(vec![(vec!["clock", "sleep"], None)], false);
+        let cap_inner = match cap {
+            Value::Cap(c) => (*c).clone(),
+            _ => unreachable!(),
+        };
+        let _ = super::run_main_with_full_cfg(&m, cap_inner, Some(tracer.clone()), None, None, false)
+            .unwrap();
+        assert!(tracer.events().iter().any(|e| e.kind == "timeout_fired"));
+    }
+
+    #[test]
+    fn m18_timeout_silent_when_under_budget() {
+        let src = r#"
+            fn main() -> int { timeout 1h { 99 } }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let outcome = super::run_main_with(&m, Some(tracer.clone())).unwrap();
+        assert!(matches!(outcome, Value::Int(99)));
+        assert!(!tracer.events().iter().any(|e| e.kind == "timeout_fired"));
     }
 
     // ---- M17 — catch / error / defer ----

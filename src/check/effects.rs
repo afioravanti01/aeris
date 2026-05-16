@@ -82,6 +82,7 @@ const ALL_CAPS: &[(&str, &str)] = &[
     ("shell", "pipe"),
     ("env", "read"),
     ("clock", "now"),
+    ("clock", "sleep"),
     ("random", "next"),
     // L2 native handlers
     ("ai", "complete"),

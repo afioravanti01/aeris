@@ -622,6 +622,34 @@ pub enum Expr {
         handler: Block,
         span: Span,
     },
+    /// `every <delay> { <body> }` (M18.T2) — infinite loop with a
+    /// `clock.sleep(<delay>)` between iterations. The body runs
+    /// before the first sleep so an `every 1s` loop fires at t=0,
+    /// 1s, 2s, ...
+    Every {
+        delay: Box<Expr>,
+        body: Block,
+        span: Span,
+    },
+    /// `retry <n>, delay: <d> { <body> }` (M18.T3) — re-run the body
+    /// up to `n` times, sleeping `d` between attempts. The body must
+    /// yield a `result<T>`; the first `Ok` wins, the last `Err`
+    /// propagates if every attempt fails.
+    Retry {
+        attempts: Box<Expr>,
+        delay: Box<Expr>,
+        body: Block,
+        span: Span,
+    },
+    /// `timeout <d> { <body> }` (M18.T4) — runs the body and records
+    /// `timeout_fired` on the trace if elapsed wall-time exceeds `d`.
+    /// v0.3 does not interrupt the body; cancellation requires the
+    /// future `spawn`-channel rework.
+    Timeout {
+        budget: Box<Expr>,
+        body: Block,
+        span: Span,
+    },
 
     // ---- coercion / refinement ----
     Cast {
@@ -758,6 +786,9 @@ impl Expr {
             | Expr::Index { span: s, .. }
             | Expr::Try { span: s, .. }
             | Expr::Catch { span: s, .. }
+            | Expr::Every { span: s, .. }
+            | Expr::Retry { span: s, .. }
+            | Expr::Timeout { span: s, .. }
             | Expr::Cast { span: s, .. }
             | Expr::IsCheck { span: s, .. }
             | Expr::Range { span: s, .. }

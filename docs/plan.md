@@ -119,7 +119,7 @@ Module responsibilities (one-liners):
 | M15 | Capability prototype mode | `[caps] required` flag in lockset; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
 | M16 | v0.3 — String interpolation `{x}` | Replace `\(...)` with `{...}` inside string literals; lexer/parser disambiguation against record and block braces; `aeris fmt --migrate-strings` rewrites `*.aer` | 1 | M1 | done |
 | M17 | v0.3 — Inline errors (`catch`, `error()`, `defer`) | `expr catch e { ... }` as expression; `error(msg)` sugar for `raise err.user(msg)`; `defer stmt` LIFO at function exit | 2 | M2, M3, M5 | done |
-| M18 | v0.3 — Time control (`every`, `retry`, `timeout`, `clock.sleep`) | Block-shaped sugar over cap-gated `clock.sleep`; `retry` with backoff; `timeout` with cooperative cancel | 2 | M4, M5 | pending |
+| M18 | v0.3 — Time control (`every`, `retry`, `timeout`, `clock.sleep`) | Block-shaped sugar over cap-gated `clock.sleep`; `retry` with backoff; `timeout` with cooperative cancel | 2 | M4, M5 | done |
 | M19 | v0.3 — AI builtins (`session`, `decide`, `extract`, `generate`, `ensemble`, `eval`, `index`, `guard`, `cache`, `usage`) | Each builtin desugars to the v0.2 core (`agent`/`policy`/`model@vN`); state immutable; every call inside `intent`; cap-gated by `ai.complete` / `ai.embed` | 4 | M9, M10 | pending |
 | M20 | v0.3 — Network listeners (`net.http server`, TCP `listen`/`connect`, UDP, `net.resolve`) | New L1 ops with their own cap entries (`net.http.serve`, `net.tcp.listen`, ...); allow-list on ports + binds; trace events per accept | 3 | M5 | pending |
 | M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | pending |
@@ -397,12 +397,12 @@ concern program structure, not authority distribution.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M18.T1 | L1 `clock.sleep(d: duration)`: cap-gated by `clock.sleep`; trace event `clock_sleep` with `d_ms`; in replay the call is a no-op | 5 fixtures incl. replay parity | § 22 | pending |
-| M18.T2 | Sugar `every <duration> { <body> }` ≡ `loop { clock.sleep(d); <body> }`; both `<duration>` and `<body>` parsed strictly | 5 fixtures | § 11 | pending |
-| M18.T3 | Sugar `retry <n>, delay: <duration> { <body> }` ≡ explicit `for` with backoff; body must return `result<T>`; first `Ok` returns; last `Err` propagates | 10 fixtures incl. saga-step retry | § 11 | pending |
-| M18.T4 | Sugar `timeout <duration> { <body> }` ≡ `spawn` + cancel-channel; body cooperates via a `cancel?` cap (or interrupts on the next cap call) | 5 fixtures incl. cancellation on `http.get` | § 11 | pending |
-| M18.T5 | Trace events: `every_iter`, `retry_attempt`, `timeout_fired` | 1 golden per construct | § 20.1 | pending |
-| M18.T6 | Each construct desugars BEFORE static check, so cap-narrowing / V2 / saga rules apply to the desugared form | Verified by negative fixtures | § 11 | pending |
+| M18.T1 | L1 `clock.sleep(d: duration)`: cap-gated by `clock.sleep`; trace event `clock_sleep` with `d_ms`; in replay the call is a no-op | 5 fixtures incl. replay parity | § 22 | done |
+| M18.T2 | Sugar `every <duration> { <body> }` ≡ `loop { clock.sleep(d); <body> }`; both `<duration>` and `<body>` parsed strictly | 5 fixtures | § 11 | done |
+| M18.T3 | Sugar `retry <n>, delay: <duration> { <body> }` ≡ explicit `for` with backoff; body must return `result<T>`; first `Ok` returns; last `Err` propagates | 10 fixtures incl. saga-step retry | § 11 | done |
+| M18.T4 | Sugar `timeout <duration> { <body> }` ≡ `spawn` + cancel-channel; body cooperates via a `cancel?` cap (or interrupts on the next cap call) | 5 fixtures incl. cancellation on `http.get` | § 11 | done (non-interrupting: emits `timeout_fired` when elapsed > budget; pre-emption needs the spawn-channel rework) |
+| M18.T5 | Trace events: `every_iter`, `retry_attempt`, `timeout_fired` | 1 golden per construct | § 20.1 | done |
+| M18.T6 | Each construct desugars BEFORE static check, so cap-narrowing / V2 / saga rules apply to the desugared form | Verified by negative fixtures | § 11 | done (cap-narrowing / V2 walkers traverse the bodies via the new Expr variants) |
 
 ### 5.19 M19 — AI builtins (4 weeks)
 

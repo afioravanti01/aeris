@@ -287,6 +287,31 @@ fn fmt_expr_at(e: &Expr, out: &mut String, outer: u8, side: u8) {
             out.push(' ');
             fmt_block_inline(handler, out);
         }
+        Expr::Every { delay, body, .. } => {
+            out.push_str("every ");
+            fmt_expr_at(delay, out, 0, 0);
+            out.push(' ');
+            fmt_block_inline(body, out);
+        }
+        Expr::Retry {
+            attempts,
+            delay,
+            body,
+            ..
+        } => {
+            out.push_str("retry ");
+            fmt_expr_at(attempts, out, 0, 0);
+            out.push_str(", delay: ");
+            fmt_expr_at(delay, out, 0, 0);
+            out.push(' ');
+            fmt_block_inline(body, out);
+        }
+        Expr::Timeout { budget, body, .. } => {
+            out.push_str("timeout ");
+            fmt_expr_at(budget, out, 0, 0);
+            out.push(' ');
+            fmt_block_inline(body, out);
+        }
 
         // ---- coercion / refinement ----
         Expr::Cast { expr, ty, .. } => {
