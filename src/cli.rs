@@ -452,7 +452,8 @@ fn cmd_run(path: &str) -> ExitCode {
     // M7.T4 + M15: when a `lockset.toml` sits next to the source file,
     // use its `[caps]` ceiling as `main`'s synthesised cap, and route
     // the static checker through `check_module_with_lockset` so the
-    // `required` flag (§ 8.4.1) is honoured.
+    // `required` flag (§ 8.4.1) is honoured. M8.T5 then filters the
+    // module's declared policies through `[policies] active = [..]`.
     let lockset_path = Path::new(path)
         .parent()
         .unwrap_or(Path::new("."))
@@ -476,10 +477,18 @@ fn cmd_run(path: &str) -> ExitCode {
         eprint!("{}", l.describe_main_cap());
         let cap = l.synthesise_main_cap();
         let backend = l.ai_backend.clone().map(std::rc::Rc::new);
-        (cap, backend)
+        let policies = l.policies.clone();
+        (cap, backend, policies)
     });
-    let outcome = if let Some((cap, backend)) = composed {
-        crate::runtime::eval::run_main_with_cfg(&module, cap, None, backend, false)
+    let outcome = if let Some((cap, backend, policies)) = composed {
+        // M8.T5 Mode 3: `[policies] active = [..]` filters which
+        // declared policies attach. Empty list keeps every declared
+        // policy active (Mode 1 default).
+        if !policies.is_empty() {
+            crate::runtime::eval::run_main_with_active_policies(&module, cap, None, &policies)
+        } else {
+            crate::runtime::eval::run_main_with_cfg(&module, cap, None, backend, false)
+        }
     } else {
         crate::runtime::run_main(&module)
     };

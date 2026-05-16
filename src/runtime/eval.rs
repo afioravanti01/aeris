@@ -854,6 +854,101 @@ pub fn run_main_with_full_cfg(
     flow?.into_value(Span::ZERO)
 }
 
+/// M8.T5 — filter a module's declared policies down to the names
+/// listed in `lockset.toml [policies] active = [...]`. When the list
+/// is empty (the default), every declared policy stays active
+/// (Mode 1 — module-import). When the list is non-empty, only the
+/// named policies remain — the lockset-driven Mode 3 opt-in.
+pub fn select_active_policies(
+    m: &Module,
+    active_names: &[String],
+) -> Vec<crate::syntax::ast::PolicyDecl> {
+    let declared: Vec<crate::syntax::ast::PolicyDecl> = m
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Policy(p) => Some(p.clone()),
+            _ => None,
+        })
+        .collect();
+    if active_names.is_empty() {
+        declared
+    } else {
+        declared
+            .into_iter()
+            .filter(|p| active_names.iter().any(|n| n == &p.name))
+            .collect()
+    }
+}
+
+/// M8.T5 — `aeris run` entry that honours the lockset's
+/// `[policies] active = [..]` whitelist (Activation Mode 3). When
+/// `active_policy_names` is empty, every declared policy is kept
+/// (Mode 1 default). When it lists names, only those policies are
+/// attached to closures / sagas.
+pub fn run_main_with_active_policies(
+    m: &Module,
+    cap: super::value::CapValue,
+    tracer: Option<super::trace::Tracer>,
+    active_policy_names: &[String],
+) -> Result<Value, EvalError> {
+    let module: ModuleScope = std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()));
+    let (records, models, _) = collect_decls(m);
+    let policies = select_active_policies(m, active_policy_names);
+    let records_rc = Rc::new(records);
+    let models_rc = Rc::new(models);
+    let policies_rc = Rc::new(policies);
+    register_decls(
+        m,
+        &module,
+        &records_rc,
+        &models_rc,
+        &policies_rc,
+        tracer.clone(),
+        None,
+        None,
+        None,
+        false,
+    );
+    let mut env = Env::new()
+        .with_module(module)
+        .with_record_decls(records_rc)
+        .with_model_decls(models_rc)
+        .with_policies(policies_rc);
+    if let Some(t) = tracer.clone() {
+        env = env.with_tracer(t);
+    }
+    let main = env
+        .lookup("main")
+        .ok_or_else(|| EvalError::new(EvalErrorKind::UndefinedVar("main".into()), Span::ZERO))?;
+    let main_closure = match &main {
+        Value::Closure(c) => c.clone(),
+        _ => {
+            return Err(EvalError::new(
+                EvalErrorKind::NotCallable("main".into()),
+                Span::ZERO,
+            ))
+        }
+    };
+    let args: Vec<Value> = if main_closure.params.is_empty() {
+        Vec::new()
+    } else {
+        vec![Value::Cap(std::rc::Rc::new(cap))]
+    };
+    if let Some(t) = &tracer {
+        t.intent_enter("aeris run", Some("main"));
+    }
+    let flow = invoke_value(&main, &args, Span::ZERO);
+    let outcome = match &flow {
+        Ok(_) => "ok",
+        Err(_) => "err",
+    };
+    if let Some(t) = &tracer {
+        t.intent_exit(outcome);
+    }
+    flow?.into_value(Span::ZERO)
+}
+
 /// Same as [`run_main`] but lets the caller attach a `Tracer`.
 pub fn run_main_with(m: &Module, tracer: Option<super::trace::Tracer>) -> Result<Value, EvalError> {
     let env = if let Some(t) = tracer.clone() {
@@ -1472,6 +1567,27 @@ pub fn emit_policy_drift(env: &Env, policy_name: &str, op: &str, expected: &str,
             ("observed".into(), format!("\"{observed}\"")),
         ],
     );
+}
+
+/// Compare a live policy outcome against the one recorded in the
+/// replay tape and emit `policy_drift` if (and only if) they
+/// disagree (§ 15.4). `recorded` is `None` when the tape has no
+/// matching entry — in that case there is nothing to compare and the
+/// helper is a no-op. Returns `true` when a drift event was emitted.
+pub fn compare_policy_outcome(
+    env: &Env,
+    policy_name: &str,
+    op: &str,
+    live: &str,
+    recorded: Option<&str>,
+) -> bool {
+    match recorded {
+        Some(prev) if prev != live => {
+            emit_policy_drift(env, policy_name, op, prev, live);
+            true
+        }
+        _ => false,
+    }
 }
 
 // ====================================================================
@@ -7843,6 +7959,47 @@ mod tests {
     // ---- M8.T6 — policy drift trace event ----
 
     #[test]
+    fn t6_compare_policy_outcome_emits_drift_on_divergence() {
+        let tracer = Tracer::in_memory();
+        let env = Env::new().with_tracer(tracer.clone());
+        let emitted =
+            super::compare_policy_outcome(&env, "production_egress", "http.post", "allow", Some("deny"));
+        assert!(emitted, "expected drift event to fire");
+        let drift = tracer
+            .events()
+            .into_iter()
+            .find(|e| e.kind == "policy_drift")
+            .expect("policy_drift event missing");
+        assert!(drift
+            .fields
+            .iter()
+            .any(|(k, v)| k == "expected" && v.contains("deny")));
+        assert!(drift
+            .fields
+            .iter()
+            .any(|(k, v)| k == "observed" && v.contains("allow")));
+    }
+
+    #[test]
+    fn t6_compare_policy_outcome_is_noop_when_outcomes_match() {
+        let tracer = Tracer::in_memory();
+        let env = Env::new().with_tracer(tracer.clone());
+        let emitted =
+            super::compare_policy_outcome(&env, "p", "http.post", "deny", Some("deny"));
+        assert!(!emitted);
+        assert!(!tracer.events().iter().any(|e| e.kind == "policy_drift"));
+    }
+
+    #[test]
+    fn t6_compare_policy_outcome_is_noop_when_tape_has_no_record() {
+        let tracer = Tracer::in_memory();
+        let env = Env::new().with_tracer(tracer.clone());
+        let emitted = super::compare_policy_outcome(&env, "p", "http.post", "allow", None);
+        assert!(!emitted);
+        assert!(!tracer.events().iter().any(|e| e.kind == "policy_drift"));
+    }
+
+    #[test]
     fn t6_policy_drift_event_emitted_on_synthetic_divergence() {
         // The replay driver wires this in M9; for M8 we synthesise the
         // divergence directly and assert the event shape.
@@ -7914,6 +8071,55 @@ mod tests {
         // Module-declared policies are still active globally — but
         // `kube.apply` is not called here so the run succeeds.
         super::run_main(&m).unwrap();
+    }
+
+    #[test]
+    fn t5_lockset_mode_filters_module_policies_by_active_list() {
+        // Mode 3 end-to-end: a module declares two policies; the
+        // lockset's `[policies] active = [..]` lists only one of them.
+        // The filtered set propagates through `select_active_policies`
+        // → `run_main_with_active_policies` so the unlisted policy is
+        // effectively inert. Listing the noisy one instead flips the
+        // outcome to deny.
+        let src = r#"
+            policy noisy {
+                match: io.println
+                deny: true
+            }
+            policy inert {
+                match: http.get
+                deny: true
+            }
+            fn main(cap: cap[io.println]) -> unit { io.println("ok") }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let cap = match cap(vec![(vec!["io", "println"], None)], false) {
+            Value::Cap(c) => (*c).clone(),
+            _ => unreachable!(),
+        };
+        // Only `inert` active → noisy is filtered out, run succeeds.
+        let r = super::run_main_with_active_policies(
+            &m,
+            cap.clone(),
+            None,
+            &["inert".to_string()],
+        );
+        assert!(r.is_ok(), "expected ok with only `inert` active, got {r:?}");
+        // Only `noisy` active → io.println denied.
+        let err = super::run_main_with_active_policies(
+            &m,
+            cap.clone(),
+            None,
+            &["noisy".to_string()],
+        )
+        .unwrap_err();
+        match err.kind {
+            EvalErrorKind::PolicyViolation { op, .. } => assert_eq!(op, "io.println"),
+            other => panic!("expected PolicyViolation, got {other:?}"),
+        }
+        // Empty list → Mode 1 default, both policies remain active.
+        let err = super::run_main_with_active_policies(&m, cap, None, &[]).unwrap_err();
+        assert!(matches!(err.kind, EvalErrorKind::PolicyViolation { .. }));
     }
 
     #[test]
@@ -9497,6 +9703,133 @@ mod tests {
         assert!(
             req.contains("Idempotency-Key:"),
             "expected `Idempotency-Key` header, got:\n{req}"
+        );
+    }
+
+    #[test]
+    fn audit_event_inside_saga_step_propagates_idempotency() {
+        let _path = fresh_audit_log();
+        let src = r#"
+            saga settle(cap: cap[audit.event]) {
+                intent "audit"
+                step log {
+                    do { audit.event("settle.try", { x: 1 }) }
+                    undo noop
+                }
+            }
+            fn main(cap: cap[audit.event]) -> result<unit> { settle(cap) }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let trace_id = tracer.trace_id();
+        let _ = super::run_main_with(&m, Some(tracer.clone())).unwrap();
+        let evt = tracer
+            .events()
+            .into_iter()
+            .find(|e| e.kind == "audit_event")
+            .expect("audit_event trace missing");
+        let expected_idem = idempotency_key(&trace_id, "log", 0);
+        assert!(
+            evt.fields
+                .iter()
+                .any(|(k, v)| k == "idem" && v.contains(&expected_idem)),
+            "expected idem={expected_idem}, got fields={:?}",
+            evt.fields
+        );
+    }
+
+    #[test]
+    fn kube_apply_inside_saga_step_propagates_idempotency() {
+        let src = r#"
+            saga deploy(cap: cap[kube.apply]) {
+                intent "deploy"
+                step apply {
+                    do { kube.apply("apiVersion: v1\nkind: ConfigMap") }
+                    undo noop
+                }
+            }
+            fn main(cap: cap[kube.apply]) -> result<unit> { deploy(cap) }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let trace_id = tracer.trace_id();
+        // kubectl may or may not be reachable; record_kube_event runs
+        // before the subprocess, so the trace is present either way.
+        let _ = super::run_main_with(&m, Some(tracer.clone()));
+        let evt = tracer
+            .events()
+            .into_iter()
+            .find(|e| e.kind == "kube_apply")
+            .expect("kube_apply trace missing");
+        let expected_idem = idempotency_key(&trace_id, "apply", 0);
+        assert!(
+            evt.fields
+                .iter()
+                .any(|(k, v)| k == "idem" && v.contains(&expected_idem)),
+            "expected idem={expected_idem}, got fields={:?}",
+            evt.fields
+        );
+    }
+
+    #[test]
+    fn mongodb_write_inside_saga_step_propagates_idempotency() {
+        let src = r#"
+            saga save(cap: cap[mongodb.write]) {
+                intent "save"
+                step store {
+                    do { mongodb.write("invoices", { id: 1 }) }
+                    undo noop
+                }
+            }
+            fn main(cap: cap[mongodb.write]) -> result<unit> { save(cap) }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let trace_id = tracer.trace_id();
+        let _ = super::run_main_with(&m, Some(tracer.clone())).unwrap();
+        let evt = tracer
+            .events()
+            .into_iter()
+            .find(|e| e.kind == "mongodb_write")
+            .expect("mongodb_write trace missing");
+        let expected_idem = idempotency_key(&trace_id, "store", 0);
+        assert!(
+            evt.fields
+                .iter()
+                .any(|(k, v)| k == "idem" && v.contains(&expected_idem)),
+            "expected idem={expected_idem}, got fields={:?}",
+            evt.fields
+        );
+    }
+
+    #[test]
+    fn rabbitmq_publish_inside_saga_step_propagates_message_id() {
+        let src = r#"
+            saga notify(cap: cap[rabbitmq.publish]) {
+                intent "notify"
+                step send {
+                    do { rabbitmq.publish("orders", "{}") }
+                    undo noop
+                }
+            }
+            fn main(cap: cap[rabbitmq.publish]) -> result<unit> { notify(cap) }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let trace_id = tracer.trace_id();
+        let _ = super::run_main_with(&m, Some(tracer.clone())).unwrap();
+        let evt = tracer
+            .events()
+            .into_iter()
+            .find(|e| e.kind == "rabbitmq_publish")
+            .expect("rabbitmq_publish trace missing");
+        let expected_idem = idempotency_key(&trace_id, "send", 0);
+        assert!(
+            evt.fields
+                .iter()
+                .any(|(k, v)| k == "message_id" && v.contains(&expected_idem)),
+            "expected message_id={expected_idem}, got fields={:?}",
+            evt.fields
         );
     }
 

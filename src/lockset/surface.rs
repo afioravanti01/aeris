@@ -189,6 +189,19 @@ fn walk_block_for_caps(b: &crate::syntax::ast::Block, out: &mut Vec<String>) {
     walk_b(b, out);
 }
 
+/// Compute the V3 surface fingerprint of a single dep file (M7.T6).
+/// The dep source is parsed as a one-module project, its surface is
+/// rendered to the canonical TOML body, and that body is hashed —
+/// so re-orderings, comment churn, or any change that does *not*
+/// affect the public effect set keeps the hash stable. Returns the
+/// `blake3:<hex>` string that callers pin into
+/// `[deps].<alias>.surface_hash` in `lockset.toml`.
+pub fn compute_dep_surface_hash(src: &str) -> Result<String, String> {
+    let files = vec![("<dep>".to_string(), src.to_string())];
+    let lock = compute_surface(&files)?;
+    Ok(hash_text(&render_surface_lock(&lock)))
+}
+
 /// FNV-1a 64-bit hash, hex-encoded — the placeholder for blake3 used
 /// by the surface lock until M11 swaps in the real algorithm. The
 /// `blake3:` prefix is preserved so the on-disk format never changes

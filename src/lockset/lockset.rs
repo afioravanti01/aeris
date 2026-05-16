@@ -253,12 +253,33 @@ pub fn verify_local_deps(
                     continue;
                 }
             };
-            let computed = super::surface::hash_text(&String::from_utf8_lossy(&bytes));
+            let text = String::from_utf8_lossy(&bytes);
+            let computed = super::surface::hash_text(&text);
             if computed != dep.hash {
                 errors.push(LocksetError::new(format!(
                     "deps.{alias}: hash mismatch — pinned `{}` vs actual `{computed}`",
                     dep.hash
                 )));
+            }
+            // M7.T6 — when the dep also pins a `surface_hash`, recompute
+            // the V3 effect-surface fingerprint and fail on drift so a
+            // dep upgrade that broadens the surface forces a lockfile
+            // diff (the gating signal of `language.md` § 24.3 / § 8.6).
+            if let Some(pinned) = &dep.surface_hash {
+                match super::surface::compute_dep_surface_hash(&text) {
+                    Ok(actual) => {
+                        if &actual != pinned {
+                            errors.push(LocksetError::new(format!(
+                                "deps.{alias}: surface_hash mismatch — pinned `{pinned}` vs actual `{actual}` (run `aeris lock` to refresh)"
+                            )));
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(LocksetError::new(format!(
+                            "deps.{alias}: cannot compute surface_hash: {e}"
+                        )));
+                    }
+                }
             }
         }
         // GitHub deps (M7.T3) — fetch + cache lands when the runtime
@@ -832,6 +853,98 @@ mod tests {
         let lockset = parse_lockset(toml_src).unwrap();
         let errs = verify_local_deps(&lockset, &dir).unwrap_err();
         assert!(errs[0].message.contains("cannot read"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- M7.T6 — surface_hash for deps ----
+
+    #[test]
+    fn m7t6_dep_surface_hash_match_passes() {
+        let dir = std::env::temp_dir().join(format!("aeris-m7t6-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = "pub fn f() -> int { 1 }\n";
+        std::fs::write(dir.join("u.aer"), src).unwrap();
+        let content_hash = super::super::surface::hash_text(src);
+        let surface_hash = super::super::surface::compute_dep_surface_hash(src).unwrap();
+        let toml_src = format!(
+            r#"
+                [project]
+                name  = "x"
+                aeris = "0.2.0"
+
+                [deps]
+                u = {{ path = "u.aer", hash = "{content_hash}", surface_hash = "{surface_hash}" }}
+            "#
+        );
+        let lockset = parse_lockset(&toml_src).unwrap();
+        let r = verify_local_deps(&lockset, &dir);
+        assert!(r.is_ok(), "{r:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn m7t6_dep_surface_hash_mismatch_is_lockset_error() {
+        let dir = std::env::temp_dir().join(format!("aeris-m7t6-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = "pub fn f() -> int { 1 }\n";
+        std::fs::write(dir.join("u.aer"), src).unwrap();
+        let content_hash = super::super::surface::hash_text(src);
+        // Stale surface_hash — does NOT match the dep's actual surface.
+        let stale = "blake3:deadbeefdeadbeef";
+        let toml_src = format!(
+            r#"
+                [project]
+                name  = "x"
+                aeris = "0.2.0"
+
+                [deps]
+                u = {{ path = "u.aer", hash = "{content_hash}", surface_hash = "{stale}" }}
+            "#
+        );
+        let lockset = parse_lockset(&toml_src).unwrap();
+        let errs = verify_local_deps(&lockset, &dir).unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.message.contains("surface_hash mismatch")),
+            "expected surface_hash error, got: {errs:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn m7t6_dep_upgrade_broadening_surface_forces_relock() {
+        // Simulate a dep upgrade: V1 has no effects, V2 reaches into
+        // `fs.read_text`. After the upgrade the content hash is dutifully
+        // refreshed by `aeris lock`, but `surface_hash` is left stale —
+        // verify_local_deps must surface the broadening as the gating
+        // diff so review notices the new effect.
+        let dir = std::env::temp_dir().join(format!("aeris-m7t6-upgrade-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v1 = "pub fn f() -> int { 1 }\n";
+        let v2 = "pub fn f(c: cap[fs.read_text]) -> result<string> { fs.read_text(\"/etc/host\") }\n";
+        // Pin V1's surface_hash.
+        let v1_surface = super::super::surface::compute_dep_surface_hash(v1).unwrap();
+        let v2_surface = super::super::surface::compute_dep_surface_hash(v2).unwrap();
+        assert_ne!(v1_surface, v2_surface, "V2 must broaden V1's surface");
+        // The user runs `aeris lock` and updates the content hash to V2
+        // but forgets to refresh `surface_hash` (left at V1).
+        std::fs::write(dir.join("u.aer"), v2).unwrap();
+        let v2_content = super::super::surface::hash_text(v2);
+        let toml_src = format!(
+            r#"
+                [project]
+                name  = "x"
+                aeris = "0.2.0"
+
+                [deps]
+                u = {{ path = "u.aer", hash = "{v2_content}", surface_hash = "{v1_surface}" }}
+            "#
+        );
+        let lockset = parse_lockset(&toml_src).unwrap();
+        let errs = verify_local_deps(&lockset, &dir).unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.message.contains("surface_hash mismatch")),
+            "expected surface_hash drift, got: {errs:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
