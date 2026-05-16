@@ -2,7 +2,7 @@
 
 A small interpreted language for ops, governance, pipelines and AI agents.
 
-**Status:** `v0.2.0-dev`. Early development. Not yet usable.
+**Status:** `v0.2.0`. First publishable release. See `RELEASE.md`.
 
 ## Documents
 

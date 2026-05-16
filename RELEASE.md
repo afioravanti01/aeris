@@ -139,3 +139,14 @@ GPG signing is opt-in: the workflow signs only when the
 6. **LLM-generated PR adding a network call surfaces in review** —
    M2.T12: `aeris check` prints the `.aeris/surface.lock` diff as
    the first hunk before any other diagnostics.
+
+Criteria 2–6 are mechanically reverified by the release smoke test:
+
+```sh
+cargo test --test release_thesis_section_13
+```
+
+A green run is the acceptance gate for cutting a `v*` tag. Criterion
+1 is intentionally a manual walk-through (read the saga signature,
+identify every external resource in under 30 seconds — record the
+session for the release notes).

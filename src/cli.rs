@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-const VERSION: &str = "0.2.0-dev";
+const VERSION: &str = "0.2.0";
 
 const TEMPLATE_LOCKSET: &str = include_str!("templates/lockset.toml");
 const TEMPLATE_MAIN_AER: &str = include_str!("templates/main.aer");

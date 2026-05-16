@@ -163,7 +163,7 @@ that the task realises.
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
 | M0.T1 | Cargo package with 6 modules per § 2 | `cargo build` succeeds | § 2 | done |
-| M0.T2 | `cli` module skeleton: `aeris version`, `aeris init` | `aeris version` prints `0.2.0-dev`; `aeris init` scaffolds a project | § 25.1 | done |
+| M0.T2 | `cli` module skeleton: `aeris version`, `aeris init` | `aeris version` prints `0.2.0`; `aeris init` scaffolds a project | § 25.1 | done |
 | M0.T3 | CI pipeline (GitHub Actions): fmt, clippy, build, test | PR fails on clippy warnings | — | done |
 | M0.T4 | License (MIT or Apache-2.0), README scaffold | `LICENSE` and `README.md` present at root | — | done |
 | M0.T5 | Test harness skeleton: `test_harness` module compiles and is reachable from `cargo test` | `cargo test` reports `0 passed` cleanly across lib + doc-tests | § 6 | done |
