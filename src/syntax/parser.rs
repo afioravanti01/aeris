@@ -682,6 +682,16 @@ impl Parser {
         let (name, _) = self.expect_ident()?;
         self.expect_kind(&TokenKind::At)?;
         let version = self.parse_model_version()?;
+        // M23 — optional `extends X@v(N-1)`.
+        let extends = if matches!(self.peek(), TokenKind::Keyword(Keyword::Extends)) {
+            self.advance();
+            let (parent_name, _) = self.expect_ident()?;
+            self.expect_kind(&TokenKind::At)?;
+            let parent_version = self.parse_model_version()?;
+            Some((parent_name, parent_version))
+        } else {
+            None
+        };
         self.expect_kind(&TokenKind::LBrace)?;
         let mut fields = Vec::new();
         let mut record_where = Vec::new();
@@ -711,6 +721,7 @@ impl Parser {
             version,
             fields,
             record_where,
+            extends,
             span: Self::span_join(start, end),
         })
     }

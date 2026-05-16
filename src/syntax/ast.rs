@@ -163,6 +163,10 @@ pub struct ModelDecl {
     /// per-field where (M5.T6 / § 16.3). All field bindings are in
     /// scope when each invariant evaluates.
     pub record_where: Vec<Expr>,
+    /// M23 — optional parent reference. `model X@v2 extends X@v1 { ... }`
+    /// stores `Some(("X", 1))` here; the runtime merges the parent's
+    /// fields into `fields` after parse.
+    pub extends: Option<(String, u32)>,
     pub span: Span,
 }
 

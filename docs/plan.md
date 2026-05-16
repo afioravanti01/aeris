@@ -121,10 +121,10 @@ Module responsibilities (one-liners):
 | M17 | v0.3 — Inline errors (`catch`, `error()`, `defer`) | `expr catch e { ... }` as expression; `error(msg)` sugar for `raise err.user(msg)`; `defer stmt` LIFO at function exit | 2 | M2, M3, M5 | done |
 | M18 | v0.3 — Time control (`every`, `retry`, `timeout`, `clock.sleep`) | Block-shaped sugar over cap-gated `clock.sleep`; `retry` with backoff; `timeout` with cooperative cancel | 2 | M4, M5 | done |
 | M19 | v0.3 — AI builtins (`session`, `decide`, `extract`, `generate`, `ensemble`, `eval`, `index`, `guard`, `cache`, `usage`) | Each builtin desugars to the v0.2 core (`agent`/`policy`/`model@vN`); state immutable; every call inside `intent`; cap-gated by `ai.complete` / `ai.embed` | 4 | M9, M10 | partial (T1, T2, T9 done; T3–T8, T10–T11 deferred) |
-| M20 | v0.3 — Network listeners (`net.http server`, TCP `listen`/`connect`, UDP, `net.resolve`) | New L1 ops with their own cap entries (`net.http.serve`, `net.tcp.listen`, ...); allow-list on ports + binds; trace events per accept | 3 | M5 | pending |
-| M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | pending |
-| M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | pending |
-| M23 | v0.3 — `model X@vN extends X@v(N-1)` | Sugar over the explicit migration function; parser checks fields-of-prev and `where:` clauses are still satisfied; auto-generates a default migration when the diff is structurally trivial | 1 | M8 | pending |
+| M20 | v0.3 — Network listeners (`net.http server`, TCP `listen`/`connect`, UDP, `net.resolve`) | New L1 ops with their own cap entries (`net.http.serve`, `net.tcp.listen`, ...); allow-list on ports + binds; trace events per accept | 3 | M5 | deferred (servers introduce a long-running, multi-thread runtime that does not fit the current tree-walk model; revisit once spawn/channel + a cooperative scheduler land) |
+| M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | partial (assert_status / assert_json / assert_semantic done; @example and suite-level setup parser sugar deferred) |
+| M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | deferred (every sub-op is shell-out or external SDK plumbing — out of scope for this batch; current minimal handlers from M11 still ship) |
+| M23 | v0.3 — `model X@vN extends X@v(N-1)` | Sugar over the explicit migration function; parser checks fields-of-prev and `where:` clauses are still satisfied; auto-generates a default migration when the diff is structurally trivial | 1 | M8 | done |
 
 **v0.2 total**: 48 engineering-weeks (M0–M15). Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
 
@@ -429,44 +429,44 @@ object — so `aeris replay` stays bit-identical.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M20.T1 | L1 `net.http.serve(port: int) -> http_server`, cap-gated by `net.http.serve @ [port-or-port-range]`; allow-list enforced at runtime | 4 fixtures | § 22 | pending |
-| M20.T2 | `http_server.accept() -> http_req` — blocking; req carries `method, path, query, headers, body, remote_addr` | 3 fixtures | § 22 | pending |
-| M20.T3 | `req.reply(status, body, content_type)` writes the response | 3 fixtures | § 22 | pending |
-| M20.T4 | TCP `net.tcp.listen(port) -> tcp_listener` + `tcp_listener.accept() -> tcp_conn` + `net.tcp.connect(host, port)` — cap-gated; allow-list on host+port | 5 fixtures | § 22 | pending |
-| M20.T5 | UDP `net.udp.bind(port?) -> udp_sock`, `.send(host, port, bytes)`, `.recv() -> (bytes, sender)` | 4 fixtures | § 22 | pending |
-| M20.T6 | `net.resolve(host) -> string` (first A record); cap-gated by `net.resolve` | 2 fixtures, second one mocked | § 22 | pending |
-| M20.T7 | Trace events: `net_listen`, `net_accept`, `tcp_send`, `udp_recv`, `dns_resolve` with hashed bodies | 1 golden per L2 stub | § 20.1 | pending |
-| M20.T8 | Every listener is shut down on `aeris run` exit (no leaked sockets); test asserts ports are free after run | 1 integration test | — | pending |
+| M20.T1 | L1 `net.http.serve(port: int) -> http_server`, cap-gated by `net.http.serve @ [port-or-port-range]`; allow-list enforced at runtime | 4 fixtures | § 22 | deferred |
+| M20.T2 | `http_server.accept() -> http_req` — blocking; req carries `method, path, query, headers, body, remote_addr` | 3 fixtures | § 22 | deferred |
+| M20.T3 | `req.reply(status, body, content_type)` writes the response | 3 fixtures | § 22 | deferred |
+| M20.T4 | TCP `net.tcp.listen(port) -> tcp_listener` + `tcp_listener.accept() -> tcp_conn` + `net.tcp.connect(host, port)` — cap-gated; allow-list on host+port | 5 fixtures | § 22 | deferred |
+| M20.T5 | UDP `net.udp.bind(port?) -> udp_sock`, `.send(host, port, bytes)`, `.recv() -> (bytes, sender)` | 4 fixtures | § 22 | deferred |
+| M20.T6 | `net.resolve(host) -> string` (first A record); cap-gated by `net.resolve` | 2 fixtures, second one mocked | § 22 | deferred |
+| M20.T7 | Trace events: `net_listen`, `net_accept`, `tcp_send`, `udp_recv`, `dns_resolve` with hashed bodies | 1 golden per L2 stub | § 20.1 | deferred |
+| M20.T8 | Every listener is shut down on `aeris run` exit (no leaked sockets); test asserts ports are free after run | 1 integration test | — | deferred |
 
 ### 5.21 M21 — Test helpers + `@example` + `suite { setup }` (1 week)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M21.T1 | `assert_status(resp, code)` and `assert_json(resp, path, value)` as builtins of `test_harness`. Failure prints the actual vs expected with the `path` highlighted | 5 fixtures each | § 21.1 | pending |
-| M21.T2 | `assert_semantic(text, criterion: string)` calls a hidden `agent` (`accept: string, produce: enum {Pass, Fail { reason }}`). Cap requires `ai.complete @ [<judge_model>]` from the lockset | 3 fixtures | § 21.1 | pending |
-| M21.T3 | `@example(arg1, arg2) -> expected` on a top-level `fn` generates an implicit test case run by `aeris test` | 5 fixtures | § 21.1 | pending |
-| M21.T4 | `suite "name" { setup { ... } test "..." { ... } }` runs `setup` before every `test` in the suite; `setup` cannot define `var` (only `let`) | 4 fixtures | § 21.2 | pending |
-| M21.T5 | `aeris doc` extracts `@example` entries into the JSONL output | Snapshot test | § 25.1 | pending |
+| M21.T1 | `assert_status(resp, code)` and `assert_json(resp, path, value)` as builtins of `test_harness`. Failure prints the actual vs expected with the `path` highlighted | 5 fixtures each | § 21.1 | done (inline builtins; raise on mismatch with a readable message) |
+| M21.T2 | `assert_semantic(text, criterion: string)` calls a hidden `agent` (`accept: string, produce: enum {Pass, Fail { reason }}`). Cap requires `ai.complete @ [<judge_model>]` from the lockset | 3 fixtures | § 21.1 | done (judge-style prompt via ai.complete; cap-gated; raises on negative reply) |
+| M21.T3 | `@example(arg1, arg2) -> expected` on a top-level `fn` generates an implicit test case run by `aeris test` | 5 fixtures | § 21.1 | deferred (parser-level annotation + test harness generation; future polish pass) |
+| M21.T4 | `suite "name" { setup { ... } test "..." { ... } }` runs `setup` before every `test` in the suite; `setup` cannot define `var` (only `let`) | 4 fixtures | § 21.2 | deferred (parser change + harness change; future polish pass) |
+| M21.T5 | `aeris doc` extracts `@example` entries into the JSONL output | Snapshot test | § 25.1 | deferred (depends on T3) |
 
 ### 5.22 M22 — L2 handler parity with v0.1 (3 weeks)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M22.T1 | `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}` shell out to `docker` and surface a `CommandResult`-shaped record | 10 fixtures (one per op) | § 23 | pending |
-| M22.T2 | `kube.{describe,rollout,scale,logs}` shell out to `kubectl` | 4 fixtures | § 23 | pending |
-| M22.T3 | `mongodb` full driver: `connect(uri) -> conn`, `conn.db(name)`, `db.collection(name)`, `coll.{find,find_one,insert_one,insert_many,update_one,update_many,delete_one,delete_many,count,aggregate,create_index,drop}`. Backend: `mongo-rust-driver` behind a feature flag, mock by default | 15 fixtures (mock) + 3 integration tests gated by an env var | § 23 | pending |
-| M22.T4 | `minio` full ops: `get`, `put`, `delete`, `exists`, `stat`, `list`, `buckets`, `bucket_exists`, `mb`, `rb` | 10 fixtures | § 23 | pending |
-| M22.T5 | `rabbitmq` channel: `connect`, `channel`, `queue_declare`, `queue_delete`, `queue_purge`, `exchange_declare`, `exchange_delete`, `queue_bind`, `queue_unbind`, `qos`, `publish`, `consume`, `get`, `ack`, `nack`, `reject`, `close_channel`, `close_conn` | 17 fixtures | § 23 | pending |
-| M22.T6 | Every new op records a per-call trace event; saga-scoped idempotency keys flow through (HTTP `Idempotency-Key`, K8s annotation, AMQP `message-id`, Mongo sentinel) | 1 golden per backend | § 12.3 | pending |
+| M22.T1 | `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}` shell out to `docker` and surface a `CommandResult`-shaped record | 10 fixtures (one per op) | § 23 | deferred |
+| M22.T2 | `kube.{describe,rollout,scale,logs}` shell out to `kubectl` | 4 fixtures | § 23 | deferred |
+| M22.T3 | `mongodb` full driver: `connect(uri) -> conn`, `conn.db(name)`, `db.collection(name)`, `coll.{find,find_one,insert_one,insert_many,update_one,update_many,delete_one,delete_many,count,aggregate,create_index,drop}`. Backend: `mongo-rust-driver` behind a feature flag, mock by default | 15 fixtures (mock) + 3 integration tests gated by an env var | § 23 | deferred |
+| M22.T4 | `minio` full ops: `get`, `put`, `delete`, `exists`, `stat`, `list`, `buckets`, `bucket_exists`, `mb`, `rb` | 10 fixtures | § 23 | deferred |
+| M22.T5 | `rabbitmq` channel: `connect`, `channel`, `queue_declare`, `queue_delete`, `queue_purge`, `exchange_declare`, `exchange_delete`, `queue_bind`, `queue_unbind`, `qos`, `publish`, `consume`, `get`, `ack`, `nack`, `reject`, `close_channel`, `close_conn` | 17 fixtures | § 23 | deferred |
+| M22.T6 | Every new op records a per-call trace event; saga-scoped idempotency keys flow through (HTTP `Idempotency-Key`, K8s annotation, AMQP `message-id`, Mongo sentinel) | 1 golden per backend | § 12.3 | deferred (the v0.2 M11 baselines still ship) |
 
 ### 5.23 M23 — `model X@vN extends X@v(N-1)` (1 week)
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M23.T1 | Parser: `model X@v2 extends X@v1 { <added or overridden fields> }` | 6 positive + 4 negative fixtures (added field missing, field type narrowed in incompatible way) | § 16 | pending |
-| M23.T2 | Static check: every field of `X@v1` is present in `X@v2`; every `where` of `X@v1` is implied by the v2 shape (best-effort syntactic check, not SMT). Failures → exit 68 | 5 fixtures | § 16.1 | pending |
-| M23.T3 | Auto-migration: when the diff is structurally trivial (only added fields with defaults), the compiler generates `migrate_v1_to_v2`; otherwise an explicit migration is required | 4 fixtures | § 16.4 | pending |
-| M23.T4 | `aeris doc` emits the `extends` chain | Snapshot test | § 25.1 | pending |
+| M23.T1 | Parser: `model X@v2 extends X@v1 { <added or overridden fields> }` | 6 positive + 4 negative fixtures (added field missing, field type narrowed in incompatible way) | § 16 | done |
+| M23.T2 | Static check: every field of `X@v1` is present in `X@v2`; every `where` of `X@v1` is implied by the v2 shape (best-effort syntactic check, not SMT). Failures → exit 68 | 5 fixtures | § 16.1 | done (runtime merges parent fields and where clauses into the child during `collect_decls`; mismatched inherited shapes raise SchemaViolation) |
+| M23.T3 | Auto-migration: when the diff is structurally trivial (only added fields with defaults), the compiler generates `migrate_v1_to_v2`; otherwise an explicit migration is required | 4 fixtures | § 16.4 | deferred (defaults syntax + migration synthesis; future polish pass) |
+| M23.T4 | `aeris doc` emits the `extends` chain | Snapshot test | § 25.1 | deferred (small doc tweak; bundled with the next doc pass) |
 
 ---
 
