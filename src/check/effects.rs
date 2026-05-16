@@ -129,6 +129,9 @@ fn stmt_has_write(s: &Stmt) -> bool {
         Stmt::Let { value, .. } | Stmt::Var { value, .. } => expr_has_write(value),
         Stmt::For { iter, body, .. } => expr_has_write(iter) || block_has_write_call(body),
         Stmt::While { cond, body, .. } => expr_has_write(cond) || block_has_write_call(body),
+        // M17.T3 — the deferred body is treated as an inlined exit
+        // statement for write-effect analysis.
+        Stmt::Defer { body, .. } => expr_has_write(body),
         Stmt::Expr(e) => expr_has_write(e),
     }
 }
@@ -255,6 +258,9 @@ fn walk_stmt_v2(s: &Stmt, intent_active: bool, out: &mut Vec<V2Violation>) {
             walk_expr_v2(cond, intent_active, out);
             walk_block_v2(body, intent_active, out);
         }
+        // M17.T3 — V2 check sees `defer body` as if `body` were
+        // inlined at every function exit point.
+        Stmt::Defer { body, .. } => walk_expr_v2(body, intent_active, out),
         Stmt::Expr(e) => walk_expr_v2(e, intent_active, out),
     }
 }
@@ -439,6 +445,7 @@ fn walk_stmt_cap(
             walk_expr_cap(cond, cap, out);
             walk_block_cap(body, cap, out);
         }
+        Stmt::Defer { body, .. } => walk_expr_cap(body, cap, out),
         Stmt::Expr(e) => walk_expr_cap(e, cap, out),
     }
 }
@@ -597,6 +604,7 @@ fn walk_stmt_match(s: &Stmt, out: &mut Vec<MatchViolation>) {
             walk_expr_match(cond, out);
             walk_block_match(body, out);
         }
+        Stmt::Defer { body, .. } => walk_expr_match(body, out),
         Stmt::Expr(e) => walk_expr_match(e, out),
     }
 }

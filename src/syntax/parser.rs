@@ -1836,6 +1836,21 @@ impl Parser {
                         span,
                     };
                 }
+                TokenKind::Keyword(Keyword::Catch) => {
+                    // M17.T1 — `expr catch <name> { <handler> }`.
+                    // Lower-precedence than `?`, so `expr? catch err {..}`
+                    // parses as `(expr?) catch err {..}`.
+                    self.advance();
+                    let (binding, _) = self.expect_ident()?;
+                    let handler = self.parse_block()?;
+                    let span = Self::span_join(e.span(), handler.span);
+                    e = Expr::Catch {
+                        expr: Box::new(e),
+                        binding,
+                        handler,
+                        span,
+                    };
+                }
                 _ => break,
             }
         }
@@ -2491,6 +2506,18 @@ impl Parser {
                         value,
                         span: Self::span_join(stmt_start, end),
                     });
+                    self.eat_kind(&TokenKind::Semicolon);
+                    continue;
+                }
+                TokenKind::Keyword(Keyword::Defer) => {
+                    // M17.T3 — `defer <expr>`. The body is an expression
+                    // (often a block or a call); the runtime stores it
+                    // on the function-scope defer stack and runs each
+                    // entry LIFO on every exit path.
+                    self.advance();
+                    let body = self.parse_expr()?;
+                    let span = Self::span_join(stmt_start, body.span());
+                    stmts.push(Stmt::Defer { body, span });
                     self.eat_kind(&TokenKind::Semicolon);
                     continue;
                 }
@@ -3779,6 +3806,17 @@ mod expr_tests {
             }
             Expr::Index { base, index, .. } => format!("(idx {} {})", dump(base), dump(index)),
             Expr::Try { expr, .. } => format!("(? {})", dump(expr)),
+            Expr::Catch {
+                expr,
+                binding,
+                handler,
+                ..
+            } => format!(
+                "(catch {} {binding} (block {} tail={}))",
+                dump(expr),
+                handler.stmts.len(),
+                handler.tail.as_ref().map(|t| dump(t)).unwrap_or_default()
+            ),
             Expr::Cast { expr, ty, .. } => format!("(as {} {})", dump(expr), ty_name(ty)),
             Expr::IsCheck { expr, pat, .. } => format!("(is {} {})", dump(expr), pat_dump(pat)),
             Expr::Range {
@@ -3888,6 +3926,7 @@ mod expr_tests {
                 Stmt::While { cond, body, .. } => {
                     format!("(while {} {})", dump(cond), block_dump(body))
                 }
+                Stmt::Defer { body, .. } => format!("(defer {})", dump(body)),
                 Stmt::Expr(e) => dump(e),
             });
         }

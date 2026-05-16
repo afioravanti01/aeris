@@ -189,6 +189,7 @@ fn walk_stmt(
             walk_expr(cond, used, http_hosts);
             walk_block(body, used, http_hosts);
         }
+        Stmt::Defer { body, .. } => walk_expr(body, used, http_hosts),
         Stmt::Expr(e) => walk_expr(e, used, http_hosts),
     }
 }

@@ -118,7 +118,7 @@ Module responsibilities (one-liners):
 | M14 | Performance + packaging + v0.2.0 release | Static binary < 8 MB stripped; cross-compile; tag | 3 | M11, M12, M13 | done (CI-driven packaging deferred, § 9) |
 | M15 | Capability prototype mode | `[caps] required` flag in lockset; suppresses E65 in prototype mode; `aeris init` defaults to `false` | 1 | M2, M7 | done |
 | M16 | v0.3 — String interpolation `{x}` | Replace `\(...)` with `{...}` inside string literals; lexer/parser disambiguation against record and block braces; `aeris fmt --migrate-strings` rewrites `*.aer` | 1 | M1 | done |
-| M17 | v0.3 — Inline errors (`catch`, `error()`, `defer`) | `expr catch e { ... }` as expression; `error(msg)` sugar for `raise err.user(msg)`; `defer stmt` LIFO at function exit | 2 | M2, M3, M5 | pending |
+| M17 | v0.3 — Inline errors (`catch`, `error()`, `defer`) | `expr catch e { ... }` as expression; `error(msg)` sugar for `raise err.user(msg)`; `defer stmt` LIFO at function exit | 2 | M2, M3, M5 | done |
 | M18 | v0.3 — Time control (`every`, `retry`, `timeout`, `clock.sleep`) | Block-shaped sugar over cap-gated `clock.sleep`; `retry` with backoff; `timeout` with cooperative cancel | 2 | M4, M5 | pending |
 | M19 | v0.3 — AI builtins (`session`, `decide`, `extract`, `generate`, `ensemble`, `eval`, `index`, `guard`, `cache`, `usage`) | Each builtin desugars to the v0.2 core (`agent`/`policy`/`model@vN`); state immutable; every call inside `intent`; cap-gated by `ai.complete` / `ai.embed` | 4 | M9, M10 | pending |
 | M20 | v0.3 — Network listeners (`net.http server`, TCP `listen`/`connect`, UDP, `net.resolve`) | New L1 ops with their own cap entries (`net.http.serve`, `net.tcp.listen`, ...); allow-list on ports + binds; trace events per accept | 3 | M5 | pending |
@@ -386,12 +386,12 @@ concern program structure, not authority distribution.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M17.T1 | Parser: `<expr> catch <ident> { <block> }` as a postfix expression. Type: if `<expr>: result<T>`, `catch` returns `T` and the block runs only on `Err(_)`; the bound `<ident>` is `err`. The block must itself return `T` or `raise` | 15 fixtures; type error if `<expr>` is not a `result<T>` | § 11 | pending |
-| M17.T2 | Builtin `error(msg: string) -> err` returns the `err.user(msg)` variant. NOT a `raise` — it constructs the value. `raise error("...")` is the throw form | 5 fixtures | § 18 | pending |
-| M17.T3 | Parser: `defer <stmt>` registers a closure to run LIFO at function exit (also on `?`, `raise`, contract violation). Captures `let` bindings by value; `cap` must be `cap.subset[..]` if the deferred stmt is write-effectful (V2 still applies inside the deferred block: it must be wrapped in `intent`) | 10 fixtures: pure, `?`-on-exit, raise-on-exit, saga rollback path | § 11 | pending |
-| M17.T4 | Trace events `defer_enter` / `defer_exit` for every executed deferred block; failure inside a deferred block surfaces but does not preempt other defers | Golden trace `defer_order.jsonl` | § 20.1 | pending |
-| M17.T5 | Cap-system: `defer` body resolves against the enclosing `cap`; static check rejects a deferred write-effectful op without intent (E66) | Negative fixtures | § 8.2 | pending |
-| M17.T6 | `aeris check --explain 75` (new exit code) for a misuse of `catch` on a non-`result` expression | Manpage entry | § 25.3 | pending |
+| M17.T1 | Parser: `<expr> catch <ident> { <block> }` as a postfix expression. Type: if `<expr>: result<T>`, `catch` returns `T` and the block runs only on `Err(_)`; the bound `<ident>` is `err`. The block must itself return `T` or `raise` | 15 fixtures; type error if `<expr>` is not a `result<T>` | § 11 | done |
+| M17.T2 | Builtin `error(msg: string) -> err` returns the `err.user(msg)` variant. NOT a `raise` — it constructs the value. `raise error("...")` is the throw form | 5 fixtures | § 18 | done |
+| M17.T3 | Parser: `defer <stmt>` registers a closure to run LIFO at function exit (also on `?`, `raise`, contract violation). Captures `let` bindings by value; `cap` must be `cap.subset[..]` if the deferred stmt is write-effectful (V2 still applies inside the deferred block: it must be wrapped in `intent`) | 10 fixtures: pure, `?`-on-exit, raise-on-exit, saga rollback path | § 11 | done |
+| M17.T4 | Trace events `defer_enter` / `defer_exit` for every executed deferred block; failure inside a deferred block surfaces but does not preempt other defers | Golden trace `defer_order.jsonl` | § 20.1 | done |
+| M17.T5 | Cap-system: `defer` body resolves against the enclosing `cap`; static check rejects a deferred write-effectful op without intent (E66) | Negative fixtures | § 8.2 | done |
+| M17.T6 | `aeris check --explain 75` (new exit code) for a misuse of `catch` on a non-`result` expression | Manpage entry | § 25.3 | done (runtime Type error; § 11.2 documents the desugar — explicit exit code deferred to a future polish) |
 
 ### 5.18 M18 — Time control: `every`, `retry`, `timeout`, `clock.sleep` (2 weeks)
 

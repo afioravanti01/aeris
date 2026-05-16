@@ -179,6 +179,7 @@ fn walk_block_for_caps(b: &crate::syntax::ast::Block, out: &mut Vec<String>) {
                     walk_e(cond, out);
                     walk_b(body, out);
                 }
+                Stmt::Defer { body, .. } => walk_e(body, out),
                 Stmt::Expr(e) => walk_e(e, out),
             }
         }

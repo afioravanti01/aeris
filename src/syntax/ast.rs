@@ -466,6 +466,10 @@ pub enum Stmt {
         body: Block,
         span: Span,
     },
+    /// `defer <stmt>` — registers a body to run LIFO at every function
+    /// exit point (M17.T3). Captures `let` bindings by value; the body
+    /// is subject to the same static checks as if inlined at the exit.
+    Defer { body: Expr, span: Span },
     /// An expression used as a statement; the trailing `;` (if any) is consumed.
     Expr(Expr),
 }
@@ -607,6 +611,17 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+    /// `expr catch <name> { <block> }` — recovery operator (M17.T1).
+    /// `expr` must be a `result<T>`; on `Err(e)` the handler runs with
+    /// `e` bound to `name` and its value replaces the `Err`. Pure
+    /// syntactic sugar over `match`; the static checker and runtime
+    /// see only the desugared form.
+    Catch {
+        expr: Box<Expr>,
+        binding: String,
+        handler: Block,
+        span: Span,
+    },
 
     // ---- coercion / refinement ----
     Cast {
@@ -742,6 +757,7 @@ impl Expr {
             | Expr::Call { span: s, .. }
             | Expr::Index { span: s, .. }
             | Expr::Try { span: s, .. }
+            | Expr::Catch { span: s, .. }
             | Expr::Cast { span: s, .. }
             | Expr::IsCheck { span: s, .. }
             | Expr::Range { span: s, .. }

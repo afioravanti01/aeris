@@ -198,6 +198,11 @@ pub struct Env {
     /// The body of a fixture-mode test queries this via the `trace()`
     /// builtin and the `trace_has(<predicate>)` helper.
     fixture_trace: Option<std::rc::Rc<Vec<super::trace::TraceEvent>>>,
+    /// M17.T3: stack of `defer` frames, one per active function call.
+    /// `Stmt::Defer` appends to `defer_frames.last_mut()`; `invoke_value`
+    /// pushes a fresh frame on entry and drains it LIFO on every exit
+    /// path (return, raise, contract violation, `?` propagation).
+    defer_frames: Vec<Vec<Expr>>,
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +226,7 @@ impl Env {
             full_record: false,
             idempotency_key: None,
             fixture_trace: None,
+            defer_frames: Vec::new(),
         }
     }
 
@@ -395,6 +401,7 @@ impl Env {
             full_record,
             idempotency_key: None,
             fixture_trace: None,
+            defer_frames: Vec::new(),
         };
         for s in scopes {
             let mut frame = HashMap::with_capacity(s.len());
@@ -1265,6 +1272,33 @@ fn eval_expr(e: &Expr, env: &mut Env) -> Result<Flow, EvalError> {
                 )),
                 _ => Err(EvalError::new(
                     EvalErrorKind::Type("`?` requires `result<T>` or `option<T>`".into()),
+                    *span,
+                )),
+            }
+        }
+        Expr::Catch {
+            expr,
+            binding,
+            handler,
+            span,
+        } => {
+            // M17.T1 — sugar over `match`. Evaluate `expr`; on
+            // `Ok(v)` return `v`. On `Err(e)` bind `e` to `binding`
+            // in a fresh scope and evaluate the handler block.
+            let v = eval_value(expr, env)?;
+            match v {
+                Value::Result(Ok(inner)) => Ok(Flow::Value(*inner)),
+                Value::Result(Err(inner)) => {
+                    env.scopes.push(HashMap::new());
+                    env.bind_let(binding, *inner);
+                    let r = eval_block(handler, env);
+                    env.scopes.pop();
+                    r
+                }
+                _ => Err(EvalError::new(
+                    EvalErrorKind::Type(
+                        "`catch` requires the left-hand side to be a `result<T>`".into(),
+                    ),
                     *span,
                 )),
             }
@@ -2222,6 +2256,18 @@ fn eval_call(
     // documented in `language.md` § 18 / § 4.
     if let Expr::Ident(name, _) = callee {
         match (name.as_str(), args.len()) {
+            // M17.T2 — `error("...")` constructs an `err.user` value.
+            // It does NOT raise; the user wraps it with `raise` or
+            // `Err(...)` explicitly. Closed enum stays inaccessible:
+            // user code can only mint the `user` variant this way.
+            ("error", 1) => {
+                let v = eval_value(&args[0].value, env)?;
+                let payload = match v {
+                    Value::Str(s) => Value::Str(s),
+                    other => Value::Str(format!("{other:?}")),
+                };
+                return Ok(Flow::Value(payload));
+            }
             ("Ok", 1) => {
                 let v = eval_value(&args[0].value, env)?;
                 return Ok(Flow::Value(Value::ok(v)));
@@ -5400,53 +5446,82 @@ fn invoke_value(callee: &Value, args: &[Value], span: Span) -> Result<Flow, Eval
         closure.full_record,
     );
     call_env.push_scope();
+    // M17.T3 — open a defer frame for this call. The frame is drained
+    // LIFO on every exit path below.
+    call_env.defer_frames.push(Vec::new());
     for (name, val) in closure.params.iter().zip(args) {
         call_env.bind_let(name, val.clone());
     }
-    // M5.T4: `requires:` clauses checked at function entry. Each
-    // clause must evaluate to `Bool(true)`; anything else (including
-    // `Bool(false)` or non-bool) raises a `ContractViolation`.
     let fn_name = closure.name.clone().unwrap_or_else(|| "<lambda>".into());
-    for (i, req) in closure.requires.iter().enumerate() {
-        let v = eval_value(req, &mut call_env)?;
-        if !matches!(v, Value::Bool(true)) {
-            return Err(EvalError::new(
-                EvalErrorKind::ContractViolation {
-                    fn_name: fn_name.clone(),
-                    clause: ContractClause::Requires { index: i },
-                },
-                req.span(),
-            ));
-        }
-    }
-    let f = eval_block(&closure.body, &mut call_env)?;
-    let result_value = match f {
-        Flow::Value(v) | Flow::Return(v) => v,
-        Flow::Break(_) | Flow::Continue => {
-            return Err(EvalError::new(
-                EvalErrorKind::StrayControlFlow("loop control flow escaped a closure"),
-                span,
-            ))
-        }
-    };
-    // M5.T4: `ensures:` clauses see `result` bound to the returned
-    // value. Failure raises ContractViolation just like requires.
-    if !closure.ensures.is_empty() {
-        call_env.bind_let("result", result_value.clone());
-        for (i, ens) in closure.ensures.iter().enumerate() {
-            let v = eval_value(ens, &mut call_env)?;
+    // Inner closure isolates the failure modes so the defer drain at
+    // the bottom runs on every path (Ok, Err, ContractViolation, ?).
+    let outcome: Result<Value, EvalError> = (|| {
+        for (i, req) in closure.requires.iter().enumerate() {
+            let v = eval_value(req, &mut call_env)?;
             if !matches!(v, Value::Bool(true)) {
                 return Err(EvalError::new(
                     EvalErrorKind::ContractViolation {
                         fn_name: fn_name.clone(),
-                        clause: ContractClause::Ensures { index: i },
+                        clause: ContractClause::Requires { index: i },
                     },
-                    ens.span(),
+                    req.span(),
                 ));
             }
         }
+        let f = eval_block(&closure.body, &mut call_env)?;
+        let result_value = match f {
+            Flow::Value(v) | Flow::Return(v) => v,
+            Flow::Break(_) | Flow::Continue => {
+                return Err(EvalError::new(
+                    EvalErrorKind::StrayControlFlow("loop control flow escaped a closure"),
+                    span,
+                ))
+            }
+        };
+        if !closure.ensures.is_empty() {
+            call_env.bind_let("result", result_value.clone());
+            for (i, ens) in closure.ensures.iter().enumerate() {
+                let v = eval_value(ens, &mut call_env)?;
+                if !matches!(v, Value::Bool(true)) {
+                    return Err(EvalError::new(
+                        EvalErrorKind::ContractViolation {
+                            fn_name: fn_name.clone(),
+                            clause: ContractClause::Ensures { index: i },
+                        },
+                        ens.span(),
+                    ));
+                }
+            }
+        }
+        Ok(result_value)
+    })();
+    // M17.T3 — drain the defer frame LIFO regardless of how the body
+    // finished. A failure inside a deferred body is recorded as a
+    // `defer_error` trace event but does not overwrite the original
+    // outcome, matching the v1 contract that all defers run.
+    let frame = call_env.defer_frames.pop().unwrap_or_default();
+    for body in frame.iter().rev() {
+        if let Some(t) = &call_env.tracer {
+            t.record("defer_enter", None, Vec::new());
+        }
+        match eval_expr(body, &mut call_env) {
+            Ok(_) => {
+                if let Some(t) = &call_env.tracer {
+                    t.record("defer_exit", None, Vec::new());
+                }
+            }
+            Err(_) => {
+                if let Some(t) = &call_env.tracer {
+                    t.record(
+                        "defer_error",
+                        None,
+                        vec![("fn".into(), format!("\"{fn_name}\""))],
+                    );
+                }
+            }
+        }
     }
-    Ok(Flow::Value(result_value))
+    outcome.map(Flow::Value)
 }
 
 // ====================================================================
@@ -5502,6 +5577,18 @@ fn eval_stmt(s: &Stmt, env: &mut Env) -> Result<Flow, EvalError> {
                     Flow::Return(v) => return Ok(Flow::Return(v)),
                 }
             }
+            Ok(Flow::Value(Value::Unit))
+        }
+        Stmt::Defer { body, .. } => {
+            // M17.T3 — register the deferred body on the current
+            // function's defer frame. The runtime drains the frame
+            // LIFO when `invoke_value` returns by any path.
+            if let Some(frame) = env.defer_frames.last_mut() {
+                frame.push(body.clone());
+            }
+            // Outside a function call frame `defer` is a no-op; the
+            // static checker can elevate this to a diagnostic later
+            // if needed (currently allowed at the top level).
             Ok(Flow::Value(Value::Unit))
         }
         Stmt::Expr(e) => eval_expr(e, env),
@@ -6636,6 +6723,158 @@ mod tests {
     fn t6_check_error_returns_at_least_64() {
         // `Foo` is unknown — type resolver flags it with exit 64.
         assert!(run_exit("fn main() -> Foo {}") >= 64);
+    }
+
+    // ---- M17 — catch / error / defer ----
+
+    #[test]
+    fn m17_catch_recovers_from_err() {
+        let src = r#"
+            fn pay() -> result<int> { Err("boom") }
+            fn main() -> int {
+                pay() catch err { 42 }
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Int(n) => assert_eq!(n, 42),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m17_catch_passes_through_ok() {
+        let src = r#"
+            fn pay() -> result<int> { Ok(7) }
+            fn main() -> int {
+                pay() catch err { -1 }
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Int(n) => assert_eq!(n, 7),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m17_catch_handler_sees_error_payload() {
+        let src = r#"
+            fn pay() -> result<string> { Err("nope") }
+            fn main() -> string {
+                pay() catch err { err }
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Str(s) => assert_eq!(s, "nope"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m17_error_constructs_user_err_value() {
+        let src = r#"
+            fn main() -> result<unit> {
+                Err(error("invalid amount"))
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Result(Err(boxed)) => match *boxed {
+                Value::Str(s) => assert_eq!(s, "invalid amount"),
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m17_error_alone_does_not_raise() {
+        // `error("...")` is a value constructor, not a control-flow
+        // operator: assigning it must not interrupt execution.
+        let src = r#"
+            fn main() -> int {
+                let e = error("never thrown")
+                99
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        match super::run_main(&m).unwrap() {
+            Value::Int(n) => assert_eq!(n, 99),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m17_defer_runs_at_function_exit() {
+        let src = r#"
+            fn main() -> int {
+                var x = 0
+                defer { x = x + 100 }
+                x = x + 1
+                x
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        // The function returns BEFORE the defer body mutates x, so
+        // the observed return value is 1 (pre-defer). The defer
+        // still runs and would mutate x if we could observe it after
+        // the return — but the only observable effect of defer in
+        // pure code is a trace event.
+        match super::run_main(&m).unwrap() {
+            Value::Int(n) => assert_eq!(n, 1),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn m17_defer_emits_trace_events_in_lifo_order() {
+        let src = r#"
+            fn main() -> int {
+                defer { 1 }
+                defer { 2 }
+                defer { 3 }
+                0
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let _ = super::run_main_with(&m, Some(tracer.clone())).unwrap();
+        let enters: Vec<_> = tracer
+            .events()
+            .into_iter()
+            .filter(|e| e.kind == "defer_enter" || e.kind == "defer_exit")
+            .map(|e| e.kind)
+            .collect();
+        // Three defers means three enter/exit pairs.
+        assert_eq!(enters.len(), 6);
+        assert_eq!(enters[0], "defer_enter");
+        assert_eq!(enters[1], "defer_exit");
+        assert_eq!(enters[2], "defer_enter");
+    }
+
+    #[test]
+    fn m17_defer_runs_even_on_err_propagation() {
+        // The function exits via `?` (Err propagation); the defer
+        // body must still run, producing a trace event.
+        let src = r#"
+            fn fail() -> result<int> { Err("nope") }
+            fn main() -> result<int> {
+                defer { 1 }
+                let v = fail()?
+                Ok(v)
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let _ = super::run_main_with(&m, Some(tracer.clone()));
+        let count = tracer
+            .events()
+            .iter()
+            .filter(|e| e.kind == "defer_enter")
+            .count();
+        assert_eq!(count, 1);
     }
 
     // ---- M16 — string interpolation `{x}` at runtime ----

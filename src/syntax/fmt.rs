@@ -275,6 +275,18 @@ fn fmt_expr_at(e: &Expr, out: &mut String, outer: u8, side: u8) {
             fmt_expr_at(expr, out, 11, 0);
             out.push('?');
         }
+        Expr::Catch {
+            expr,
+            binding,
+            handler,
+            ..
+        } => {
+            fmt_expr_at(expr, out, 11, 0);
+            out.push_str(" catch ");
+            out.push_str(binding);
+            out.push(' ');
+            fmt_block_inline(handler, out);
+        }
 
         // ---- coercion / refinement ----
         Expr::Cast { expr, ty, .. } => {
@@ -579,6 +591,10 @@ fn fmt_stmt(s: &Stmt, out: &mut String) {
             fmt_expr_at(cond, out, 0, 0);
             out.push(' ');
             fmt_block_inline(body, out);
+        }
+        Stmt::Defer { body, .. } => {
+            out.push_str("defer ");
+            fmt_expr_at(body, out, 0, 0);
         }
         Stmt::Expr(e) => fmt_expr_at(e, out, 0, 0),
     }
