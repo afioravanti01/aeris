@@ -3,6 +3,7 @@
 //!
 //! Realises `docs/language.md` § 24 and the V3 / N4 patches.
 
+pub mod fetch;
 #[allow(clippy::module_inception)]
 pub mod lockset;
 pub mod surface;

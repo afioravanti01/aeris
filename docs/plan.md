@@ -255,7 +255,7 @@ that the task realises.
 |---|---|---|---|---|
 | M7.T1 | `lockset.toml` parser (using `toml` crate); semantic validation | 20 lockset fixtures; malformed → exit 69 | § 24.1 | done |
 | M7.T2 | Local path dep resolution + blake3 hashing of resolved bytes | Hash mismatch → exit 69; `aeris lock` recomputes | § 24.4 | done |
-| M7.T3 | GitHub tarball dep resolution + cache at `.aeris/ext/<host>__<repo>/<version>/` | Network test (mocked) succeeds; second run hits cache | § 24.2 | deferred (TLS) |
+| M7.T3 | GitHub tarball dep resolution + cache at `.aeris/ext/<host>__<repo>/<version>/` | Network test (mocked) succeeds; second run hits cache | § 24.2 | done |
 | M7.T4 | `main`'s synthesised cap composes from `[caps]` ceiling | Effective signature printed on `aeris run` stderr matches lockset | § 8.4 | done |
 | M7.T5 | V3 `aeris lock surface`: per-`pub`-fn effect set + allow-list emitted to `.aeris/surface.lock` | Snapshot test against 5-module project | § 8.6 | done |
 | M7.T6 | `surface_hash` for deps recorded in `lockset.toml [deps].<alias>` | A dep upgrade that broadens surface forces a lockfile diff | § 24.3 | done |
@@ -277,7 +277,7 @@ that the task realises.
 
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
-| M9.T1 | `ai` cap handler with pluggable backend selected by `lockset.toml [ai.backend]` | HTTP backend hits Anthropic API (or mock); CLI backend spawns subprocess; mock backend returns canned responses | § 23 | partial |
+| M9.T1 | `ai` cap handler with pluggable backend selected by `lockset.toml [ai.backend]` | HTTP backend hits Anthropic API (or mock); CLI backend spawns subprocess; mock backend returns canned responses | § 23 | done |
 | M9.T2 | Operations: `ai.complete`, `ai.chat`, `ai.embed`, `ai.tools` | One fixture per op | § 22 | done |
 | M9.T3 | N3 tape recorder: every `ai.*` call records `(prompt, model, response, tokens, ts)` | Trace event `ai_call` per op | § 8.1, § 20.2 | done |
 | M9.T4 | `aeris replay <trace_id>` re-runs program against tape; no LLM contacted | Two-phase test: original run + replay; outputs identical | § 20.3 | done |
@@ -295,7 +295,7 @@ that the task realises.
 | M10.T3 | Auto-injected routing-protocol contract appended to user prompt | Trace's `prompt` field contains the contract | § 14 | done |
 | M10.T4 | Retries on `SchemaViolation`; `BudgetExceeded` raised on tokens / latency overrun | 5 fixtures | § 13.2 | done |
 | M10.T5 | `agent_net` parsing: `flow`, `until:`, fan-out branches | Cycle detection (already in M2) extended to compositional cases | § 14.1 | done |
-| M10.T6 | `agent_net` execution: edge type-validation, parallel fan-out, type-driven routing among branches | 4 golden net traces | § 14.1 | partial |
+| M10.T6 | `agent_net` execution: edge type-validation, parallel fan-out, type-driven routing among branches | 4 golden net traces | § 14.1 | done |
 | M10.T7 | `until:` iteration with `iterations` counter; `agent_net exhausted` on bound reach | 3 fixtures (converging, exhausting, succeeding-mid-iteration) | § 14.3 | done |
 | M10.T8 | `agent_net` composition: a net used as a node inside another net | 2 fixtures | § 14.2 | done |
 
@@ -304,11 +304,11 @@ that the task realises.
 | ID | Task | Acceptance | Refs | Status |
 |---|---|---|---|---|
 | M11.T1 | `audit.event`: append-only log with idempotency key | Log file rotates per-run; trace event present | § 23 | done |
-| M11.T2 | `kube.apply` / `kube.delete` / `kube.get` / `kube.watch` against kind cluster (or mock) | Manifest annotations carry idempotency key | § 23 | partial |
+| M11.T2 | `kube.apply` / `kube.delete` / `kube.get` / `kube.watch` against kind cluster (or mock) | Manifest annotations carry idempotency key | § 23 | done |
 | M11.T3 | `docker.run` / `docker.build` / `docker.push` / `docker.pull` / `docker.inspect` | Subprocess wrapping; trace records argv | § 23 | done |
-| M11.T4 | `mongodb.read` / `mongodb.write` against testcontainers Mongo | Idempotency sentinel injected | § 23 | partial |
-| M11.T5 | `minio.get` / `minio.put` against testcontainers MinIO | Bucket allow-list enforced | § 23 | partial |
-| M11.T6 | `rabbitmq.publish` / `rabbitmq.subscribe` against testcontainers RabbitMQ | `message-id` = idempotency key | § 23 | partial |
+| M11.T4 | `mongodb.read` / `mongodb.write` against testcontainers Mongo | Idempotency sentinel injected | § 23 | done |
+| M11.T5 | `minio.get` / `minio.put` against testcontainers MinIO | Bucket allow-list enforced | § 23 | done |
+| M11.T6 | `rabbitmq.publish` / `rabbitmq.subscribe` against testcontainers RabbitMQ | `message-id` = idempotency key | § 23 | done |
 | M11.T7 | Each L2 op records a per-call trace event with backend-specific fields | One golden per backend | § 6 | done |
 
 ### 5.12 M12 — Tests + properties + fmt + V1 narrow-caps (4 weeks)

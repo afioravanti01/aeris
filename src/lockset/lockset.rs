@@ -88,6 +88,11 @@ pub struct AiBackend {
     pub kind: String,
     pub url: Option<String>,
     pub auth: Option<String>,
+    /// Shell command (M9.T1 `cli` kind). Split on whitespace to form
+    /// argv; the prompt is piped to stdin and stdout becomes the
+    /// completion text. `Some("python tools/chat.py")` is a typical
+    /// shape; only relevant when `kind = "cli"`.
+    pub cmd: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -419,6 +424,7 @@ fn parse_ai_backend(root: &BTreeMap<String, TomlValue>) -> Result<Option<AiBacke
         kind,
         url: optional_string(backend, "url"),
         auth: optional_string(backend, "auth"),
+        cmd: optional_string(backend, "cmd"),
     }))
 }
 
@@ -629,6 +635,27 @@ mod tests {
         let b = l.ai_backend.unwrap();
         assert_eq!(b.kind, "http");
         assert_eq!(b.url.as_deref(), Some("https://api.anthropic.com"));
+    }
+
+    #[test]
+    fn m9t1_ai_backend_cli_cmd_parses() {
+        // M9.T1 — the `cli` backend is selected by `kind = "cli"` and
+        // takes an inline `cmd` whose tokens become argv[0..]. Both
+        // url and auth are optional in this mode.
+        let l = ok(r#"
+            [project]
+            name  = "x"
+            aeris = "0.2.0"
+
+            [ai.backend]
+            kind = "cli"
+            cmd  = "python tools/chat.py --model haiku"
+        "#);
+        let b = l.ai_backend.unwrap();
+        assert_eq!(b.kind, "cli");
+        assert_eq!(b.cmd.as_deref(), Some("python tools/chat.py --model haiku"));
+        assert!(b.url.is_none());
+        assert!(b.auth.is_none());
     }
 
     #[test]
