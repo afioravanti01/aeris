@@ -25,7 +25,7 @@ fn main() {
     let q = io.read_line() ?? ""
     if q == "" { break }
     if q == "quit" { break }
-    let reply = chat.ask(q)
+    let reply = chat.ask(q) catch err { "<chat error: {err}>" }
     io.println("bot> " + reply + "\n")
   }
 

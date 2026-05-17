@@ -3582,17 +3582,17 @@ fn builtin_method_dispatch(
                 .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
                 .unwrap_or_else(|| "default".into());
             let composed = format!("system: {system}\nuser: {prompt}");
-            let resp = run_ai_backend(env, "complete", &model, &composed).map_err(|m| {
-                EvalError::new(
-                    EvalErrorKind::Io {
-                        op: "chat.ask".into(),
-                        message: m,
-                    },
-                    span,
-                )
-            })?;
-            record_ai_event(env, "chat.ask", &model, &prompt, &resp);
-            Ok(Some(Value::Str(resp)))
+            // M32 — `chat.ask` returns `result<string>` (consistent
+            // with `ai.complete` / `ai.session_ask` / `ai.decide`).
+            // Callers can write `chat.ask(p)?` to propagate or
+            // `chat.ask(p) catch err { … }` to recover.
+            match run_ai_backend(env, "complete", &model, &composed) {
+                Ok(resp) => {
+                    record_ai_event(env, "chat.ask", &model, &prompt, &resp);
+                    Ok(Some(Value::ok(Value::Str(resp))))
+                }
+                Err(m) => Ok(Some(Value::err(Value::Str(format!("chat.ask: {m}"))))),
+            }
         }
         (Value::Record(r), "kb_size") if r.name.as_deref() == Some("Chat") => {
             arity_check(".kb_size", 0, &arg_values, span)?;
@@ -14523,6 +14523,28 @@ mod tests {
     fn m32_record_len_returns_field_count() {
         let v = ev(r#"{ a: 1, b: 2, c: 3 }.len()"#);
         assert!(matches!(v, Value::Int(3)), "got {v:?}");
+    }
+
+    #[test]
+    fn m32_chat_ask_returns_result_so_catch_recovers() {
+        // Mock backend echoes the prompt: success path. `chat.ask`
+        // returns `result<string>`; `catch` unwraps the Ok branch
+        // and never fires.
+        let src = r#"
+            fn main() -> string {
+              let c = ai.chat(system: "x", dir: ".")
+              c.ask(prompt: "hello") catch err { "<fallback>" }
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let v = run_main(&m).unwrap();
+        match v {
+            Value::Str(s) => {
+                assert_ne!(s, "<fallback>", "catch should not have fired on success");
+                assert!(!s.is_empty(), "expected non-empty mock reply");
+            }
+            other => panic!("expected Str, got {other:?}"),
+        }
     }
 
     #[test]

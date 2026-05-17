@@ -517,7 +517,7 @@ surface. `aeris lock surface` records it in `.aeris/surface.lock`.
 | `list<T>` | `.len()`, `.empty()`, `.first()`, `.last()`, `.slice(a, b)`, `.contains(x)`, `.join(sep)`, `.map(f)`. On `var` bindings: `.push(x) -> int`, `.pop() -> option<T>` |
 | `string` | `.len()`, `.trim()`, `.lower()`, `.upper()`, `.contains(p)`, `.starts_with(p)`, `.ends_with(p)`, `.split(sep)`, `.replace(from, to)`, `.index_of(needle, from?) -> option<int>` |
 | `map<K, V>` | `.len()`, `.get(k) -> option<V>` |
-| `Chat` | `.ask(prompt) -> string`, `.kb_size() -> int` |
+| `Chat` | `.ask(prompt) -> result<string>` (M32), `.kb_size() -> int` |
 | `HttpServer` | `.accept() -> HttpReq` |
 | `HttpReq` | `.reply(status, body, content_type?) -> unit`, `.reply_json(status, body) -> unit` |
 | `AiNetwork` | `.agent(name, system) -> unit` (mutating), `.run(entry, message, until?) -> { trace, rounds }` |

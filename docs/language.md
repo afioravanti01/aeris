@@ -2158,8 +2158,11 @@ constructor that loads a directory of markdown / text files
 system prompt as a labelled knowledge base, then returns a `Chat`
 record with two methods:
 
-- `chat.ask(prompt) -> string` — send the prompt; reply is the
-  string returned by the backend.
+- `chat.ask(prompt) -> result<string>` (M32) — send the prompt; on
+  success the reply is `Ok(string)`, on backend failure `Err(string)`.
+  Callers write `chat.ask(p)?` to propagate or
+  `chat.ask(p) catch err { … }` to recover. Consistent with
+  `ai.complete` / `ai.session_ask` / `ai.decide`.
 - `chat.kb_size() -> int` — number of files loaded.
 
 ```aeris
