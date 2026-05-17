@@ -1779,6 +1779,23 @@ let (a, b, c) = (await h_a, await h_b, await h_c)
 There is no `parallel { e1, e2, e3 }` keyword; the spawn-and-await
 form expresses the same intent without a dedicated construct.
 
+**Runtime limitation (M31).** The v0.3 tree-walk runtime executes
+`spawn { … }` **inline on the current thread**, not on an OS thread.
+The body runs in its own scope; `return`, `break`, `continue` are
+confined to the spawn block so they don't bubble up to the caller.
+`await` is the identity (the inline `spawn` returns `Unit`). A
+`spawn_inline` trace event marks every occurrence so the
+degradation is visible in the JSONL trace.
+
+Practical consequences:
+
+- The HTTP servers under `demo/02_*` … `demo/08_*` handle one
+  request at a time, even when the loop spawns per request.
+- Code written against this section is forward-compatible: when a
+  real scheduler lands, the same `spawn { … }` + `await h` form
+  will start running on a dedicated thread and the trace event
+  will switch to `spawn_thread`.
+
 ### 19.2 Channels
 
 ```aeris

@@ -1634,11 +1634,28 @@ fn eval_expr(e: &Expr, env: &mut Env) -> Result<Flow, EvalError> {
             name: None,
         })))),
 
-        // ---- unsupported in pure subset ----
-        Expr::Spawn { .. } | Expr::Await { .. } => Err(EvalError::new(
-            EvalErrorKind::NotImplemented("`spawn` / `await` (M4+)".into()),
-            e.span(),
-        )),
+        // M31 — single-threaded `spawn` fallback. The thesis (§ 19.1)
+        // promises an OS thread; this runtime is tree-walk + Rc<RefCell>
+        // so we cannot safely cross thread boundaries. The body runs
+        // inline on the current thread in its own scope; `return`,
+        // `break`, `continue` are confined to the spawn block instead
+        // of bubbling up to the caller. The trace records a
+        // `spawn_inline` event so the degradation is visible.
+        Expr::Spawn { body, .. } => {
+            record_event(env, "spawn_inline", Vec::new());
+            env.push_scope();
+            let flow = eval_block(body, env);
+            env.pop_scope();
+            match flow {
+                Ok(_) => Ok(Flow::Value(Value::Unit)),
+                Err(e) => Err(e),
+            }
+        }
+        // `await` on a non-handle value is the identity. The
+        // single-thread `spawn` returns `Unit`, so `await spawn { ... }`
+        // is `Unit`. When a real OS-thread scheduler lands this branch
+        // will switch to joining a `handle<T>`.
+        Expr::Await { expr, .. } => eval_expr(expr, env),
         Expr::IntentBlock { label, body, .. } => {
             // M5.T7: lift the parser-level intent block into the
             // runtime tracer. Every event emitted between
@@ -14420,6 +14437,41 @@ mod tests {
             r,
             Err(EvalError { kind: EvalErrorKind::PolicyViolation { .. }, .. })
         ));
+    }
+
+    // ---- M31 — spawn-as-sync fallback (§ 19.1) ----
+
+    #[test]
+    fn m31_spawn_runs_body_inline_and_returns_unit() {
+        let v = ev(r#"{ let x = spawn { 1 + 2 }; x }"#);
+        assert!(matches!(v, Value::Unit), "spawn should yield Unit, got {v:?}");
+    }
+
+    #[test]
+    fn m31_spawn_confines_return_to_block() {
+        // Outer caller keeps executing; the inner `return` exits the
+        // spawn body only. (`return;` with an explicit semicolon avoids
+        // `return n = n + 100` parsing ambiguity.)
+        let src = r#"
+            fn main() -> int {
+              var n = 0
+              spawn {
+                n = n + 10;
+                return;
+                n = n + 100
+              }
+              n
+            }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let v = run_main(&m).unwrap();
+        assert!(matches!(v, Value::Int(10)), "got {v:?}");
+    }
+
+    #[test]
+    fn m31_spawn_records_spawn_inline_trace_event() {
+        let (_v, evs) = ev_with_cap_traced(r#"spawn { 1 + 1 }"#, star_cap());
+        assert!(evs.iter().any(|e| e.kind == "spawn_inline"));
     }
 
     #[test]
