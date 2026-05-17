@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // Pipeline step functions for the crypto pipeline. Each function maps
 // to exactly one step; the orchestrator in `main.aer` chains them with
 // `?` and `catch` instead of the v0.1 `pipeline {}` block.

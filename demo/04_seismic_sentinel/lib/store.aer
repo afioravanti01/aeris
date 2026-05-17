@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // MinIO-backed persistence of the dashboard payload. The runtime
 // stub (`minio.*` in v0.3) keeps every op trace-recorded and policy-
 // gated; the real backend talks to a MinIO instance when configured.

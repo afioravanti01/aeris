@@ -282,6 +282,13 @@ makes the capability path *resolvable* in scopes that hold a `cap`
 parameter (§ 8.2). A function without `cap` cannot use the imported
 module's effectful operations even if the module is imported.
 
+**`use` is mandatory (M33).** A body call `<module>.<op>(...)` is
+rejected with `E72 — module 'X' used without 'use'` when `X` was not
+brought into scope by a `use` declaration at the top of the file.
+The check is uniform across `enforce = off | loose | strict`: `use`
+governs identifier scope, capability authority is a separate axis
+(§ 8.2).
+
 ### 3.3 Visibility
 
 By default, top-level declarations in a module are *private to the module*.
@@ -2304,6 +2311,7 @@ let the formatter derive the narrow form.
 | 69 | lockfile drift (hash mismatch) |
 | 70 | cycle in `agent_net` |
 | 71 | allow-list violation (signature outside lockset ceiling) |
+| 72 | module referenced without `use` (M33) |
 
 ### 25.4 `aeris run` invariants
 

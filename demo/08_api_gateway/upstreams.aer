@@ -3,6 +3,8 @@
 /// shell-string command in `sh -c`; the loop keeps the parent alive
 /// while the children own their own lifetime.
 
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 fn main() {
   io.println("[upstreams] starting services...")
 

@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // USGS earthquake data ingest. Bounding boxes are [minlat, maxlat,
 // minlon, maxlon]; each region maps to one HTTP query against the
 // public USGS GeoJSON endpoint.

@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // OpenStreetMap Overpass API: count amenities within a 5 km radius
 // around the city centre. Returns a list of { label, count } records;
 // the dashboard renderer reduces this to a JSON object.

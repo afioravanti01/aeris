@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // Output files per agent. The orchestrator is coordination-only — it
 // produces no document — so it is not in this list.
 pub let DOC_OUTPUTS = ["analysis.md", "requirements.md", "architecture.md", "improvements.md"]

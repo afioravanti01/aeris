@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 pub fn agent_output_file(agent_name) {
   if agent_name == "analyzer"     { return "analysis.md" }
   if agent_name == "requirements" { return "requirements.md" }

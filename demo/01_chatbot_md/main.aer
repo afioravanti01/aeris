@@ -7,6 +7,8 @@
 /// Nessuna `cap`, nessuna `intent`, nessun `load_corpus` a mano —
 /// `enforce = "off"` lascia il codice come uno script v0.1.
 
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 let PROMPT: string = "you> "
 
 fn main() {

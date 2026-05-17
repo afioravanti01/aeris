@@ -472,6 +472,12 @@ shutdown.
 | `use { rollout, status } from deploy` | selective re-export |
 | `use http as net` | rename |
 
+**`use` is mandatory (M33).** A body call `<module>.<op>(...)` is
+rejected with `E72 — module 'X' used without 'use'` when `X` was not
+brought into scope by a `use` declaration at the top of the file.
+Applies uniformly across `enforce = off | loose | strict`, because
+`use` governs identifier scope, not capability authority.
+
 External dependencies MUST have `hash = "blake3:…"` in `[deps]`.
 Cyclic imports are forbidden at parse time.
 
@@ -637,6 +643,7 @@ Always on. `--full-record` enables byte-level body capture.
 | 69 | lockset stale / hash mismatch |
 | 70 | cycle in `agent_net` |
 | 71 | signature allow-list exceeds the manifest ceiling |
+| 72 | module referenced without `use` (M33) |
 | 74 | saga `PartialFailure` (undo retries exhausted) |
 
 ---

@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // AI chat server. v0.1 used the convenience `ai.chat(...).start(port:)`
 // which is not part of v0.3. We compose it ourselves with `net.http`
 // and a single endpoint that proxies POST bodies to `chat.ask`.

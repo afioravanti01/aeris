@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // Low-level crypto helpers backed by shell-outs. Each function falls
 // back to a deterministic stub when the tool is unavailable, so the
 // pipeline runs portably without hard dependencies.

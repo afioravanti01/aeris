@@ -701,6 +701,14 @@ fn cmd_run(path: &str) -> ExitCode {
                 );
                 ExitCode::from(74)
             }
+            crate::runtime::EvalErrorKind::ModuleNotImported { module, op } => {
+                eprintln!(
+                    "aeris: module `{module}` used without `use` (call to `{module}.{op}` at line {}, col {})",
+                    err.span.line, err.span.col
+                );
+                eprintln!("        add `use {module}` at the top of the file");
+                ExitCode::from(72)
+            }
             other => {
                 eprintln!(
                     "aeris: runtime error at line {}, col {}: {other:?}",

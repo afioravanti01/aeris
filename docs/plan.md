@@ -130,6 +130,7 @@ Module responsibilities (one-liners):
 | M29 | v0.3 — Kwargs on user-defined functions and closures | M25 shipped kwargs for L1/L2 builtins and method receivers but `eval_call`'s user-fn path silently dropped the `name:` labels and bound args by position. M29 reorders kwargs against the closure's parameter list before `invoke_value`, validates duplicates / unknown names / missing positional, and accepts mixed positional+kwargs (positional first, kwargs after) | 1 | M3, M25 | done |
 | M30 | v0.3 — Scenario-port micro-APIs | Seven v0.1 scenarios are being ported to v0.3 under `demo/02_*` … `demo/08_*`. The port surfaced a small set of missing primitives that are pure ergonomics, not new language semantics: `list.map(fn)`, `string.index_of(needle, from?)`, `http.post/put/patch` optional `content_type` (positional or kwarg), `assert_semantic` with a default judge, and the three MinIO bucket ops (`mb`, `bucket_exists`, `list`) as mock-friendly stubs consistent with the existing `minio.get`/`minio.put` shape | 1 | M11, M19, M21, M24 | done (T1–T5 done; T6 done) |
 | M31 | v0.3 — `spawn` single-thread fallback | The thesis (§ 19.1) promises an OS thread per `spawn { … }`; the tree-walk runtime cannot safely cross thread boundaries because `Env` is `Rc<RefCell<…>>`-based and not `Send`. M31 makes `spawn { body }` execute the body inline on the current thread in its own scope, confining `return`/`break`/`continue` to the block so they don't bubble up. `await` is the identity (the inline `spawn` returns `Unit`). A `spawn_inline` trace event records the degradation so the limitation is visible. A real OS-thread scheduler is deferred to a future milestone (requires migrating `Env` to `Arc<Mutex<…>>` or rewriting it around an explicit job queue) | 1 | M3 | done |
+| M33 | v0.3 — `use` is mandatory for every module reference | The runtime accepted `io.println(...)` / `ai.complete(...)` / etc. without a matching `use io` / `use ai` at the top of the file. `language.md § 3.2` already says a `use` is what makes the module path resolvable, but the check was missing. M33 makes the parser record every imported name and the runtime reject `<module>.<op>(...)` when `<module>` is not in scope. Applies uniformly to L1 (`io`, `fs`, `http`, `shell`, `env`, `clock`, `random`, `strings`, `date`, `json`, `yaml`, `net`) and L2 (`ai`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`, `audit`) — independent of the `enforce` mode, since `use` is about identifier scope, not about capability authority | 1 | M1, M3 | done (T1, T2, T4, T5 done; T3 `aeris fmt --add-uses` deferred — the migration was done with a one-off Python script) |
 | M20 | v0.3 — Network listeners (`net.http server` minimal) | `net.http(port: int) -> http_server`, `server.accept() -> http_req`, `req.reply(status:, body:, content_type:)`, blocking single-threaded; concurrent handlers via `spawn { … }`; trace events per accept | 2 | M5 | done (HTTP only — TCP/UDP/`net.resolve` deferred to v0.4) |
 | M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | partial (assert_status / assert_json / assert_semantic done; @example and suite-level setup parser sugar deferred) |
 | M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | deferred (every sub-op is shell-out or external SDK plumbing — out of scope for this batch; current minimal handlers from M11 still ship) |
@@ -507,6 +508,28 @@ scripting language, not a stripped-down systems language.
 | M24.T8 | `value_as_display` unwraps `Result(Ok(v))` → `v`, `Option(Some(v))` → `v`, displays records / lists via the natural JSON encoder; `io.println(Some(7))` prints `7` not `Some(Int(7))` | 6 display-shape fixtures | § 22 | done |
 | M24.T9 | `ai.chat(system: string, dir: string) -> Chat` (M19.T6 reified): walks the directory, loads `*.md \| .txt \| .rst \| .adoc \| .yaml \| .yml`, concatenates with `=== FILE: <path> ===` markers, returns a `Chat` record. `chat.ask(prompt) -> string` calls the backend; `chat.kb_size() -> int` reports the file count. Coexists with the v0.2 `ai.chat(messages)` form | smoke test under mock and CLI backend | § 23 | done |
 | M24.T10 | `language.md § 2.3 / § 2.6 / § 5.4 / § 6.1 / § 8.4.1 / § 22 / § 23 / § 24.1 / Appendix D` updated; `RELEASE.md` records v0.3 surface | docs cross-referenced | — | done |
+
+### 5.27 M33 — Mandatory `use` for module references (1 week)
+
+`language.md § 3.2` already says a `use` declaration is what makes a
+module path resolvable: a body call `io.println(...)` is shorthand
+for the `io` namespace introduced by `use io`. The check was simply
+missing in v0.3: every L1/L2 module was implicitly in scope, so
+`use` was decorative. M33 closes the gap.
+
+The discipline is uniform across `enforce = off | loose | strict` —
+`use` governs identifier scope, not capability authority. Capability
+gating remains the job of `cap` (§ 8.2).
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M33.T1 | Parser extracts the imported names from every `use` clause and stores them on `UseDecl.imported_names: Vec<String>`. Supported forms: `use a, b, c` (bare list), `use x from "path"` (path-source alias), `use orig as alias` (rename), `use "path"` (no name added). `use { x, y } from name` (selective re-export) is acknowledged but does not currently introduce module-level names | 4 fixtures: simple list, `from` path, `as` rename, `"path"` form (must parse) | § 3.2 | done |
+| M33.T2 | Static check rejects `<module>.<op>(...)` when `<module>` is not in any in-scope `use`. Error code `E72 — module '<m>' used without 'use'`. The check runs at the runtime evaluator's module-call dispatch site so it works under every `enforce` mode | 3 positive fixtures (use + call) + 3 negative (missing use → E72) | § 3.2 | done |
+| M33.T3 | `aeris fmt --add-uses` (new flag) — scans the body for every `<module>.<op>` reference, computes the set of L1/L2 modules touched, and prepends a single `use <comma-list>` at the top of the file. Idempotent | golden test: file before/after | § 25.2 | deferred (migration bootstrapped with a one-off Python script; CLI flag is mechanical) |
+| M33.T4 | Migrate every fixture under `aeris-tests/positive/`, `aeris-tests/negative/`, `examples/`, `demo/` to declare the `use` lines it needs. `aeris fmt --add-uses` is used to bootstrap the migration | suite remains green | — | done |
+| M33.T5 | `language.md § 3.2` and `cheatsheet.md § 11.1` updated to state the mandatory-`use` rule explicitly. Exit-code table in § 25.3 gains code 72 | docs cross-referenced | § 3.2 / § 25.3 | done |
+
+---
 
 ### 5.26 M30 — Scenario-port micro-APIs (1 week)
 

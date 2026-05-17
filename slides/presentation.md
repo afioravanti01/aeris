@@ -10,13 +10,27 @@ footer: 'Aeris v0.3 · linguaggio interpretato per operazioni, intelligenza arti
 ---
 
 
-<script type="module">
-  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-  mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose', fontFamily: 'Inter, system-ui, sans-serif' });
-</script>
 <style>
-  .mermaid { background: transparent; margin: 0 auto; }
-  .mermaid svg { max-width: 100%; height: auto; }
+  figure.aeris-figure {
+    margin: 0.4em auto;
+    width: 100%;
+    text-align: center;
+  }
+  figure.aeris-figure svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  /* Inline code on divider slides — readable on navy background. */
+  section.divider code,
+  section.divider p code,
+  section.divider blockquote code,
+  section.divider li code,
+  section.divider h1 code {
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: var(--cream, #F6F3F0) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  }
 </style>
 
 <!-- _class: cover -->
@@ -34,12 +48,12 @@ Linguaggio di programmazione interpretato, pensato per **operazioni di sistema, 
 | # | Parte | Contenuto |
 |---|---|---|
 | **I** | Il contesto e il linguaggio | Il problema che Aeris risolve, a chi serve, come si presenta un programma, perché è adatto a essere scritto e letto da un modello linguistico |
-| **II** | Come gira un programma | I quattro livelli del linguaggio, il flusso di esecuzione, la registrazione delle attività, il file di progetto |
+| **II** | Come gira un programma | I quattro livelli del linguaggio, come funziona un linguaggio interpretato, il flusso di esecuzione, la registrazione delle attività, il sistema di moduli, il file di progetto |
 | **III** | Le capabilities | Il permesso di compiere effetti esterni come valore di tipo, regole di restringimento, come il linguaggio lega le chiamate ai permessi |
 | **IV** | Contratti, intenzioni, schemi | Condizioni prima e dopo una funzione, il blocco `intent` obbligatorio sulle scritture, schemi `model@vN` validati ai confini |
 | **V** | Operazioni reversibili e agenti | `saga` con compensazione obbligatoria, chiavi di idempotenza automatiche, agenti AI singoli e in rete |
 | **VI** | Regole di runtime, rifiuti, limiti | Le `policy`, le scelte che il linguaggio rifiuta per principio, i limiti onesti del modello |
-| **VII** | Ergonomia di v0.3 e un esempio reale | Le novità di v0.3, un sistema di triage SRE end-to-end, lo stato di sviluppo |
+| **VII** | Ergonomia di v0.3 e un esempio reale | Le novità di v0.3, pattern di automazione tipici, test integrati, un sistema di triage SRE end-to-end, lo stato di sviluppo |
 
 ---
 
@@ -83,16 +97,30 @@ Le difese che oggi sono in uso coprono solo una parte del problema:
 
 **Il linguaggio è organizzato in quattro livelli**
 
-<div class="mermaid">
-flowchart TB
-  L1["<b>Livello 1 — Sintassi</b><br/>variabili, tipi, controllo di flusso"]
-  L2["<b>Livello 2 — Semantica verificabile</b><br/>capabilities, contratti, intent"]
-  L3["<b>Livello 3 — Operazioni reversibili</b><br/>saga con do / undo obbligatori"]
-  L4["<b>Livello 4 — Coordinamento di agenti AI</b><br/>agent, agent_net tipato"]
-  L1 --> L2 --> L3 --> L4
-  classDef base fill:#F6F3F0,stroke:#1C2035,stroke-width:1px,color:#0E1020;
-  class L1,L2,L3,L4 base;
-</div>
+<figure class="aeris-figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360" role="img" aria-label="I quattro livelli del linguaggio impilati: sintassi, semantica verificabile, operazioni reversibili, coordinamento di agenti AI">
+<defs>
+<marker id="arrL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#1C2035"/></marker>
+</defs>
+<g font-family="Inter, system-ui, sans-serif">
+<rect x="20" y="15" width="560" height="70" rx="10" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="40" y="45" font-size="22" font-weight="700" fill="#0E1020">Livello 1 — Sintassi</text>
+<text x="40" y="72" font-size="16" fill="#5F6470">variabili, tipi, controllo di flusso</text>
+<line x1="300" y1="85" x2="300" y2="100" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrL)"/>
+<rect x="20" y="100" width="560" height="70" rx="10" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="40" y="130" font-size="22" font-weight="700" fill="#0E1020">Livello 2 — Semantica verificabile</text>
+<text x="40" y="157" font-size="16" fill="#5F6470">capabilities, contratti, intent</text>
+<line x1="300" y1="170" x2="300" y2="185" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrL)"/>
+<rect x="20" y="185" width="560" height="70" rx="10" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="40" y="215" font-size="22" font-weight="700" fill="#0E1020">Livello 3 — Operazioni reversibili</text>
+<text x="40" y="242" font-size="16" fill="#5F6470">saga con passi do e undo obbligatori</text>
+<line x1="300" y1="255" x2="300" y2="270" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrL)"/>
+<rect x="20" y="270" width="560" height="70" rx="10" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="40" y="300" font-size="22" font-weight="700" fill="#0E1020">Livello 4 — Coordinamento di agenti AI</text>
+<text x="40" y="327" font-size="16" fill="#5F6470">agent, agent_net tipizzato</text>
+</g>
+</svg>
+</figure>
 
 Ogni livello *si compone* con quello sotto. I livelli si attivano a richiesta: uno script da poche righe vive nel solo livello 1, una pipeline che si ripristina da sola usa i livelli 1, 2 e 3, un sistema multi-agente coordinato li usa tutti e quattro.
 
@@ -146,7 +174,7 @@ Tre profili trovano nel linguaggio strumenti già pronti, perché Aeris porta de
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 // Un programma che legge un file di log, fa classificare
 // ogni riga da un modello, e annota nel registro di
 // audit le righe segnalate come critiche.
@@ -200,66 +228,54 @@ io.println("triage completato — {ai.usage().calls} chiamate al modello")
 <div class="columns">
 <div class="column">
 
-```aeris
-// Tre forme di legame: let immutabile (predefinito),
-// var mutabile, const costante a livello del file.
+```go
+// let immutabile, var mutabile, const a livello del file.
 let titolo      = "report"
 var contatore   = 0
 const MAX_ITEMS = 100
 
-// Tipi inferiti; le annotazioni si scrivono ai confini
-// (firme di funzioni esposte, dati in arrivo).
+// Tipi inferiti; annotazioni opzionali ai confini.
 let importo: decimal = 12.50
 
-// if è un'espressione: produce il valore del ramo scelto.
+// if è un'espressione.
 let etichetta = if importo > 100.0 { "grande" } else { "piccolo" }
 
-// Cicli su intervalli, mappe e altre iterabili.
-for i in 0..contatore { io.println("{i}: {titolo}") }
-
-// I tipi enumerazione hanno varianti che possono portare
-// dati: senza dati, in posizione, o con campi nominali.
+// Enumerazioni con varianti tipizzate.
 enum Stato {
   Attivo,
   Bannato { motivo: string },
   Sospeso,
 }
 
-let s = stato_corrente()
-
-// match è un'espressione. I pattern possono estrarre i
-// campi nominali di un costruttore; le guardie filtrano
-// ulteriormente con una condizione (`if`).
-let messaggio = match s {
+// match è un'espressione, con destrutturazione e guardie.
+let messaggio = match stato_corrente() {
   Bannato { motivo } -> "bloccato: {motivo}",
   Attivo             -> "ok",
   Sospeso            -> "in attesa",
 }
 
-// Gli errori sono valori. ? propaga al chiamante, ??
-// sostituisce un'assenza (None) o un errore (Err).
+// Errori come valori: ? propaga, ?? sostituisce None / Err.
 let nick = cerca_soprannome() ?? "anonimo"
 let dati = fs.read_file(percorso)?
 
-// Le funzioni sono valori di prima classe (closure).
-// I tipi nativi (list, string, map) hanno metodi.
-let maiuscoli = ["alice", "bob"].map(fn(n) { strings.upper(n) })
+// Closure di prima classe; metodi sui tipi nativi.
+let maiuscoli = ["a", "b"].map(fn(n) { strings.upper(n) })
 ```
 
 </div>
 <div class="column compact">
 
-**Quello che ci si aspetta da un linguaggio moderno**
+**Una sintassi familiare**
 
-I legami fra nome e valore sono di tre tipi: `let` (immutabile, è il caso normale), `var` (riassegnabile, all'interno di una funzione), `const` (costante a livello del file). I tipi vengono inferiti automaticamente dal compilatore; le annotazioni di tipo restano utili ai confini di interfaccia.
+I legami sono di tre tipi: `let` (immutabile, predefinito), `var` (riassegnabile dentro una funzione), `const` (costante a livello del file). I tipi sono inferiti; le annotazioni si scrivono ai confini di interfaccia.
 
-Sia `if` sia `match` sono **espressioni**: il loro valore è il valore del ramo scelto. Si possono usare ovunque sia ammesso un valore, anche a destra di un `let`. Il `match` accetta pattern su letterali, costruttori di enumerazione e record (estraendo direttamente i campi nominali), oltre a guardie introdotte con `if`.
+`if` e `match` sono **espressioni**: il loro valore è quello del ramo scelto. Il `match` accetta letterali, costruttori di enum e record (con destrutturazione dei campi), e guardie introdotte da `if`.
 
-Gli errori sono **valori restituiti**, non eccezioni. Una funzione il cui esito può fallire restituisce un valore di tipo `result<T>` (cioè `Ok(t)` oppure `Err(e)`). L'operatore `?` posto dopo una chiamata propaga l'errore al chiamante; l'operatore `??` fornisce un valore di sostituzione quando l'espressione di sinistra produce `None` o `Err`.
+Gli errori sono **valori restituiti**, non eccezioni. Una funzione che può fallire restituisce `result<T>` (cioè `Ok(t)` o `Err(e)`). L'operatore `?` propaga l'errore al chiamante; `??` fornisce un valore di sostituzione su `None` o `Err`.
 
-Le funzioni (incluse quelle anonime, le *closure*) sono valori di prima classe. I tipi nativi `list`, `string`, `map` espongono i metodi di uso comune: `.map`, `.contains`, `.slice`, `.join`, `.split`, `.trim` e simili.
+Le funzioni (incluse le closure) sono valori di prima classe. I tipi nativi `list`, `string`, `map` espongono i metodi comuni: `.map`, `.contains`, `.slice`, `.join`, `.split`, `.trim`.
 
-> Sintassi familiare a chi conosce Rust, Swift o Kotlin. Tutta la novità del linguaggio è concentrata nei costrutti dei livelli superiori: `cap`, `intent`, `saga`, `agent`, `policy`.
+> La novità del linguaggio è altrove: nei costrutti `cap`, `intent`, `saga`, `agent`, `policy`.
 
 </div>
 </div>
@@ -326,25 +342,114 @@ Ogni chiamata al modello viene registrata nel file di traccia come un evento JSO
 
 ---
 
+<!-- _class: tight -->
+
+# Come gira un programma Aeris dall'interno
+
+<div class="columns">
+<div class="column compact">
+
+**Aeris è un linguaggio *interpretato***
+
+Non viene compilato in un binario eseguibile: il programma sorgente viene letto, trasformato in una struttura dati in memoria, e l'eseguibile `aeris` la visita per eseguire il programma. Le quattro fasi sono:
+
+**1. Analisi lessicale (*lexer*).** Legge i byte del file `.aer` e li raggruppa in *token* tipizzati: parole chiave, identificatori, letterali, simboli di punteggiatura. Ogni token porta con sé la posizione nel sorgente. Un carattere non riconosciuto interrompe la lettura.
+
+**2. Analisi sintattica (*parser*).** Prende il flusso di token e costruisce l'**albero di sintassi astratta** (AST, *Abstract Syntax Tree*): un albero in cui ogni nodo rappresenta una costruzione del linguaggio — una `let`, una chiamata, una `saga`, un `agent`. Un programma è la lista dei nodi al livello del file.
+
+**3. Controllo statico.** Una visita sull'AST che verifica le proprietà strutturali del programma: i permessi `cap` dichiarati nelle firme combaciano con le chiamate effettive, i blocchi `intent` sono presenti sulle scritture, gli schemi `model` portano la versione `@vN` sui confini di fiducia. Un errore qui termina prima di eseguire una riga.
+
+**4. Interprete.** Visita l'AST nodo per nodo (*tree walk*) e valuta ogni espressione. Le funzioni sono valori; chiamarle vuol dire creare un ambiente nuovo e visitare ricorsivamente l'albero del loro corpo.
+
+</div>
+<div class="column">
+
+```go
+// L'interprete è (di fatto) una funzione che cammina
+// sull'AST. Una sola funzione ricorsiva visita ogni
+// nodo, e per ciascun tipo di nodo decide cosa fare.
+
+fn walk(nodo: Nodo, env: &mut Env) -> Valore {
+  match nodo {
+    Let(nome, espressione) => {
+      let v = walk(espressione, env);
+      env.set(nome, v);
+    },
+
+    If(condizione, allora, altrimenti) =>
+      if walk(condizione, env).is_truthy() {
+        walk(allora, env)
+      } else {
+        walk(altrimenti, env)
+      },
+
+    Chiamata(funzione, argomenti) => {
+      let valori = argomenti
+        .map(|a| walk(a, env));
+      applica(funzione, valori, env)
+    },
+
+    Blocco(istruzioni) =>
+      istruzioni.for_each(|s| walk(s, env)),
+
+    // ...un ramo per ogni costrutto del linguaggio.
+  }
+}
+```
+
+> L'AST **è** il programma. Non c'è una fase di compilazione che produce bytecode, né una rappresentazione intermedia.
+
+</div>
+</div>
+
+---
+
 # Dal sorgente alla traccia
 
 <div class="columns">
 <div class="column">
 
-<div class="mermaid">
-flowchart LR
-  A["sorgente<br/><code>.aer</code>"] --> B["analisi<br/>lessicale"]
-  B --> C["analisi<br/>sintattica"]
-  C --> D["controllo<br/>statico"]
-  D --> E["esecuzione<br/>(interprete)"]
-  E --> F["traccia<br/><code>.jsonl</code>"]
-  D -. "se errore" .-> X(["uscita con<br/>codice ≠ 0"])
-  E -. "se errore" .-> X
-  classDef step fill:#F6F3F0,stroke:#1C2035,stroke-width:1px,color:#0E1020;
-  classDef err fill:#FF7E51,stroke:#D14600,color:#0E1020;
-  class A,B,C,D,E,F step;
-  class X err;
-</div>
+<figure class="aeris-figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 290" role="img" aria-label="Flusso di esecuzione: sorgente, analisi lessicale, analisi sintattica, controllo statico, esecuzione, traccia. Uscita anticipata con codice diverso da zero in caso di errore.">
+<defs>
+<marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#1C2035"/></marker>
+<marker id="arrPerr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#D14600"/></marker>
+</defs>
+<g font-family="Inter, system-ui, sans-serif">
+<g transform="translate(20, 40)">
+<rect x="0" y="0" width="120" height="70" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="60" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">sorgente</text>
+<text x="60" y="60" text-anchor="middle" font-size="15" fill="#5F6470" font-family="JetBrains Mono, monospace">.aer</text>
+<line x1="121" y1="35" x2="131" y2="35" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrP)"/>
+<rect x="132" y="0" width="120" height="70" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="192" y="32" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">analisi</text>
+<text x="192" y="56" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">lessicale</text>
+<line x1="253" y1="35" x2="263" y2="35" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrP)"/>
+<rect x="264" y="0" width="120" height="70" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="324" y="32" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">analisi</text>
+<text x="324" y="56" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">sintattica</text>
+<line x1="385" y1="35" x2="395" y2="35" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrP)"/>
+<rect x="396" y="0" width="120" height="70" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="456" y="32" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">controllo</text>
+<text x="456" y="56" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">statico</text>
+<line x1="517" y1="35" x2="527" y2="35" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrP)"/>
+<rect x="528" y="0" width="120" height="70" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="588" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">esecuzione</text>
+<text x="588" y="60" text-anchor="middle" font-size="14" fill="#5F6470">(interprete)</text>
+<line x1="649" y1="35" x2="659" y2="35" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrP)"/>
+<rect x="660" y="0" width="120" height="70" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="720" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">traccia</text>
+<text x="720" y="60" text-anchor="middle" font-size="15" fill="#5F6470" font-family="JetBrains Mono, monospace">.jsonl</text>
+</g>
+<text x="375" y="148" font-size="16" font-style="italic" fill="#D14600">se errore</text>
+<path d="M 476 110 L 476 175 L 560 175 L 560 200" fill="none" stroke="#D14600" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrPerr)"/>
+<path d="M 608 110 L 608 175 L 680 175 L 680 200" fill="none" stroke="#D14600" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrPerr)"/>
+<rect x="510" y="205" width="220" height="60" rx="8" fill="#FF7E51" stroke="#D14600" stroke-width="2"/>
+<text x="620" y="232" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">uscita con</text>
+<text x="620" y="256" text-anchor="middle" font-size="19" font-weight="700" fill="#0E1020">codice ≠ 0</text>
+</g>
+</svg>
+</figure>
 
 L'esecuzione procede in cinque fasi: il **lexer** divide il sorgente in token; il **parser** li ricompone in un albero sintattico; il **controllore statico** verifica le proprietà strutturali (permessi dichiarati, schemi versionati, blocchi `intent` presenti sulle scritture); l'**interprete** visita l'albero nodo per nodo; ogni evento significativo finisce in una riga del **file di traccia**.
 
@@ -424,6 +529,53 @@ L'opzione `--live` lascia che HTTP e modello vengano richiamati realmente, utile
 
 ---
 
+<!-- _class: tight -->
+
+# Il sistema di moduli a tre livelli
+
+<div class="columns">
+<div class="column">
+
+```go
+// Livello 1 — Libreria standard, compilata dentro al binario.
+use io, json, http, fs, shell, audit, strings, date, yaml
+
+// Livello 2 — Gestori nativi per dominio specifico, anch'essi
+// dentro al binario, ma con un proprio tipo di permesso.
+use ai, kube
+
+// Livello 3 — Librerie esterne, scritte in Aeris, distribuite
+// come repository su GitHub con impronta crittografica
+// obbligatoria nel file di progetto.
+use deploy from "github.com/acmecorp/aeris-devops" deploy@"1.2.0"
+use { rollout, status } from deploy        // ri-esportazione selettiva
+
+// Livello 3 (variante locale) — file Aeris sullo stesso disco.
+use "./lib/utilities.aer"
+use utilities from "./lib/utilities.aer"   // alias di spazio dei nomi
+```
+
+</div>
+<div class="column compact">
+
+**Tre livelli, una sola parola chiave**
+
+Tutte le importazioni si scrivono con la parola chiave `use`. Il livello viene dedotto dalla forma.
+
+**Livello 1 — Libreria standard.** Sono i moduli "fondamentali" del linguaggio: `io` (terminale), `fs` (file system), `http` (chiamate HTTP), `json` e `yaml` (decodifica/codifica), `strings`, `date`, `shell`, `audit`. Sono compilati dentro al binario `aeris` — l'unico eseguibile statico — e diventano visibili a richiesta tramite `use`.
+
+**Livello 2 — Gestori nativi per dominio specifico.** Anch'essi dentro al binario, ma con un tipo di permesso dedicato e una API più strutturata. In v0.3 sono `ai` (chiamate ai modelli linguistici) e `kube` (operazioni su Kubernetes). I loro effetti vengono registrati nella traccia con campi specifici del dominio.
+
+**Livello 3 — Librerie esterne in Aeris.** Sono file `.aer` scritti dagli utenti e distribuiti tramite GitHub oppure presenti sul file system locale. Ogni libreria esterna deve essere registrata nel `aeris.toml [deps]` con la sua **impronta crittografica** (`blake3:...`): il mismatch fra ciò che si scarica e ciò che è registrato è un errore fatale prima di iniziare l'esecuzione. Non esistono riferimenti mobili (`latest`, `*`, tag Git riassegnabili).
+
+> Le librerie dei livelli 1 e 2 non aggiungono permessi al programma — è il `cap` dichiarato in firma che li abilita. L'`use` rende soltanto i nomi visibili nel file.
+
+</div>
+</div>
+
+---
+<!-- _class: tight -->
+
 # Il file di progetto come riferimento unico
 
 <div class="columns">
@@ -434,29 +586,25 @@ L'opzione `--live` lascia che HTTP e modello vengano richiamati realmente, utile
 name  = "pipeline-fatture"
 aeris = "0.3.0"
 
-# Dipendenze esterne: nome locale, sorgente, versione,
-# impronta crittografica del contenuto.
+# Dipendenze esterne con impronta crittografica.
 [deps]
 deploy = { source = "github.com/acmecorp/aeris-devops",
-           version = "1.2.0",
-           hash    = "blake3:..." }
+           version = "1.2.0", hash = "blake3:..." }
 
-# Permessi consentiti al programma nel suo insieme.
-# Modalità rigida: ogni funzione deve dichiarare i propri.
+# Permessi consentiti al programma (tetto runtime).
 [caps]
 enforce         = "strict"
 http.allow      = ["api.acme.com"]
 fs.allow_write  = ["./out/**"]
-ai.models       = ["claude-opus-4-7", "claude-haiku-4-5"]
+ai.models       = ["claude-opus-4-7"]
 
-# Come raggiungere il modello: chiamata HTTP a un'API
-# oppure invocazione di un sottoprocesso da riga di comando.
+# Come raggiungere il modello.
 [ai.backend]
 kind = "http"
 url  = "https://api.anthropic.com"
 auth = "env:ANTHROPIC_API_KEY"
 
-# Regole di runtime attive nel progetto (slide più avanti).
+# Regole di runtime attive nel progetto.
 [policies]
 active = ["egress_produzione"]
 ```
@@ -489,13 +637,14 @@ Il file di progetto raccoglie in un solo posto informazioni che oggi vivono dist
 > Il permesso di compiere un effetto esterno è un **valore** passato come parametro. La firma della funzione è il contratto. Non esiste uno spazio dei nomi globale da cui poter chiamare funzioni con effetti; non esistono effetti collaterali nascosti.
 
 ---
+<!-- _class: tight -->
 
 # Una capability è un valore di tipo `cap`
 
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 // Funzione pura: senza il parametro cap non può compiere
 // alcun effetto esterno (rete, file, modello).
 fn totale(items: list<Fattura@v1>) -> decimal {
@@ -538,12 +687,14 @@ La firma di `chiudi_lotto` dice **tutto**: questa funzione può fare `http.post`
 
 ---
 
+<!-- _class: tight -->
+
 # Restringere la capability quando si passa al chiamato
 
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 fn chiudi_lotto(items, cap: cap[
   http.post     @ ["api.acme.com", "api.stripe.com"],
   fs.write_file @ ["./out/**"],
@@ -582,12 +733,14 @@ Sono verificate dal controllore statico, prima che il programma giri.
 
 ---
 
+<!-- _class: tight -->
+
 # Le chiamate con effetti sono legate al `cap` ricevuto
 
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 use http       // rende il modulo http visibile nel file
 
 // FALLISCE: in questa funzione non esiste alcun cap
@@ -623,6 +776,8 @@ Quando in un programma compare `http.get(...)`, non si sta invocando una funzion
 </div>
 
 ---
+
+<!-- _class: tight -->
 
 # La firma delle funzioni `pub` viene congelata in un file di blocco
 
@@ -683,7 +838,7 @@ Quando qualcuno (umano o modello) modifica una funzione esportata aggiungendo un
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 fn paga(
   importo: decimal,
   conto:   string,
@@ -733,24 +888,24 @@ La violazione produce un errore strutturale del tipo `ContractViolation`. Il run
 <div class="columns">
 <div class="column">
 
-```aeris
+```rust
 // FALLISCE al controllo statico:
 // "manca il blocco intent intorno a una scrittura esterna"
 fn ruota_certificato(
   cap: cap[fs.write_file @ ["/etc/ssl/**"]],
 ) -> result<unit> {
-  fs.write_file("/etc/ssl/new.pem", nuovo_pem())?
+  fs.write_file("/etc/ssl/new.pem", nuovo_pem())
 }
 ```
 
-```aeris
+```rust
 // CORRETTO: il blocco intent dichiara lo scopo della
 // scrittura. La descrizione finisce nella traccia.
 fn ruota_certificato(
   cap: cap[fs.write_file @ ["/etc/ssl/**"]],
 ) -> result<unit> {
   intent "ruota il certificato TLS prima dello scadere a 30 giorni" {
-    fs.write_file("/etc/ssl/new.pem", nuovo_pem())?
+    fs.write_file("/etc/ssl/new.pem", nuovo_pem())
   }
 }
 ```
@@ -784,7 +939,7 @@ Il runtime emette tre eventi attorno al blocco:
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 model Fattura@v1 {
   id:       uuid
   importo:  decimal where importo > 0
@@ -846,7 +1001,7 @@ fn ingerisci(raw: string) -> result<Fattura@v1> {
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 saga chiudi_lotto(
   lotto: list<Fattura@v1>,
   cap:   cap[
@@ -946,7 +1101,7 @@ A seconda del protocollo, il runtime la inserisce nel campo che il sistema remot
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 model Fattura@v1   { id: uuid, importo: decimal where importo > 0 }
 model Categoria@v1 { tipo: string }
 
@@ -1002,7 +1157,7 @@ Un `agent` è un'unità di chiamata al modello linguistico promossa a costrutto 
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 agent_net pipeline_fatture {
   intent "estrai → classifica → smista la fattura"
 
@@ -1016,16 +1171,32 @@ agent_net pipeline_fatture {
 }
 ```
 
-<div class="mermaid">
-flowchart LR
-  E[estrai] --> C[classifica]
-  C --> S[smista]
-  C --> A[audit]
-  C --> AR[archivio]
-  A --> N[avvisa_finanza]
-  classDef ag fill:#F6F3F0,stroke:#1C2035,stroke-width:1px,color:#0E1020;
-  class E,C,S,A,AR,N ag;
-</div>
+<figure class="aeris-figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 280" role="img" aria-label="Rete di agenti: estrai, classifica, smista, audit, archivio, avvisa finanza. Classifica si dirama su tre rami.">
+<defs>
+<marker id="arrN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#1C2035"/></marker>
+</defs>
+<g font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#0E1020">
+<rect x="20" y="115" width="110" height="50" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="75" y="147" text-anchor="middle">estrai</text>
+<rect x="190" y="115" width="130" height="50" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="255" y="147" text-anchor="middle">classifica</text>
+<rect x="380" y="30" width="110" height="50" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="435" y="62" text-anchor="middle">smista</text>
+<rect x="380" y="115" width="110" height="50" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="435" y="147" text-anchor="middle">audit</text>
+<rect x="380" y="200" width="110" height="50" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="435" y="232" text-anchor="middle">archivio</text>
+<rect x="540" y="115" width="170" height="50" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="625" y="147" text-anchor="middle">avvisa_finanza</text>
+<line x1="131" y1="140" x2="188" y2="140" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrN)"/>
+<path d="M 321 140 L 350 140 L 350 55 L 378 55" fill="none" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrN)"/>
+<line x1="321" y1="140" x2="378" y2="140" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrN)"/>
+<path d="M 321 140 L 350 140 L 350 225 L 378 225" fill="none" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrN)"/>
+<line x1="491" y1="140" x2="538" y2="140" stroke="#1C2035" stroke-width="2.5" marker-end="url(#arrN)"/>
+</g>
+</svg>
+</figure>
 
 </div>
 <div class="column compact">
@@ -1062,7 +1233,7 @@ Una `agent_net` può comparire come nodo di un'altra `agent_net`, permettendo di
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 policy egress_produzione {
   match: http.*
   deny:  url.host not in ["api.acme.com", "api.stripe.com"]
@@ -1177,34 +1348,26 @@ Ad ogni chiamata che corrisponde a `match:`, il runtime valuta la regola. Una vi
 <div class="columns">
 <div class="column">
 
-```aeris
-// catch — gestore in linea; il valore del blocco è
-// l'alternativa restituita in caso di errore.
+```go
+// catch — gestore in linea; il blocco fornisce il fallback.
 let dati = fs.read_file("config.json") catch err {
-  io.eprintln("configurazione mancante: {err.message}")
-  b"{}"
+  io.eprintln("config mancante: {err.message}"); b"{}"
 }
 
-// retry — riesegue il blocco se l'ultimo esito è Err,
-// con pausa configurata fra un tentativo e l'altro.
-let risposta = retry 5, delay: 2s {
+// retry — riesegue su Err, con pausa fra i tentativi.
+let r = retry 5, delay: 2s {
   http.get("https://servizio-instabile/health")
 }
 
-// timeout — limite massimo sul tempo a parete; non
-// interrompe a metà di un'istruzione.
-let r = timeout 30s {
-  chiamata_lunga()
-}
+// timeout — limite sul tempo a parete; non interrompe a metà.
+let r = timeout 30s { chiamata_lunga() }
 
-// defer — pulizia che gira a ogni uscita dalla funzione,
-// in ordine inverso rispetto alla dichiarazione.
+// defer — pulizia in ordine inverso, a ogni uscita.
 fn compila(cap: cap[fs.write_file @ ["./build/**"]]) -> result<unit> {
   let tmp = fs.create_temp()?
   defer fs.remove(tmp)
-  intent "compila l'artefatto in {tmp}" {
-    fs.write_file("./build/out.bin", compila_da(tmp))?
-    Ok(())
+  intent "compila l'artefatto" {
+    fs.write_file("./build/out.bin", compila_da(tmp))?; Ok(())
   }
 }
 
@@ -1218,19 +1381,76 @@ every 5m {
 </div>
 <div class="column compact">
 
-**Pattern temporali ricorrenti, promossi a costrutti del linguaggio**
+**Pattern temporali come costrutti del linguaggio**
 
-`catch` è un gestore inserito in linea sull'espressione. Quando il valore prodotto è un errore (`Err(e)`), il blocco di recupero viene eseguito con `e` legato al nome dichiarato (qui `err`), e il suo valore prende il posto dell'errore. Si compone con `?`: il blocco di recupero stesso può a sua volta propagare un errore.
+`catch` è un gestore inserito in linea sull'espressione. Quando il valore è `Err(e)`, l'errore viene legato al nome dichiarato e il blocco di recupero ne fornisce il valore di sostituzione. Si compone con `?`.
 
-`retry N, delay: D` riesegue il blocco se il valore restituito è `Err`, fino a `N` tentativi totali, attendendo `D` fra un tentativo e l'altro. Il valore dell'espressione è il risultato dell'ultimo tentativo, riuscito o meno.
+`retry N, delay: D` riesegue il blocco se restituisce `Err`, fino a `N` tentativi totali con pausa `D`. Il valore finale è l'esito dell'ultimo tentativo.
 
-`timeout D` misura il tempo a parete (*wall clock*) e produce `Err(err.user("timeout"))` se il blocco supera la soglia. Non interrompe il corpo a metà istruzione: l'interprete a visita d'albero (*tree-walking*) è onesto sui suoi limiti, il controllo del tempo avviene a fine istruzione.
+`timeout D` misura il tempo a parete (*wall clock*) e produce `Err(err.user("timeout"))` se il blocco supera la soglia. Non interrompe a metà istruzione: il controllo avviene a fine istruzione.
 
-`defer stmt` programma una pulizia che verrà eseguita al ritorno della funzione, in ordine inverso (l'ultima dichiarata gira per prima). Viene eseguita su **ogni** via di uscita: ritorno normale, propagazione di errore con `?`, violazione di contratto. È il posto giusto per chiudere file, cancellare temporanei, rilasciare lock.
+`defer stmt` programma una pulizia che gira al ritorno della funzione, in ordine inverso. Gira su **ogni** via di uscita: ritorno normale, propagazione con `?`, violazione di contratto.
 
-`every D` esegue il blocco, attende `D`, e lo riesegue. `break` esce dal ciclo, `continue` salta direttamente al prossimo intervallo. La prima iterazione parte subito.
+`every D` esegue il blocco, attende `D`, lo riesegue. `break` esce, `continue` salta al prossimo intervallo.
 
-> Tutti e cinque i costrutti generano eventi nel file di traccia: numero di tentativi, durate, esiti, ogni `defer` eseguito. Per fare debug non servono `println` aggiuntivi.
+> Tutti e cinque emettono eventi nel file di traccia: tentativi, durate, esiti, `defer` eseguiti.
+
+</div>
+</div>
+
+---
+
+<!-- _class: tight -->
+
+# Pattern di automazione tipici
+
+<div class="columns">
+<div class="column">
+
+```go
+// 1 — Deploy con ritentativo, timeout, e pulizia garantita.
+fn deploy(versione: string, cap: cap[shell.exec @ ["kubectl"]]) -> result<unit> {
+  let tmp = fs.create_temp()?
+  defer fs.remove(tmp)
+  intent "deploy della versione {versione} in produzione" {
+    let r = retry 3, delay: 5s {
+      timeout 60s { shell.exec("kubectl apply -f manifest.yaml") }
+    }
+    if !r.ok { return Err(error("deploy fallito dopo 3 tentativi")) }
+    Ok(())
+  }
+}
+
+// 2 — Loop di monitoraggio periodico.
+every 5m {
+  let h = http.get("https://api.acme.com/health")
+  if !h.ok {
+    audit.event("api.giu", { stato: h.status, ora: clock.now() })
+  }
+}
+
+// 3 — Rotazione di un segreto con scopo dichiarato.
+fn ruota_token(cap: cap[fs.write_file @ ["/etc/secrets/**"], audit.event]) -> result<unit> {
+  intent "ruota il token API prima della scadenza a 30 giorni" {
+    fs.write_file("/etc/secrets/api.token", genera_token())?
+    audit.event("token.ruotato", { ora: clock.now() })
+    Ok(())
+  }
+}
+```
+
+</div>
+<div class="column compact">
+
+**Tre automazioni operative minime, costruite con i costrutti già visti**
+
+**1. Deploy con compensazione e ritentativi.** Il blocco `intent` dichiara lo scopo della scrittura (obbligatorio in modalità rigida). La combinazione `retry 3, delay: 5s { timeout 60s { ... } }` ripete fino a tre volte la chiamata `kubectl apply`, abbandonando se ogni singolo tentativo supera il minuto. Il `defer` rimuove il file temporaneo su qualsiasi via d'uscita: ritorno normale, errore, propagazione con `?`. Niente *finally* da ricordare; la pulizia è dichiarata accanto alla creazione della risorsa.
+
+**2. Loop di monitoraggio periodico.** L'istruzione `every 5m { ... }` esegue il blocco ogni cinque minuti. Quando il health check fallisce, `audit.event` lascia traccia con il timestamp dell'orologio. Non serve uno scheduler esterno (`cron`, `systemd timer`, Airflow): il loop è parte del programma, e di conseguenza è osservabile nel file di traccia e rigiocabile con `aeris replay`.
+
+**3. Rotazione di un segreto.** L'unica scrittura della funzione è racchiusa in un `intent` con una descrizione che finisce in ogni evento della traccia. Una revisione che modifica la rotazione del segreto vede subito il `intent` come prima cosa.
+
+> Tutti e tre i pattern lasciano traccia rigiocabile, anche quando l'esecuzione fallisce. È la stessa scelta di base che vale per `saga` e `agent_net`: niente automazione "muta" verso il mondo esterno.
 
 </div>
 </div>
@@ -1244,41 +1464,36 @@ every 5m {
 <div class="columns">
 <div class="column">
 
-```aeris
-// Chiamata diretta al modello: prende una stringa,
-// restituisce una stringa.
+```go
+// Chiamata diretta al modello.
 let risposta = ai.complete("Analizza: {log}")
 
-// Scelta vincolata: la risposta deve essere uno dei
-// valori elencati in choices, altrimenti il runtime
-// ritenta e infine restituisce Err(err.llm(...)).
+// Scelta vincolata fra valori dichiarati.
 let azione = ai.decide(
   prompt:  "CPU al 95%. Cosa fare?",
   choices: ["scala_su", "riavvia", "avvisa", "ignora"],
   retries: 3,
 )?
 
-// Conversazione multi-turno, con compattazione
-// automatica della cronologia oltre i 40 messaggi.
-let s          = ai.session(
-  system: "Sei un assistente per l'affidabilità di sistema.",
+// Conversazione multi-turno (compattazione auto a 40 msg).
+let s        = ai.session(
+  system: "Sei un assistente per l'affidabilità.",
   model:  "claude-haiku-4-5",
 )
-let (s2, a)    = ai.session_ask(s,  "Analizza: {log}")
-let (s3, b)    = ai.session_ask(s2, "Qual è la causa principale?")
+let (s2, a)  = ai.session_ask(s,  "Analizza: {log}")
+let (s3, b)  = ai.session_ask(s2, "Qual è la causa?")
 
-// Chatbot costruito su una cartella di documentazione.
-// La cartella viene caricata all'avvio nel prompt di sistema.
+// Chatbot su una cartella di documentazione.
 let chat = ai.chat(
-  "Rispondi solo usando la base di conoscenza fornita.",
+  "Rispondi solo dalla base di conoscenza.",
   "./docs",
 )
-io.println("base di conoscenza: {chat.kb_size()} file")
+io.println("{chat.kb_size()} file caricati")
 io.println(chat.ask("come funzionano le capability?"))
 
-// Contatori dell'intero processo: token, costo, chiamate.
+// Contatori dell'intero processo.
 let u = ai.usage()
-io.println("speso: ${u.cost_usd} in {u.calls} chiamate")
+io.println("speso ${u.cost_usd} in {u.calls} chiamate")
 ```
 
 </div>
@@ -1286,18 +1501,71 @@ io.println("speso: ${u.cost_usd} in {u.calls} chiamate")
 
 **Sei funzioni per i casi d'uso più frequenti**
 
-- **`ai.complete(prompt)`** — invio diretto al modello. È la primitiva su cui sono costruite tutte le altre funzioni del modulo.
-- **`ai.decide(prompt, choices, retries?)`** — scelta vincolata. La risposta del modello deve coincidere con uno dei valori dichiarati in `choices`; in caso contrario il runtime ritenta fino a `retries` volte, poi produce un `Err(err.llm(...))` che può essere propagato con `?`.
-- **`ai.session` e `ai.session_ask`** — conversazione multi-turno. La sessione accumula la cronologia dei messaggi; superati i quaranta messaggi viene compattata automaticamente al riassunto degli ultimi venti, in modo da contenere la lunghezza del prompt.
-- **`ai.chat(system, dir)`** — chatbot su una cartella di documenti (markdown, testo, yaml). I documenti vengono concatenati nel prompt di sistema come *base di conoscenza* fissa. Il valore restituito ha i metodi `.ask(prompt)` e `.kb_size()`.
-- **`ai.usage()`** — contatori dell'intero processo: token consumati, costo accumulato in dollari, numero di chiamate.
-- **`ai.network(max_rounds)`** — costruttore programmatico di una rete di agenti coordinata via instradamento testuale (il fratello più leggero di `agent_net`).
+- **`ai.complete(prompt)`** — invio diretto al modello. È la primitiva su cui poggiano le altre funzioni.
+- **`ai.decide(prompt, choices, retries?)`** — scelta vincolata. La risposta deve cadere in `choices`; in caso contrario il runtime ritenta, poi produce `Err(err.llm(...))`.
+- **`ai.session` / `ai.session_ask`** — conversazione multi-turno. Oltre i quaranta messaggi la cronologia viene compattata al riassunto degli ultimi venti.
+- **`ai.chat(system, dir)`** — chatbot su una cartella di documenti (markdown, testo, yaml). Restituisce un valore con `.ask(p)` e `.kb_size()`.
+- **`ai.usage()`** — contatori di processo: token, costo, chiamate.
+- **`ai.network(max_rounds)`** — costruttore programmatico di una rete di agenti.
 
-**Il backend del modello è configurabile, niente librerie collegate**
+**Backend configurabile, nessuna libreria collegata**
 
-Il modello viene raggiunto in due modi, a scelta nel file di progetto `aeris.toml [ai.backend]`: o tramite chiamata HTTP a un'API compatibile con il protocollo OpenAI (Anthropic, OpenAI), oppure tramite invocazione di un sottoprocesso a riga di comando (`claude --print`, `ollama run`, `llm`). Niente librerie di terze parti collegate in fase di compilazione.
+Il modello si raggiunge in due modi, scelti nel manifesto `aeris.toml [ai.backend]`: chiamata HTTP a un'API compatibile con il protocollo OpenAI, oppure invocazione di un sottoprocesso (`claude --print`, `ollama run`, `llm`).
 
-> Ogni chiamata `ai.*` genera un evento `ai_call` nel file di traccia che contiene prompt, modello, risposta e numero di token consumati. `aeris replay` rigioca offline sulla traccia.
+> Ogni chiamata `ai.*` genera nel file di traccia un evento `ai_call` con prompt, modello, risposta e numero di token. `aeris replay` la rigioca offline.
+
+</div>
+</div>
+
+---
+
+<!-- _class: tight -->
+
+# Test integrati nel linguaggio
+
+<div class="columns">
+<div class="column">
+
+```go
+// In Aeris i test stanno in un qualsiasi file `.aer`: il file
+// è l'unità di raggruppamento, non c'è una parola chiave `suite`.
+
+test "addizione commutativa" {
+  assert 2 + 3 == 3 + 2
+}
+
+test "GET /health restituisce 200" {
+  let resp = http.get("https://api.acme.com/health")
+  assert_status(resp, 200)
+  assert_json(resp.body, ["stato", "versione"])
+}
+
+test "il riassunto del modello è fedele al testo" {
+  let testo = "I costi del Q3 sono cresciuti del 12%, "
+            + "principalmente per il rincaro dell'energia."
+  let riassunto = ai.complete("Riassumi in una riga: {testo}")
+  assert_semantic(
+    riassunto,
+    "il riassunto contiene il numero 12% e cita l'energia",
+  )
+}
+```
+
+</div>
+<div class="column compact">
+
+**I test sono blocchi di prima classe**
+
+Aeris non integra una libreria di test esterna. Si scrive un blocco `test "nome" { ... }` in un file `.aer` qualunque, e si lancia il file con `aeris test programma.aer`. Ogni blocco gira in isolamento: un fallimento ferma quel test, gli altri proseguono. Non esiste una parola chiave `suite`; l'unità di raggruppamento è **il file** stesso.
+
+**Quattro asserzioni built-in coprono i casi comuni**
+
+- `assert e` — fallisce se l'espressione booleana è falsa. La forma estesa `assert e, "messaggio"` aggiunge contesto al fallimento.
+- `assert_status(resp, codice)` — passa solo se la risposta HTTP ha lo `status` indicato.
+- `assert_json(testo, [chiavi])` — passa se la stringa si decodifica come JSON valido e contiene tutte le chiavi elencate.
+- `assert_semantic(valore, criterio)` — usa il modello configurato come **giudice**: gli chiede se `valore` soddisfa il criterio con risposta binaria, e fallisce sul "no".
+
+> Il modello come strumento di asserzione è ciò che permette di scrivere test *qualitativi* — "il riassunto è fedele all'originale", "il messaggio di errore è chiaro" — quello che una asserzione numerica non riesce a formulare. La chiamata del giudice viene registrata nella traccia come ogni altra chiamata AI, quindi `aeris replay` rigioca anche i test.
 
 </div>
 </div>
@@ -1332,7 +1600,7 @@ La tesi del linguaggio fissa la disciplina alla sua forma più rigorosa; in prat
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 // Schemi versionati sui confini di fiducia,
 // validati a runtime ad ogni ingresso e uscita.
 model Allarme@v1 {
@@ -1404,48 +1672,43 @@ La clausola `until:` stabilisce un limite massimo alla convergenza: niente loop 
 <div class="columns">
 <div class="column">
 
-```aeris
+```go
 policy egress_produzione {
   match: http.*
   deny:  url.host not in ["api.acme.com", "slack.com"]
-  audit: { url, method }
 }
 
 saga applica_fix(
-  fix:      PianoFix@v1,
-  allarme:  Allarme@v1,
-  cap:      cap[
-    shell.run @ ["kubectl"],
-    http.post @ ["slack.com"],
-    audit.event,
-  ],
+  fix:     PianoFix@v1,
+  allarme: Allarme@v1,
+  cap:     cap[shell.exec @ ["kubectl"], http.post @ ["slack.com"], audit.event],
 ) {
-  intent "applica il fix per l'allarme {allarme.id} ({allarme.servizio})"
+  intent "applica fix per allarme {allarme.id}"
 
   step snapshot {
-    do   { shell.run("kubectl get all -n prod -o yaml > /tmp/{allarme.id}.yaml") }
-    undo { shell.run("rm -f /tmp/{allarme.id}.yaml") }
+    do   { shell.exec("kubectl get all -n prod > /tmp/{allarme.id}.yaml") }
+    undo { shell.exec("rm -f /tmp/{allarme.id}.yaml") }
   }
 
   step applica {
     requires: snapshot.ok
-    do   { for c in fix.comandi  { shell.run(c)? } }
-    undo { for c in fix.rollback { shell.run(c)? } }
+    do   { for c in fix.comandi  { shell.exec(c)? } }
+    undo { for c in fix.rollback { shell.exec(c)? } }
   }
 
   step notifica {
     requires: applica.ok
-    do   { http.post("https://slack.com/hook", { text: "fix ok: {fix.spiegazione}" })? }
+    do   { http.post("https://slack.com/hook", { text: "ok: {fix.spiegazione}" })? }
     undo { http.post("https://slack.com/hook", { text: "rollback: {allarme.id}" })? }
   }
 }
 
 every 30s {
-  let raw      = http.get("https://alertmanager/api/v1/alerts")?
-  let allarmi  = json.decode<list<Allarme@v1>>(raw.body)?
+  let raw     = http.get("https://alertmanager/api/v1/alerts")?
+  let allarmi = json.decode<list<Allarme@v1>>(raw.body)?
   for a in allarmi {
     let piano = triage(a)?
-    applica_fix(piano, a, cap.subset[shell.run, http.post, audit.event])?
+    applica_fix(piano, a, cap.subset[shell.exec, http.post, audit.event])?
   }
 }
 ```
@@ -1453,15 +1716,15 @@ every 30s {
 </div>
 <div class="column compact">
 
-**La parte operativa: `saga`, `policy`, scheduler nello stesso file**
+**La parte operativa: `saga`, `policy`, scheduler insieme**
 
-La `saga applica_fix` salva una fotografia dello stato del cluster (snapshot), applica il fix, e notifica un canale Slack. Ogni `step` dichiara `do` e `undo`. Se uno step intermedio fallisce, il runtime esegue automaticamente gli `undo` dei passi già completati in ordine inverso: il sistema torna allo stato precedente, non rimane mai a metà strada.
+La `saga applica_fix` salva una fotografia del cluster, applica il fix, notifica Slack. Se uno step intermedio fallisce, il runtime esegue gli `undo` dei passi già completati in ordine inverso: niente stato a metà strada.
 
-La `policy egress_produzione` viene valutata su ogni chiamata `http.*`. Una richiesta verso un host che non compare nella lista bianca finisce in `PolicyViolation`, con un evento dedicato nel file di traccia. In revisione si vede subito chi ha tentato di violarla.
+La `policy egress_produzione` viene valutata su ogni chiamata `http.*`. Una richiesta verso un host fuori lista bianca finisce in `PolicyViolation`, con evento nel file di traccia.
 
-Lo scheduler `every 30s` chiude il giro: scarica gli allarmi da Alertmanager, lancia la rete di agenti `triage` per ottenere un `PianoFix@v1`, e invoca la `saga` con una capability ridotta da `cap.subset[...]` (è il principio del *minimo privilegio*, applicato a ogni singola chiamata).
+Lo scheduler `every 30s` chiude il giro: scarica gli allarmi, lancia la rete di agenti `triage` per ottenere un `PianoFix@v1`, e invoca la saga con una capability ridotta da `cap.subset[...]` — il principio del *minimo privilegio* applicato per chiamata.
 
-> Un solo file `.aer`, una sola grammatica. Quello che oggi richiede LangChain, Argo, Open Policy Agent e qualche script bash messi insieme, qui sta in poco più di cento righe. Ed è eseguibile, controllabile in audit, riproducibile offline.
+> Un solo file, una sola grammatica. Quello che oggi richiede LangChain, Argo, OPA e script bash messi insieme, qui sta in poco più di cento righe — eseguibile, controllabile in audit, riproducibile offline.
 
 </div>
 </div>

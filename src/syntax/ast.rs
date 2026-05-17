@@ -85,6 +85,14 @@ pub struct PropertyDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
     pub raw: RawSpan,
+    /// Module-level names this `use` introduces into the file's
+    /// scope. Filled by `parse_use` (M33.T1). Examples:
+    /// - `use io, fs`               → `["io", "fs"]`
+    /// - `use utils from "./x.aer"` → `["utils"]`
+    /// - `use http as net`          → `["net"]`
+    /// - `use "./x.aer"`            → `[]` (anonymous path import)
+    /// - `use { a, b } from utils`  → `[]` (selective re-export)
+    pub imported_names: Vec<String>,
     pub span: Span,
 }
 

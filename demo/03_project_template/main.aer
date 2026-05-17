@@ -8,6 +8,8 @@
 /// Uses `ai.session` for a single multi-turn exchange and `fs.*` for
 /// file output. No `cap` ceremony — runs under `enforce = "off"`.
 
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 shell.exec(["sh", "-c", "rm -rf ./output/*"])
 
 let template   = fs.read_text("./template.md")

@@ -2,6 +2,8 @@
 /// gateway to be running (`aeris run upstreams.aer` + `aeris run
 /// main.aer`). Runs every test against the live gateway on port 8080.
 
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 let BASE = "http://localhost:8080"
 
 test "health check returns ok status" {

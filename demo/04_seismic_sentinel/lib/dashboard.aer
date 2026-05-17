@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 pub fn build_data(regions_data, ai_report, generated_at) {
   var all_events = []
   for reg in regions_data {

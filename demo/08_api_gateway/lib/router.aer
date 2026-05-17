@@ -1,3 +1,5 @@
+use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+
 // Match `path` against the routes list and forward to the upstream.
 // The `/api` prefix (first 4 chars) is stripped before forwarding.
 

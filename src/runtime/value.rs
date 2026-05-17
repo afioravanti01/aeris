@@ -97,6 +97,8 @@ pub struct AgentNetInstance {
     pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
+    /// M33: see `SagaInstance.imported_modules`.
+    pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
 }
 
 impl std::fmt::Debug for AgentNetInstance {
@@ -135,6 +137,8 @@ pub struct AgentInstance {
     pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
+    /// M33: see `SagaInstance.imported_modules`.
+    pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
 }
 
 impl std::fmt::Debug for AgentInstance {
@@ -175,6 +179,11 @@ pub struct SagaInstance {
     pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
+    /// M33: module names brought into scope by `use` declarations
+    /// in the file that declares this saga. Propagated to step
+    /// bodies so `<module>.<op>(...)` is gated the same way as
+    /// inside a regular `fn`.
+    pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
 }
 
 impl std::fmt::Debug for SagaInstance {
@@ -296,6 +305,11 @@ pub struct Closure {
     pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
     pub full_record: bool,
+    /// M33: module names brought into scope by `use` declarations in
+    /// the file that defines this closure. Propagated through every
+    /// call so a closure invoked in another env keeps its own import
+    /// rules.
+    pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
     /// `requires:` clauses checked at function entry (M5.T4 / § 9.1).
     /// Lambdas have an empty list — only top-level fns carry contracts.
     pub requires: Vec<crate::syntax::ast::Expr>,

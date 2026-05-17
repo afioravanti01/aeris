@@ -505,8 +505,8 @@ section pre code {
   padding: 0.9em 1.15em;
   border-radius: 14px;
   border: 2px solid rgba(255, 255, 255, 0.04);
-  font-size: 0.75em;
-  line-height: 1.5;
+  font-size: 0.62em;
+  line-height: 1.45;
   font-weight: 400;
   max-height: none;
   overflow-x: auto;
@@ -578,12 +578,12 @@ section pre code .hljs-addition    { color: #B5D8A6 !important; }
 /* `.tight` slide modifier — shrinks block code on slides with long snippets.
    Apply with `<!-- _class: tight -->` at the top of the slide. */
 section.tight pre code {
-  font-size: 0.58em;
-  line-height: 1.4;
+  font-size: 0.70em;
+  line-height: 1.40;
 }
 section.tight div.column pre code {
-  font-size: 0.6em;
-  line-height: 1.4;
+  font-size: 0.70em;
+  line-height: 1.40;
 }
 
 /* Plain `text`, `bash`, `json`, `console` blocks — softer monochrome */
@@ -606,10 +606,10 @@ section div.column { flex: 1; min-width: 0; }
 section div.column.wide   { flex: 1.5; }
 section div.column.narrow { flex: 1; }
 section div.columns pre { width: 100%; }
-/* Code inside a column: bigger, and wraps so it never overflows horizontally */
+/* Code inside a column: same uniform size as the default rule, and wraps so it never overflows horizontally */
 section div.column pre code {
-  font-size: 0.82em;
-  line-height: 1.5;
+  font-size: 0.62em;
+  line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;

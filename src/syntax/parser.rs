@@ -281,13 +281,103 @@ impl Parser {
     }
 
     fn parse_use(&mut self) -> UseDecl {
-        // Consume `use` first so `skip_until_top_level` does not see it as
-        // an item-start keyword and bail with an empty range.
+        // M33.T1 — extract every name a `use` clause introduces into
+        // the file's scope, then continue skipping until the next
+        // top-level item boundary. Supported clause shapes:
+        //   use io                          -> ["io"]
+        //   use io, fs, json                -> ["io", "fs", "json"]
+        //   use http as net                 -> ["net"]
+        //   use utils from "./x.aer"        -> ["utils"]
+        //   use deploy from "gh/..." dep@"1" -> ["deploy"]
+        //   use "./x.aer"                   -> []   (anonymous import)
+        //   use { a, b } from name          -> []   (selective re-export)
         let start_tok = self.advance();
-        let body = self.skip_until_top_level();
-        let span = Self::span_join(start_tok.span, body.span);
+        let mut imported: Vec<String> = Vec::new();
+        let mut last_span = start_tok.span;
+
+        loop {
+            // Stop at the next item-start keyword or EOF.
+            match self.peek() {
+                TokenKind::Eof => break,
+                TokenKind::Keyword(kw) if is_item_start_keyword(*kw) => break,
+                _ => {}
+            }
+
+            match self.peek().clone() {
+                // `{ x, y, ... } from name` — selective re-export.
+                // No module-level name is added.
+                TokenKind::LBrace => {
+                    last_span = self.advance().span;
+                    while !matches!(self.peek(), TokenKind::RBrace | TokenKind::Eof) {
+                        last_span = self.advance().span;
+                    }
+                    if matches!(self.peek(), TokenKind::RBrace) {
+                        last_span = self.advance().span;
+                    }
+                    if matches!(self.peek(), TokenKind::Keyword(Keyword::From)) {
+                        last_span = self.advance().span;
+                        if matches!(self.peek(), TokenKind::Ident(_)) {
+                            last_span = self.advance().span;
+                        }
+                    }
+                }
+                // `"path"` — anonymous import. No name added.
+                TokenKind::Str(_) => {
+                    last_span = self.advance().span;
+                }
+                // `<ident>` — bare alias, optionally followed by
+                // `as <ident>`, `from "<path>"` (with optional
+                // `<alias>@"<version>"` tail).
+                TokenKind::Ident(name) => {
+                    last_span = self.advance().span;
+                    match self.peek().clone() {
+                        TokenKind::Keyword(Keyword::As) => {
+                            last_span = self.advance().span;
+                            if let TokenKind::Ident(alias) = self.peek().clone() {
+                                last_span = self.advance().span;
+                                imported.push(alias);
+                            } else {
+                                imported.push(name);
+                            }
+                        }
+                        TokenKind::Keyword(Keyword::From) => {
+                            imported.push(name);
+                            last_span = self.advance().span;
+                            if matches!(self.peek(), TokenKind::Str(_)) {
+                                last_span = self.advance().span;
+                            }
+                            // optional `<ident>@"<version>"` tail.
+                            if matches!(self.peek(), TokenKind::Ident(_)) {
+                                last_span = self.advance().span;
+                                if matches!(self.peek(), TokenKind::At) {
+                                    last_span = self.advance().span;
+                                    if matches!(self.peek(), TokenKind::Str(_)) {
+                                        last_span = self.advance().span;
+                                    }
+                                }
+                            }
+                        }
+                        _ => imported.push(name),
+                    }
+                }
+                // Unknown — consume one token to make progress.
+                _ => {
+                    last_span = self.advance().span;
+                }
+            }
+
+            // Comma → keep parsing more clauses; otherwise stop.
+            if matches!(self.peek(), TokenKind::Comma) {
+                last_span = self.advance().span;
+                continue;
+            }
+            break;
+        }
+
+        let span = Self::span_join(start_tok.span, last_span);
         UseDecl {
             raw: RawSpan { span },
+            imported_names: imported,
             span,
         }
     }
