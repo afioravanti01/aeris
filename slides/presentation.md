@@ -4,17 +4,17 @@ theme: aeris
 paginate: true
 html: true
 size: 16:10
-title: "Aeris v0.2"
-header: 'TECHNICAL PRESENTATION · v0.2'
-footer: 'Aeris v0.2 · interpreted language for ops, AI and governance'
+title: "Aeris v0.3"
+header: 'TECHNICAL PRESENTATION · v0.3'
+footer: 'Aeris v0.3 · interpreted language for ops, AI and governance'
 ---
 
 
 <!-- _class: cover -->
 
-<p class="eyebrow">Technical presentation · v0.2</p>
+<p class="eyebrow">Technical presentation · v0.3</p>
 
-## AERIS v0.2
+## AERIS v0.3
 
 Linguaggio interpretato per **ops, AI e automation** — pensato per essere scritto *e* letto da LLM. Capabilities come valori, compensation obbligatoria, supply chain content-addressed, replay bit-identical.
 
@@ -310,7 +310,7 @@ Il **trace JSONL** è sempre attivo. Ogni interazione con il mondo non-determini
 ```toml
 [project]
 name  = "settle-pipeline"
-aeris = "0.2.0"
+aeris = "0.3.0"
 
 [deps]
 deploy = { source = "github.com/acmecorp/aeris-devops",

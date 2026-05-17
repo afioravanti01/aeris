@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-const VERSION: &str = "0.2.0";
+const VERSION: &str = "0.3.0";
 
 const TEMPLATE_MANIFEST: &str = include_str!("templates/aeris.toml");
 const TEMPLATE_MAIN_AER: &str = include_str!("templates/main.aer");
@@ -1070,7 +1070,7 @@ mod tests {
         .unwrap();
         fs::write(
             dir.join("aeris.toml"),
-            "[project]\nname = \"x\"\naeris = \"0.2.0\"\n",
+            "[project]\nname = \"x\"\naeris = \"0.3.0\"\n",
         )
         .unwrap();
         // No .aeris/surface.lock on disk → committed body is empty,

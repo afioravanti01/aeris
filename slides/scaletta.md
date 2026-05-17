@@ -1,4 +1,4 @@
-# Aeris v0.2 — Scaletta delle slide
+# Aeris v0.3 — Scaletta delle slide
 
 Riferimento dell'outline usato per generare `presentation.md`. Taglio
 tecnico, audience di sviluppatori interessati al progetto.
