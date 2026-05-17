@@ -174,7 +174,7 @@ Tre profili trovano nel linguaggio strumenti già pronti, perché Aeris porta de
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // Un programma che legge un file di log, fa classificare
 // ogni riga da un modello, e annota nel registro di
 // audit le righe segnalate come critiche.
@@ -228,7 +228,7 @@ io.println("triage completato — {ai.usage().calls} chiamate al modello")
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // let immutabile, var mutabile, const a livello del file.
 let titolo      = "report"
 var contatore   = 0
@@ -364,7 +364,7 @@ Non viene compilato in un binario eseguibile: il programma sorgente viene letto,
 </div>
 <div class="column">
 
-```go
+```rust
 // L'interprete è (di fatto) una funzione che cammina
 // sull'AST. Una sola funzione ricorsiva visita ogni
 // nodo, e per ciascun tipo di nodo decide cosa fare.
@@ -536,7 +536,7 @@ L'opzione `--live` lascia che HTTP e modello vengano richiamati realmente, utile
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // Livello 1 — Libreria standard, compilata dentro al binario.
 use io, json, http, fs, shell, audit, strings, date, yaml
 
@@ -644,7 +644,7 @@ Il file di progetto raccoglie in un solo posto informazioni che oggi vivono dist
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // Funzione pura: senza il parametro cap non può compiere
 // alcun effetto esterno (rete, file, modello).
 fn totale(items: list<Fattura@v1>) -> decimal {
@@ -694,7 +694,7 @@ La firma di `chiudi_lotto` dice **tutto**: questa funzione può fare `http.post`
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 fn chiudi_lotto(items, cap: cap[
   http.post     @ ["api.acme.com", "api.stripe.com"],
   fs.write_file @ ["./out/**"],
@@ -740,7 +740,7 @@ Sono verificate dal controllore statico, prima che il programma giri.
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 use http       // rende il modulo http visibile nel file
 
 // FALLISCE: in questa funzione non esiste alcun cap
@@ -833,12 +833,14 @@ Quando qualcuno (umano o modello) modifica una funzione esportata aggiungendo un
 
 ---
 
+<!-- _class: tight -->
+
 # Condizioni di ingresso e di uscita — `requires:` ed `ensures:`
 
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 fn paga(
   importo: decimal,
   conto:   string,
@@ -882,6 +884,8 @@ La violazione produce un errore strutturale del tipo `ContractViolation`. Il run
 </div>
 
 ---
+
+<!-- _class: tight -->
 
 # Il blocco `intent` è obbligatorio su ogni scrittura esterna
 
@@ -934,12 +938,14 @@ Il runtime emette tre eventi attorno al blocco:
 
 ---
 
+<!-- _class: tight -->
+
 # Schemi versionati — `model X@vN`
 
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 model Fattura@v1 {
   id:       uuid
   importo:  decimal where importo > 0
@@ -1001,7 +1007,7 @@ fn ingerisci(raw: string) -> result<Fattura@v1> {
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 saga chiudi_lotto(
   lotto: list<Fattura@v1>,
   cap:   cap[
@@ -1096,12 +1102,14 @@ A seconda del protocollo, il runtime la inserisce nel campo che il sistema remot
 
 ---
 
+<!-- _class: tight -->
+
 # Un singolo agente AI come costrutto del linguaggio
 
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 model Fattura@v1   { id: uuid, importo: decimal where importo > 0 }
 model Categoria@v1 { tipo: string }
 
@@ -1152,12 +1160,14 @@ Un `agent` è un'unità di chiamata al modello linguistico promossa a costrutto 
 
 ---
 
+<!-- _class: tight -->
+
 # Una rete di agenti — `agent_net`
 
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 agent_net pipeline_fatture {
   intent "estrai → classifica → smista la fattura"
 
@@ -1228,12 +1238,14 @@ Una `agent_net` può comparire come nodo di un'altra `agent_net`, permettendo di
 
 ---
 
+<!-- _class: tight -->
+
 # Regole di runtime — `policy`
 
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 policy egress_produzione {
   match: http.*
   deny:  url.host not in ["api.acme.com", "api.stripe.com"]
@@ -1348,7 +1360,7 @@ Ad ogni chiamata che corrisponde a `match:`, il runtime valuta la regola. Una vi
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // catch — gestore in linea; il blocco fornisce il fallback.
 let dati = fs.read_file("config.json") catch err {
   io.eprintln("config mancante: {err.message}"); b"{}"
@@ -1407,7 +1419,7 @@ every 5m {
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // 1 — Deploy con ritentativo, timeout, e pulizia garantita.
 fn deploy(versione: string, cap: cap[shell.exec @ ["kubectl"]]) -> result<unit> {
   let tmp = fs.create_temp()?
@@ -1464,7 +1476,7 @@ fn ruota_token(cap: cap[fs.write_file @ ["/etc/secrets/**"], audit.event]) -> re
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // Chiamata diretta al modello.
 let risposta = ai.complete("Analizza: {log}")
 
@@ -1526,7 +1538,7 @@ Il modello si raggiunge in due modi, scelti nel manifesto `aeris.toml [ai.backen
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 // In Aeris i test stanno in un qualsiasi file `.aer`: il file
 // è l'unità di raggruppamento, non c'è una parola chiave `suite`.
 
@@ -1600,43 +1612,30 @@ La tesi del linguaggio fissa la disciplina alla sua forma più rigorosa; in prat
 <div class="columns">
 <div class="column">
 
-```go
-// Schemi versionati sui confini di fiducia,
-// validati a runtime ad ogni ingresso e uscita.
-model Allarme@v1 {
-  id:        uuid
-  servizio:  string
-  messaggio: string
-}
-
+```rust
+// Schemi versionati validati ai confini di fiducia.
+model Allarme@v1  { id: uuid, servizio: string, messaggio: string }
+model PianoFix@v1 { comandi: list<string>, rollback: list<string>, spiegazione: string }
 model Diagnosi@v1 {
-  severita:  string  where ["critica","alta","media","bassa"].contains(severita)
-  tipo:      string  where ["database","api","infrastruttura"].contains(tipo)
-  fiducia:   f64     where fiducia >= 0.0 and fiducia <= 1.0
-}
-
-model PianoFix@v1 {
-  comandi:    list<string>
-  rollback:   list<string>
-  spiegazione: string
+  severita: string  where ["critica","alta","media","bassa"].contains(severita)
+  tipo:     string  where ["database","api","infrastruttura"].contains(tipo)
+  fiducia:  f64     where fiducia >= 0.0 and fiducia <= 1.0
 }
 
 agent classifica {
   llm:     "claude-haiku-4-5"
-  intent:  "classifica l'allarme per severità, tipo, fiducia"
-  prompt:  "Classifica: {input.messaggio} sul servizio {input.servizio}."
+  intent:  "classifica per severità, tipo, fiducia"
   accept:  Allarme@v1
   produce: Diagnosi@v1
-  retries: 2
-  budget:  { tokens: 2_000, latency: 3s }
+  prompt:  "Classifica: {input.messaggio} su {input.servizio}."
 }
 
 agent pianifica {
   llm:     "claude-opus-4-7"
   intent:  "propone un fix concreto e il rollback corrispondente"
-  prompt:  "Fix per allarme {input.severita} di tipo {input.tipo}. Dati: {input}."
   accept:  Diagnosi@v1
   produce: PianoFix@v1
+  prompt:  "Fix per allarme {input.severita} di tipo {input.tipo}."
 }
 
 agent_net triage {
@@ -1672,44 +1671,34 @@ La clausola `until:` stabilisce un limite massimo alla convergenza: niente loop 
 <div class="columns">
 <div class="column">
 
-```go
+```rust
 policy egress_produzione {
   match: http.*
   deny:  url.host not in ["api.acme.com", "slack.com"]
 }
 
-saga applica_fix(
-  fix:     PianoFix@v1,
-  allarme: Allarme@v1,
-  cap:     cap[shell.exec @ ["kubectl"], http.post @ ["slack.com"], audit.event],
-) {
+saga applica_fix(fix: PianoFix@v1, allarme: Allarme@v1,
+                 cap: cap[shell.exec @ ["kubectl"], http.post @ ["slack.com"]]) {
   intent "applica fix per allarme {allarme.id}"
-
   step snapshot {
     do   { shell.exec("kubectl get all -n prod > /tmp/{allarme.id}.yaml") }
     undo { shell.exec("rm -f /tmp/{allarme.id}.yaml") }
   }
-
   step applica {
     requires: snapshot.ok
     do   { for c in fix.comandi  { shell.exec(c)? } }
     undo { for c in fix.rollback { shell.exec(c)? } }
   }
-
   step notifica {
     requires: applica.ok
-    do   { http.post("https://slack.com/hook", { text: "ok: {fix.spiegazione}" })? }
-    undo { http.post("https://slack.com/hook", { text: "rollback: {allarme.id}" })? }
+    do   { http.post("https://slack.com/hook", { text: "ok" })? }
+    undo { http.post("https://slack.com/hook", { text: "rollback" })? }
   }
 }
 
 every 30s {
-  let raw     = http.get("https://alertmanager/api/v1/alerts")?
-  let allarmi = json.decode<list<Allarme@v1>>(raw.body)?
-  for a in allarmi {
-    let piano = triage(a)?
-    applica_fix(piano, a, cap.subset[shell.exec, http.post, audit.event])?
-  }
+  let allarmi = json.decode<list<Allarme@v1>>(http.get("https://alertmanager")?.body)?
+  for a in allarmi { applica_fix(triage(a)?, a, cap.subset[shell.exec, http.post])? }
 }
 ```
 
