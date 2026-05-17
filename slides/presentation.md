@@ -424,36 +424,61 @@ L'opzione `--live` lascia che HTTP e modello vengano richiamati realmente, utile
 
 ---
 
-# Lockset come centro di gravità
+# Il file di progetto come riferimento unico
 
-`aeris.toml` raccoglie *tutto* ciò che era sparso fra env var, manifest e config:
+<div class="columns">
+<div class="column">
 
 ```toml
 [project]
-name  = "settle-pipeline"
+name  = "pipeline-fatture"
 aeris = "0.3.0"
 
+# Dipendenze esterne: nome locale, sorgente, versione,
+# impronta crittografica del contenuto.
 [deps]
 deploy = { source = "github.com/acmecorp/aeris-devops",
-           version = "1.2.0", hash = "blake3:..." }
+           version = "1.2.0",
+           hash    = "blake3:..." }
 
+# Permessi consentiti al programma nel suo insieme.
+# Modalità rigida: ogni funzione deve dichiarare i propri.
 [caps]
-required        = true                          # strict mode (M15)
+enforce         = "strict"
 http.allow      = ["api.acme.com"]
 fs.allow_write  = ["./out/**"]
 ai.models       = ["claude-opus-4-7", "claude-haiku-4-5"]
 
+# Come raggiungere il modello: chiamata HTTP a un'API
+# oppure invocazione di un sottoprocesso da riga di comando.
 [ai.backend]
 kind = "http"
 url  = "https://api.anthropic.com"
 auth = "env:ANTHROPIC_API_KEY"
 
+# Regole di runtime attive nel progetto (slide più avanti).
 [policies]
-active = ["production_egress"]
+active = ["egress_produzione"]
 ```
 
-- Hash mismatch su una dep → errore fatale **prima** dell'esecuzione
-- `main` riceve il `cap` **sintetizzato dal lockset** — nessun altro modo per fabbricare un `cap` da zero
+</div>
+<div class="column compact">
+
+**Un solo file `aeris.toml` per quello che oggi è sparso**
+
+Il file di progetto raccoglie in un solo posto informazioni che oggi vivono distribuite fra variabili d'ambiente, file di manifest, file di configurazione e file di lock specifici dei singoli strumenti.
+
+**Contiene quattro cose**
+
+- **Le dipendenze**: ogni libreria esterna è registrata con sorgente, versione e impronta crittografica del contenuto. Se la libreria scaricata non corrisponde all'impronta, il programma fallisce *prima* di iniziare l'esecuzione.
+- **I permessi consentiti**: l'elenco di tutto ciò che il programma può fare verso l'esterno (rete, file system, modelli). Costituisce il *tetto* dei permessi che le singole funzioni possono dichiarare.
+- **Il backend del modello**: come parlare al modello linguistico (chiamata HTTP a un'API o invocazione di un sottoprocesso da riga di comando).
+- **Le `policy` attive**: quali regole di sicurezza vengono applicate a ogni chiamata.
+
+> La funzione `main` riceve i permessi **sintetizzati a partire da questo file**. Non esiste alcun altro modo di costruire un valore di tipo `cap` partendo da zero: i permessi entrano nel programma dall'unico punto controllato in revisione.
+
+</div>
+</div>
 
 ---
 
