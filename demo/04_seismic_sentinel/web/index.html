@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seismic Sentinel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link  rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    html, body { background: #0f172a; }
+    #map { height: 500px; }
+    .leaflet-container { background: #0f172a; }
+    .leaflet-popup-content-wrapper {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.6);
+    }
+    .leaflet-popup-tip { background: #1e293b; }
+    .leaflet-popup-close-button { color: #94a3b8 !important; }
+    #ai-report h1, #ai-report h2, #ai-report h3 {
+      color: #e2e8f0; font-weight: 600; margin: 1.2em 0 .4em;
+    }
+    #ai-report h2 {
+      font-size: 1.05rem;
+      border-bottom: 1px solid #334155;
+      padding-bottom: .3em;
+    }
+    #ai-report ul, #ai-report ol { padding-left: 1.4em; margin: .4em 0; }
+    #ai-report li   { margin: .2em 0; color: #cbd5e1; }
+    #ai-report p    { margin: .5em 0; color: #94a3b8; line-height: 1.75; }
+    #ai-report strong { color: #f1f5f9; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .blink { animation: blink 2s infinite; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-100">
+
+  <!-- Topbar -->
+  <header class="sticky top-0 z-[9999] border-b border-slate-800 bg-slate-900/90 backdrop-blur-md">
+    <div class="max-w-screen-xl mx-auto px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-xl">🌍</span>
+        <span class="font-bold text-lg tracking-tight text-white">Seismic Sentinel</span>
+        <span class="flex items-center gap-1.5 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium px-2.5 py-1 rounded-full blink">
+          <span class="w-1.5 h-1.5 rounded-full bg-red-400 inline-block"></span>LIVE
+        </span>
+      </div>
+      <span class="text-slate-500 text-sm hidden sm:block" id="gen-ts"></span>
+    </div>
+  </header>
+
+  <main class="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+
+    <!-- KPI row -->
+    <div id="kpi-row" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="col-span-full text-slate-500 text-sm text-center py-8">Loading data...</div>
+    </div>
+
+    <!-- Map -->
+    <div class="rounded-2xl border border-slate-700 overflow-hidden shadow-2xl">
+      <div class="bg-slate-800/80 px-5 py-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-700">
+        <span class="font-medium text-slate-300 text-sm">📍 Earthquake Map — last 24h</span>
+        <div class="flex items-center gap-4 text-xs text-slate-500">
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block"></span>M &lt; 5</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block"></span>M 5–6</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block"></span>M 6–7</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"></span>M ≥ 7</span>
+        </div>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <!-- AI Report -->
+    <div class="rounded-2xl border border-slate-700 bg-slate-800/40 shadow-xl overflow-hidden">
+      <div class="bg-slate-800/80 px-5 py-3 border-b border-slate-700 flex items-center gap-2">
+        <span class="text-slate-300 font-medium text-sm">🤖 AI Analysis Report</span>
+        <span class="ml-auto text-xs text-slate-600">geologist · risk assessor · reporter</span>
+      </div>
+      <div id="ai-report" class="px-6 py-5 text-sm leading-relaxed"></div>
+    </div>
+
+  </main>
+
+  <script>
+    // ── Map init (once) ─────────────────────────────────────────────────────
+    const leafMap = L.map("map", { scrollWheelZoom: true }).setView([20, 0], 2);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      subdomains: "abcd",
+      maxZoom: 18,
+    }).addTo(leafMap);
+
+    let mapMarkers = [];
+
+    function magColor(mag) {
+      if (mag >= 7) return "#f87171";
+      if (mag >= 6) return "#fb923c";
+      if (mag >= 5) return "#fbbf24";
+      return "#60a5fa";
+    }
+
+    // ── Render ──────────────────────────────────────────────────────────────
+    function render(data) {
+      const { generated_at, events, regions, report } = data;
+
+      // Timestamp
+      document.getElementById("gen-ts").textContent = generated_at + " · auto-refresh 5m";
+
+      // KPI cards
+      const kpiRow = document.getElementById("kpi-row");
+      kpiRow.innerHTML = `
+        <div class="col-span-2 sm:col-span-1 bg-gradient-to-br from-indigo-600/20 to-indigo-900/10 border border-indigo-500/30 rounded-xl p-4">
+          <p class="text-slate-400 text-xs uppercase tracking-widest mb-1">Total Events</p>
+          <p class="text-4xl font-bold text-white">${events.length}</p>
+          <p class="text-indigo-400 text-xs mt-1">M≥4.5 · last 24h</p>
+        </div>`;
+
+      regions.forEach(reg => {
+        const m6 = events.filter(e => e.region === reg.name && e.mag >= 6).length;
+        const badge = m6 > 0
+          ? `<span class="text-xs font-medium text-orange-400">M6+ : ${m6}</span>`
+          : `<span class="text-xs text-slate-500">no M6+</span>`;
+        kpiRow.innerHTML += `
+          <div class="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
+            <p class="text-slate-400 text-xs uppercase tracking-widest mb-1 truncate">${reg.name}</p>
+            <p class="text-3xl font-bold text-white">${reg.count}</p>
+            <div class="mt-2">${badge}</div>
+          </div>`;
+      });
+
+      // Map markers
+      mapMarkers.forEach(m => m.remove());
+      mapMarkers = [];
+      events.forEach(quake => {
+        if (quake.lat === 0 && quake.lon === 0) return;
+        const radius = Math.pow(Math.max(quake.mag - 3, 0.5), 2.5) * 18000;
+        const color  = magColor(quake.mag);
+        const popup  =
+          `<div style="font-family:system-ui">
+            <div style="font-weight:600;color:#f1f5f9;margin-bottom:4px">${quake.place}</div>
+            <div style="color:#94a3b8;font-size:.82rem">
+              M <strong style="color:#e2e8f0">${quake.mag.toFixed(1)}</strong>
+              &nbsp;·&nbsp; ${quake.depth} km depth
+              &nbsp;·&nbsp; ${quake.region}
+              ${quake.tsunami ? '<br><span style="color:#f87171;font-weight:600">⚠ Tsunami warning</span>' : ""}
+              ${quake.alert !== "none" ? `<br>Alert: <strong>${quake.alert}</strong>` : ""}
+            </div>
+          </div>`;
+        const circle = L.circle([quake.lat, quake.lon], {
+          radius, color, fillColor: color, fillOpacity: 0.30,
+          weight: quake.tsunami ? 2.5 : 1,
+        }).addTo(leafMap).bindPopup(popup);
+        mapMarkers.push(circle);
+      });
+
+      // AI report
+      document.getElementById("ai-report").innerHTML = marked.parse(report || "");
+    }
+
+    // ── Fetch + refresh ─────────────────────────────────────────────────────
+    async function fetchData() {
+      try {
+        const res = await fetch("/api/data");
+        if (!res.ok) return;
+        const data = await res.json();
+        render(data);
+      } catch (e) {
+        console.warn("fetch /api/data failed:", e);
+      }
+    }
+
+    fetchData();
+    setInterval(fetchData, 5 * 60 * 1000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+// USGS earthquake data ingest. Bounding boxes are [minlat, maxlat,
+// minlon, maxlon]; each region maps to one HTTP query against the
+// public USGS GeoJSON endpoint.
+
+pub let REGIONS = [
+  { name: "Pacific Ring",      minlat: -60, maxlat: 70, minlon: 120,  maxlon: 180 },
+  { name: "Americas",          minlat: -60, maxlat: 72, minlon: -180, maxlon: -30 },
+  { name: "Europe-Mediterr.",  minlat: 25,  maxlat: 72, minlon: -30,  maxlon: 60  },
+  { name: "Middle East-Asia",  minlat: 0,   maxlat: 55, minlon: 30,   maxlon: 120 },
+  { name: "Africa",            minlat: -40, maxlat: 38, minlon: -20,  maxlon: 55  },
+]
+
+pub fn fetch_region(region, days, min_magnitude) {
+  let base   = "https://earthquake.usgs.gov/fdsnws/event/1/query"
+  let params = "format=geojson&minmagnitude={min_magnitude}&limit=50"
+  let bbox   = "minlatitude={region.minlat}&maxlatitude={region.maxlat}&minlongitude={region.minlon}&maxlongitude={region.maxlon}"
+
+  let resp = retry 3, delay: 2s {
+    http.get("{base}?{params}&{bbox}")
+  }
+
+  let data  = json.parse(resp.body)
+  let feats = data.get("features") ?? []
+
+  let events = feats.map(fn(f) {
+    let p = f.get("properties")
+    let c = f.get("geometry").get("coordinates")
+    {
+      place:     p.get("place")   ?? "Unknown",
+      magnitude: p.get("mag")     ?? 0,
+      depth:     c[2]             ?? 0,
+      lat:       c[1]             ?? 0,
+      lon:       c[0]             ?? 0,
+      time:      p.get("time")    ?? 0,
+      alert:     p.get("alert")   ?? "none",
+      tsunami:   p.get("tsunami") ?? 0,
+      url:       p.get("url")     ?? "",
+    }
+  })
+
+  return { region: region.name, events: events, count: events.len() }
+}
+
+pub fn region_summary(result) {
+  var lines = ["## {result.region} ({result.count} events)\n"]
+  for e in result.events {
+    let alert = if e.alert != "none" { " [ALERT: {e.alert}]" } else { "" }
+    let ts    = if e.tsunami == 1    { " WARN: TSUNAMI"     } else { "" }
+    lines.push("- M{e.magnitude} | depth {e.depth}km | {e.place}{alert}{ts}")
+  }
+  return lines.join("\n")
+}

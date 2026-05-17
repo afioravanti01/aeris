@@ -1,0 +1,65 @@
+/// Reverse-engineering pipeline.
+///
+/// 1. Run an agent network (analyzer, requirements, architecture,
+///    improvements) over `./src` and save four markdown documents.
+/// 2. Upload the documents to MinIO so the dashboard can serve them.
+/// 3. Spawn an AI chat server backed by `ai.chat(system, dir)` so
+///    the user can ask follow-up questions over the generated docs.
+/// 4. Start the dashboard HTTP backend (blocks).
+
+use helper from "./lib/ai/helper.aer"
+use store  from "./lib/store.aer"
+use server from "./lib/server.aer"
+
+let PROJECT_PATH = "./src"
+let DOCS_DIR     = "./docs"
+let AGENTS_DIR   = "./agents"
+let WEB_DIR      = "./web"
+let CHAT_PORT    = 8888
+let BACKEND_PORT = 8080
+
+fs.mkdir(DOCS_DIR)
+
+fn run_analysis() {
+  io.println("=== Reverse Engineering: {PROJECT_PATH} ===")
+  io.println("")
+
+  let result = helper.build_network(AGENTS_DIR, DOCS_DIR, PROJECT_PATH) catch err {
+    io.println("Error: {err}")
+    None
+  }
+
+  if result != None {
+    let r = result ?? { rounds: 0, trace: [] }
+    io.println("Rounds completed: {r.rounds}")
+    io.println("")
+    helper.save_docs(r.trace, DOCS_DIR)
+  }
+
+  io.println("=== Analysis complete ===")
+  io.println("")
+}
+
+fn upload_docs() {
+  io.println("=== Uploading docs to MinIO ===")
+  store.upload_all(DOCS_DIR) catch err {
+    io.println("[minio] error: {err}")
+  }
+  io.println("")
+}
+
+fn main() {
+  run_analysis()
+  upload_docs()
+
+  io.println("=== Starting AI chat server on port {CHAT_PORT} ===")
+  spawn {
+    helper.start_chat_server(AGENTS_DIR, DOCS_DIR, CHAT_PORT)
+  }
+  clock.sleep(1s)
+
+  io.println("=== Starting backend on http://localhost:{BACKEND_PORT} ===")
+  io.println("    open http://localhost:{BACKEND_PORT}")
+  io.println("")
+  server.start(WEB_DIR, CHAT_PORT, BACKEND_PORT)
+}

@@ -1,0 +1,114 @@
+/// Seismic Sentinel.
+///
+/// Pulls earthquake feeds from USGS (5 regions), runs a 4-agent
+/// AI network (orchestrator -> geologist -> risk_assessor ->
+/// reporter), persists the dashboard payload to MinIO, and exposes
+/// it over a local HTTP server. Refreshes every 5 minutes.
+
+use usgs   from "./lib/usgs.aer"
+use dash   from "./lib/dashboard.aer"
+use store  from "./lib/store.aer"
+use server from "./lib/server.aer"
+
+let AGENTS_DIR   = "./agents"
+let WEB_DIR      = "./web"
+let MIN_MAG      = 4.5
+let DAYS         = 1
+let BACKEND_PORT = 7777
+
+fn fetch_all_regions() {
+  io.println("Fetching seismic data for {usgs.REGIONS.len()} regions...")
+  var results = []
+  for region in usgs.REGIONS {
+    io.println("  [{region.name}] fetching...")
+    let r = usgs.fetch_region(region, DAYS, MIN_MAG) catch err {
+      io.println("  [{region.name}] error: {err}")
+      { region: region.name, events: [], count: 0 }
+    }
+    io.println("  [{region.name}] {r.count} events")
+    results.push(r)
+  }
+  return results
+}
+
+fn run_analysis(regions_data) {
+  io.println("Running AI analysis...")
+
+  var summary = ""
+  for r in regions_data {
+    summary = "{summary}{usgs.region_summary(r)}\n\n"
+  }
+
+  var network = ai.network(max_rounds: 10)
+  network.agent(name: "orchestrator",  system: fs.read_text("{AGENTS_DIR}/orchestrator.md"))
+  network.agent(name: "geologist",     system: fs.read_text("{AGENTS_DIR}/geologist.md"))
+  network.agent(name: "risk_assessor", system: fs.read_text("{AGENTS_DIR}/risk_assessor.md"))
+  network.agent(name: "reporter",      system: fs.read_text("{AGENTS_DIR}/reporter.md"))
+
+  let result = network.run(
+    entry:   "orchestrator",
+    message: "Analyse this global seismic data from the last {DAYS} day(s), min magnitude {MIN_MAG}:\n\n{summary}",
+    until:   "DONE",
+  ) catch err {
+    io.println("AI analysis error: {err}")
+    { trace: [], rounds: 0 }
+  }
+
+  io.println("Analysis complete ({result.rounds} rounds)")
+  return result
+}
+
+fn extract_report(trace) {
+  for entry in trace {
+    if entry.from == "reporter" { return entry.response }
+  }
+  return "No report generated."
+}
+
+fn refresh() {
+  let regions_data = fetch_all_regions()
+
+  var total = 0
+  for r in regions_data { total = total + r.count }
+  io.println("Total events: {total}")
+
+  let result    = run_analysis(regions_data)
+  let report    = extract_report(result.trace)
+  let generated = date.format(date.now(), "%Y-%m-%d %H:%M UTC")
+
+  let payload = dash.build_data(regions_data, report, generated)
+  store.save_data(payload)
+  io.println("Data updated: {generated}")
+}
+
+fn main() {
+  io.println("=== Seismic Sentinel ===")
+  io.println("")
+
+  let existing = store.load_data()
+  if existing != None {
+    io.println("Cached data found in MinIO — starting server immediately")
+    io.println("=== Starting backend on http://localhost:{BACKEND_PORT} ===")
+    io.println("")
+    spawn { server.start(WEB_DIR, BACKEND_PORT) }
+    clock.sleep(1s)
+  }
+
+  io.println("--- Running agents to refresh data ---")
+  refresh()
+
+  if existing == None {
+    io.println("=== Starting backend on http://localhost:{BACKEND_PORT} ===")
+    io.println("")
+    spawn { server.start(WEB_DIR, BACKEND_PORT) }
+    clock.sleep(1s)
+  }
+
+  io.println("Refreshing every 5m — Ctrl+C to stop")
+  io.println("")
+
+  every 5m {
+    io.println("--- Refresh ---")
+    refresh()
+  }
+}

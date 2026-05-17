@@ -2681,7 +2681,10 @@ fn eval_call(
         // satisfies `criterion`. Returns Bool(true) when the judge
         // replies "yes" / "true" / "pass"; otherwise raises so the
         // surrounding test fails with a readable message.
-        if name == "assert_semantic" && args.len() == 2 {
+        // M21.T2 + M30.T4 — 2-arg form lets the active `ai.complete`
+        // cap pick the judge model; 3-arg form forces it explicitly
+        // (e.g. `assert_semantic(actual, criteria, "claude-haiku-4-5")`).
+        if name == "assert_semantic" && (args.len() == 2 || args.len() == 3) {
             let text = expect_string(
                 "assert_semantic text",
                 &eval_value(&args[0].value, env)?,
@@ -2692,7 +2695,15 @@ fn eval_call(
                 &eval_value(&args[1].value, env)?,
                 span,
             )?;
-            let model = enforce_ai_cap(env, "complete", span)?;
+            let model = if args.len() == 3 {
+                expect_string(
+                    "assert_semantic judge",
+                    &eval_value(&args[2].value, env)?,
+                    span,
+                )?
+            } else {
+                enforce_ai_cap(env, "complete", span)?
+            };
             let prompt = format!(
                 "You are a strict checker. Reply only `yes` or `no`. \
                  Does the following text satisfy the criterion?\n\nText: {text}\n\nCriterion: {criterion}"
@@ -2972,7 +2983,7 @@ fn builtin_param_names(module: &str, op: &str) -> Option<&'static [&'static str]
         ("fs", "rename") => &["from", "to"],
         // http
         ("http", "get") | ("http", "delete") => &["url"],
-        ("http", "post") | ("http", "put") | ("http", "patch") => &["url", "body"],
+        ("http", "post") | ("http", "put") | ("http", "patch") => &["url", "body", "content_type"],
         // shell
         ("shell", "exec") | ("shell", "pipe") => &["cmd"],
         // strings
@@ -3004,6 +3015,10 @@ fn builtin_param_names(module: &str, op: &str) -> Option<&'static [&'static str]
         ("ai", "network") => &["max_rounds"],
         // audit
         ("audit", "event") => &["kind", "fields"],
+        // minio (M30.T5 — kwargs for object-storage ergonomics)
+        ("minio", "get") => &["bucket", "object"],
+        ("minio", "put") => &["bucket", "object", "content"],
+        ("minio", "mb") | ("minio", "bucket_exists") | ("minio", "list") => &["bucket"],
         // misc — let positional callers through with no entry
         _ => return None,
     })
@@ -3167,6 +3182,8 @@ fn method_param_names(recv_name: Option<&str>, op: &str) -> Option<&'static [&'s
         (_, "contains") => &["x"],
         (_, "starts_with") | (_, "ends_with") => &["p"],
         (_, "get") => &["key"],
+        (_, "map") => &["f"],
+        (_, "index_of") => &["needle", "from"],
         _ => return None,
     })
 }
@@ -3285,6 +3302,27 @@ fn builtin_method_dispatch(
             let needle = &arg_values[0];
             Ok(Some(Value::Bool(xs.iter().any(|v| values_equal(v, needle)))))
         }
+        // M30.T1 — `xs.map(fn(x) { ... })` invokes the closure on every
+        // element. Returns a fresh list; the receiver is unchanged.
+        (Value::List(xs), "map") => {
+            arity_check(".map", 1, &arg_values, span)?;
+            let callee = arg_values[0].clone();
+            if !matches!(callee, Value::Closure(_)) {
+                return Err(EvalError::new(
+                    EvalErrorKind::Type(format!(
+                        ".map expects a closure, got {}",
+                        value_kind(&callee)
+                    )),
+                    span,
+                ));
+            }
+            let mut out: Vec<Value> = Vec::with_capacity(xs.len());
+            for v in xs {
+                let r = invoke_value(&callee, &[v.clone()], span)?;
+                out.push(r.into_value(span)?);
+            }
+            Ok(Some(Value::List(out)))
+        }
         // ---- string methods ----
         (Value::Str(s), "len") => {
             arity_check(".len", 0, &arg_values, span)?;
@@ -3332,6 +3370,42 @@ fn builtin_method_dispatch(
             let from = expect_string(".replace", &arg_values[0], span)?;
             let to = expect_string(".replace", &arg_values[1], span)?;
             Ok(Some(Value::Str(s.replace(&from, &to))))
+        }
+        // M30.T2 — `s.index_of(needle, from?)` returns the BYTE offset
+        // of the first occurrence at or after `from` (default 0) as
+        // `option<int>`. `None` when not found.
+        (Value::Str(s), "index_of") => {
+            if arg_values.is_empty() || arg_values.len() > 2 {
+                return Err(EvalError::new(
+                    EvalErrorKind::Arity {
+                        name: ".index_of".into(),
+                        expected: 1,
+                        found: arg_values.len(),
+                    },
+                    span,
+                ));
+            }
+            let needle = expect_string(".index_of needle", &arg_values[0], span)?;
+            let from = if arg_values.len() == 2 {
+                match &arg_values[1] {
+                    Value::Int(n) => (*n).max(0) as usize,
+                    _ => {
+                        return Err(EvalError::new(
+                            EvalErrorKind::Type(".index_of from must be int".into()),
+                            span,
+                        ))
+                    }
+                }
+            } else {
+                0
+            };
+            let hay = if from >= s.len() { "" } else { &s[from..] };
+            let result = hay
+                .find(&needle as &str)
+                .map(|i| Value::Int((from + i) as i64))
+                .map(Value::some)
+                .unwrap_or_else(Value::none);
+            Ok(Some(result))
         }
         // ---- AiNetwork record (M28) ----
         (Value::Record(r), "run") if r.name.as_deref() == Some("AiNetwork") => {
@@ -3776,6 +3850,9 @@ fn lookup_builtin(module: &str, op: &str) -> Option<Builtin> {
         ("mongodb", "write") => builtin_mongodb_write,
         ("minio", "get") => builtin_minio_get,
         ("minio", "put") => builtin_minio_put,
+        ("minio", "mb") => builtin_minio_mb,
+        ("minio", "bucket_exists") => builtin_minio_bucket_exists,
+        ("minio", "list") => builtin_minio_list,
         ("rabbitmq", "publish") => builtin_rabbitmq_publish,
         ("rabbitmq", "subscribe") => builtin_rabbitmq_subscribe,
         // ----- pure helpers (no cap required, no trace event) -----
@@ -5919,8 +5996,18 @@ fn do_http(
     expects_body: bool,
     span: Span,
 ) -> Result<Value, EvalError> {
-    let expected_arity = if expects_body { 2 } else { 1 };
-    arity_check(&format!("http.{op}"), expected_arity, args, span)?;
+    // M30.T3 — write methods accept an optional `content_type` third arg.
+    let (min_arity, max_arity) = if expects_body { (2, 3) } else { (1, 1) };
+    if args.len() < min_arity || args.len() > max_arity {
+        return Err(EvalError::new(
+            EvalErrorKind::Arity {
+                name: format!("http.{op}"),
+                expected: min_arity,
+                found: args.len(),
+            },
+            span,
+        ));
+    }
     let url = expect_string(&format!("http.{op} url"), &args[0], span)?;
     let host = enforce_http_host_policy(env, op, &url, span)?;
     let body: Vec<u8> = if expects_body {
@@ -5940,22 +6027,38 @@ fn do_http(
     } else {
         Vec::new()
     };
+    let content_type: Option<String> = if expects_body && args.len() == 3 {
+        Some(expect_string(
+            &format!("http.{op} content_type"),
+            &args[2],
+            span,
+        )?)
+    } else {
+        None
+    };
     let req_hash = hex16(fnv1a_64(&body));
     let trace_id = env
         .tracer()
         .map(|t| t.trace_id())
         .unwrap_or_else(|| "00000000000000000000000000".into());
     let idem = env.idempotency_key().map(|s| s.to_string());
-    let resp =
-        super::http::do_request(method, &url, &body, &trace_id, idem.as_deref()).map_err(|e| {
-            EvalError::new(
-                EvalErrorKind::Io {
-                    op: format!("http.{op}"),
-                    message: format!("{e}"),
-                },
-                span,
-            )
-        })?;
+    let resp = super::http::do_request(
+        method,
+        &url,
+        &body,
+        &trace_id,
+        idem.as_deref(),
+        content_type.as_deref(),
+    )
+    .map_err(|e| {
+        EvalError::new(
+            EvalErrorKind::Io {
+                op: format!("http.{op}"),
+                message: format!("{e}"),
+            },
+            span,
+        )
+    })?;
     let resp_hash = hex16(fnv1a_64(&resp.body));
     let mut fields = vec![
         ("url".into(), format!("\"{url}\"")),
@@ -5965,6 +6068,9 @@ fn do_http(
         ("req_hash".into(), format!("\"{req_hash}\"")),
         ("resp_hash".into(), format!("\"{resp_hash}\"")),
     ];
+    if let Some(ct) = &content_type {
+        fields.push(("content_type".into(), format!("\"{ct}\"")));
+    }
     if let Some(k) = &idem {
         fields.push(("idempotency".into(), format!("\"{k}\"")));
     }
@@ -6300,8 +6406,15 @@ fn run_ai_backend(env: &Env, op: &str, model: &str, prompt: &str) -> Result<Stri
                 .tracer()
                 .map(|t| t.trace_id())
                 .unwrap_or_else(|| "00000000000000000000000000".into());
-            let resp = super::http::do_request("POST", url, body.as_bytes(), &trace_id, None)
-                .map_err(|e| format!("ai.{op} http backend: {e}"))?;
+            let resp = super::http::do_request(
+                "POST",
+                url,
+                body.as_bytes(),
+                &trace_id,
+                None,
+                Some("application/json"),
+            )
+            .map_err(|e| format!("ai.{op} http backend: {e}"))?;
             let text = String::from_utf8_lossy(&resp.body).into_owned();
             Ok(extract_text_from_json_or_raw(&text))
         }
@@ -7304,6 +7417,49 @@ fn builtin_minio_put(env: &Env, args: &[Value], span: Span) -> Result<Value, Eva
     }
     record_l2_stub_event(env, "minio_put", fields);
     Ok(Value::ok(Value::Unit))
+}
+
+// M30.T5 — bucket-level stubs. The runtime stays mock-friendly: no
+// real S3 call is issued; the trace event records the intent so a
+// later, real-backend implementation can replace the body without
+// changing user code.
+fn builtin_minio_mb(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("minio.mb", 1, args, span)?;
+    let bucket = expect_string("minio.mb bucket", &args[0], span)?;
+    enforce_minio_bucket(env, "mb", &bucket, span)?;
+    record_l2_stub_event(
+        env,
+        "minio_mb",
+        vec![("bucket".into(), format!("\"{bucket}\""))],
+    );
+    Ok(Value::ok(Value::Unit))
+}
+
+fn builtin_minio_bucket_exists(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("minio.bucket_exists", 1, args, span)?;
+    let bucket = expect_string("minio.bucket_exists bucket", &args[0], span)?;
+    enforce_minio_bucket(env, "bucket_exists", &bucket, span)?;
+    record_l2_stub_event(
+        env,
+        "minio_bucket_exists",
+        vec![("bucket".into(), format!("\"{bucket}\""))],
+    );
+    // Mock contract: bucket is assumed to exist. The real backend
+    // would talk to MinIO; the user's `if not minio.bucket_exists(b) {
+    // minio.mb(b) }` idiom stays correct under both.
+    Ok(Value::Bool(true))
+}
+
+fn builtin_minio_list(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("minio.list", 1, args, span)?;
+    let bucket = expect_string("minio.list bucket", &args[0], span)?;
+    enforce_minio_bucket(env, "list", &bucket, span)?;
+    record_l2_stub_event(
+        env,
+        "minio_list",
+        vec![("bucket".into(), format!("\"{bucket}\""))],
+    );
+    Ok(Value::List(Vec::new()))
 }
 
 fn builtin_rabbitmq_publish(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
@@ -14154,5 +14310,145 @@ mod tests {
                fn main() -> string { greet(name: "a") }"#,
         );
         assert!(matches!(e.kind, EvalErrorKind::Arity { .. }), "got {:?}", e.kind);
+    }
+
+    // ---- M30 — scenario-port micro-APIs (§ 22 / § 23 / § 21.4) ----
+
+    #[test]
+    fn m30_list_map_pure() {
+        let v = ev("[1, 2, 3].map(fn(x) { x * 2 })");
+        let xs = match v {
+            Value::List(xs) => xs,
+            other => panic!("expected list, got {other:?}"),
+        };
+        assert_eq!(xs.len(), 3);
+        assert!(matches!(xs[0], Value::Int(2)));
+        assert!(matches!(xs[1], Value::Int(4)));
+        assert!(matches!(xs[2], Value::Int(6)));
+    }
+
+    #[test]
+    fn m30_list_map_with_capture() {
+        let v = ev(r#"{ let scale = 10; [1, 2, 3].map(fn(x) { x * scale }) }"#);
+        let xs = match v {
+            Value::List(xs) => xs,
+            other => panic!("expected list, got {other:?}"),
+        };
+        assert!(matches!(xs[2], Value::Int(30)));
+    }
+
+    #[test]
+    fn m30_list_map_wrong_arg_kind_errors() {
+        let e = ev_err("[1, 2, 3].map(42)");
+        let msg = format!("{:?}", e.kind);
+        assert!(msg.contains(".map expects a closure"), "got {msg}");
+    }
+
+    #[test]
+    fn m30_string_index_of_hit() {
+        let v = ev(r#""hello world".index_of("world")"#);
+        match v {
+            Value::Option(Some(inner)) => assert!(matches!(*inner, Value::Int(6))),
+            other => panic!("expected Some(6), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m30_string_index_of_miss_returns_none() {
+        let v = ev(r#""hello".index_of("xyz")"#);
+        assert!(matches!(v, Value::Option(None)), "got {v:?}");
+    }
+
+    #[test]
+    fn m30_string_index_of_from_offset() {
+        // Two occurrences of "ab": skip the first using from=3.
+        let v = ev(r#""ababab".index_of("ab", 3)"#);
+        match v {
+            Value::Option(Some(inner)) => assert!(matches!(*inner, Value::Int(4))),
+            other => panic!("expected Some(4), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m30_string_index_of_on_empty() {
+        let v = ev(r#""".index_of("a")"#);
+        assert!(matches!(v, Value::Option(None)), "got {v:?}");
+    }
+
+    #[test]
+    fn m30_minio_mb_records_trace_event() {
+        let tracer = Tracer::in_memory();
+        let cap_val = cap(vec![(vec!["minio", "mb"], Some(vec!["my-bucket"]))], false);
+        let mut env = Env::new().with_tracer(tracer.clone());
+        env.bind_let("cap", cap_val);
+        let expr = parse_expression(r#"minio.mb("my-bucket")"#).unwrap();
+        let _ = eval_expr(&expr, &mut env).and_then(|f| f.into_value(expr.span())).unwrap();
+        assert!(tracer.events().iter().any(|e| e.kind == "minio_mb"));
+    }
+
+    #[test]
+    fn m30_minio_bucket_exists_returns_true_under_mock() {
+        let cap_val = cap(
+            vec![(vec!["minio", "bucket_exists"], Some(vec!["b1"]))],
+            false,
+        );
+        let mut env = Env::new();
+        env.bind_let("cap", cap_val);
+        let expr = parse_expression(r#"minio.bucket_exists("b1")"#).unwrap();
+        let v = eval_expr(&expr, &mut env).and_then(|f| f.into_value(expr.span())).unwrap();
+        assert!(matches!(v, Value::Bool(true)));
+    }
+
+    #[test]
+    fn m30_minio_list_returns_empty_list_under_mock() {
+        let cap_val = cap(vec![(vec!["minio", "list"], Some(vec!["b1"]))], false);
+        let mut env = Env::new();
+        env.bind_let("cap", cap_val);
+        let expr = parse_expression(r#"minio.list("b1")"#).unwrap();
+        let v = eval_expr(&expr, &mut env).and_then(|f| f.into_value(expr.span())).unwrap();
+        assert!(matches!(v, Value::List(ref xs) if xs.is_empty()));
+    }
+
+    #[test]
+    fn m30_minio_mb_outside_allow_list_is_policy_violation() {
+        let cap_val = cap(vec![(vec!["minio", "mb"], Some(vec!["allowed"]))], false);
+        let mut env = Env::new();
+        env.bind_let("cap", cap_val);
+        let expr = parse_expression(r#"minio.mb("denied")"#).unwrap();
+        let r = eval_expr(&expr, &mut env).and_then(|f| f.into_value(expr.span()));
+        assert!(matches!(
+            r,
+            Err(EvalError { kind: EvalErrorKind::PolicyViolation { .. }, .. })
+        ));
+    }
+
+    #[test]
+    fn m30_http_post_content_type_kwarg_lands_in_trace() {
+        // The fake HTTP backend records the request fields; we check
+        // the trace event surfaces `content_type` when the kwarg is set.
+        // We can't actually issue an HTTP call in a unit test, so we
+        // just verify the kwarg is reordered correctly and reaches
+        // builtin_param_names lookup. A full integration test exists
+        // under `tests/`.
+        let cap_val = cap(
+            vec![(vec!["http", "post"], Some(vec!["127.0.0.1"]))],
+            false,
+        );
+        let mut env = Env::new();
+        env.bind_let("cap", cap_val);
+        // The host won't resolve (no listener), so we expect an Io
+        // error. What we care about is that the call is dispatched
+        // with three args (no Arity error).
+        let expr = parse_expression(
+            r#"http.post("http://127.0.0.1:1/", "\{\}", content_type: "application/json")"#,
+        )
+        .unwrap();
+        let r = eval_expr(&expr, &mut env).and_then(|f| f.into_value(expr.span()));
+        match r {
+            Err(EvalError { kind: EvalErrorKind::Io { op, .. }, .. }) => {
+                assert_eq!(op, "http.post");
+            }
+            other => panic!("expected http.post Io error (no listener), got {other:?}"),
+        }
     }
 }

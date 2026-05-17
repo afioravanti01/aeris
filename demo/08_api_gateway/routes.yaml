@@ -1,0 +1,12 @@
+gateway:
+  port: 8080
+  rate_limit: 100
+  rate_window: 60
+
+routes:
+  - prefix: /api/users
+    upstream: http://localhost:8001
+  - prefix: /api/products
+    upstream: http://localhost:8002
+  - prefix: /api/orders
+    upstream: http://localhost:8003

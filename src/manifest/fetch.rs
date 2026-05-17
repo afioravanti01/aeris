@@ -65,7 +65,7 @@ pub fn fetch_github_dep_to_cache(
     let effective_host = http_host_override.unwrap_or(&host);
     let url = format!("http://{effective_host}/{owner_repo}/archive/v{version}.tar.gz");
     let trace_id = "00000000000000000000000000";
-    let resp = crate::runtime::http::do_request("GET", &url, &[], trace_id, None)
+    let resp = crate::runtime::http::do_request("GET", &url, &[], trace_id, None, None)
         .map_err(|e| format!("github fetch {url}: {e}"))?;
     if resp.status != 200 {
         return Err(format!("github fetch {url}: status {}", resp.status));

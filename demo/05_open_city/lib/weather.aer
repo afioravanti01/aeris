@@ -1,0 +1,50 @@
+pub fn fetch(city) {
+  let lat = city.lat
+  let lon = city.lon
+  let url = "https://api.open-meteo.com/v1/forecast"
+    + "?latitude={lat}&longitude={lon}"
+    + "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
+    + "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum"
+    + "&timezone=auto&forecast_days=3"
+
+  let resp = retry 3, delay: 2s { http.get(url) }
+  let data = json.parse(resp.body)
+
+  let cur_opt   = data.get("current")
+  let daily_opt = data.get("daily")
+
+  if cur_opt == None or daily_opt == None {
+    return {
+      temperature: 0, humidity: 0, wind_speed: 0, weather_code: 0,
+      temp_max: 0, temp_min: 0, precip_mm: 0,
+    }
+  }
+
+  let cur   = cur_opt   ?? data
+  let daily = daily_opt ?? data
+
+  let tmax = daily.get("temperature_2m_max") ?? [0]
+  let tmin = daily.get("temperature_2m_min") ?? [0]
+  let prec = daily.get("precipitation_sum")  ?? [0]
+
+  return {
+    temperature:  cur.get("temperature_2m")       ?? 0,
+    humidity:     cur.get("relative_humidity_2m") ?? 0,
+    wind_speed:   cur.get("wind_speed_10m")       ?? 0,
+    weather_code: cur.get("weather_code")         ?? 0,
+    temp_max:     tmax[0],
+    temp_min:     tmin[0],
+    precip_mm:    prec[0],
+  }
+}
+
+pub fn describe_code(code) {
+  if code == 0                       { return "Clear sky" }
+  if code >= 1  and code <= 3        { return "Partly cloudy" }
+  if code >= 45 and code <= 48       { return "Foggy" }
+  if code >= 51 and code <= 67       { return "Rain" }
+  if code >= 71 and code <= 77       { return "Snow" }
+  if code >= 80 and code <= 82       { return "Showers" }
+  if code >= 95 and code <= 99       { return "Thunderstorm" }
+  return "Unknown"
+}

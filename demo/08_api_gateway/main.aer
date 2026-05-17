@@ -1,0 +1,89 @@
+/// API Gateway.
+///
+/// Reverse-proxy with a fixed-window rate limiter. Routes are loaded
+/// from `routes.yaml`; every incoming request is matched against the
+/// `prefix` list and forwarded to the upstream `base`.
+
+use router from "./lib/router.aer"
+
+let config = yaml.parse_file("routes.yaml")
+let gw     = config.get("gateway") ?? { port: 8080, rate_limit: 100, rate_window: 60 }
+
+let GATEWAY_PORT = gw.port
+let RL_LIMIT     = gw.rate_limit
+let RL_WINDOW    = gw.rate_window
+let ROUTES       = config.get("routes") ?? []
+
+fn main() {
+  let server = net.http(port: GATEWAY_PORT)
+  io.println("[gateway] listening on http://localhost:{GATEWAY_PORT}")
+  io.println("[gateway] rate limit: {RL_LIMIT} req / {RL_WINDOW}s")
+  io.println("[gateway] routes:")
+  for route in ROUTES {
+    io.println("           {route.prefix} -> {route.upstream}")
+  }
+
+  var rl_win_start = 0
+  var rl_win_count = 0
+
+  loop {
+    let req    = server.accept()
+    let method = req.method
+    let path   = req.path
+    let query  = req.query_raw ?? ""
+    let body   = req.body ?? ""
+    let ip     = req.remote_addr
+
+    let now     = date.timestamp()
+    let elapsed = now - rl_win_start
+
+    if elapsed >= RL_WINDOW {
+      rl_win_start = now
+      rl_win_count = 0
+    }
+    rl_win_count = rl_win_count + 1
+
+    if rl_win_count > RL_LIMIT {
+      let retry_after = RL_WINDOW - elapsed
+      req.reply_json(status: 429, body: json.stringify({
+        error:        "rate limit exceeded",
+        max_requests: RL_LIMIT,
+        window_secs:  RL_WINDOW,
+        retry_after:  retry_after,
+      }))
+      io.println("[gateway] 429  {method} {path}  ip={ip}")
+      continue
+    }
+
+    io.println("[gateway] ->   {method} {path}  ip={ip}  rl={rl_win_count}/{RL_LIMIT}")
+
+    spawn {
+      if path == "/health" {
+        req.reply_json(status: 200, body: json.stringify({
+          status:     "ok",
+          rate_limit: { max_requests: RL_LIMIT, window_secs: RL_WINDOW },
+        }))
+      } else {
+        let result = router.forward(method, path, body, ROUTES, query) catch err {
+          req.reply_json(status: 502, body: json.stringify({
+            error:  "upstream unavailable",
+            detail: "{err}",
+          }))
+          io.println("[gateway] 502  {method} {path}")
+          return
+        }
+        if result == None {
+          req.reply_json(status: 404, body: json.stringify({
+            error:  "no route matched",
+            path:   path,
+          }))
+          io.println("[gateway] 404  {method} {path}")
+        } else {
+          let r = result ?? { status: 500, body: "" }
+          io.println("[gateway] {r.status}  {method} {path}")
+          req.reply_json(status: r.status, body: r.body)
+        }
+      }
+    }
+  }
+}

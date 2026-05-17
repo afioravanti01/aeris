@@ -1,0 +1,43 @@
+// Match `path` against the routes list and forward to the upstream.
+// The `/api` prefix (first 4 chars) is stripped before forwarding.
+
+pub fn resolve(path, routes) {
+  for route in routes {
+    let prefix = route.prefix
+    if path.starts_with(prefix) {
+      var upstream_path = path.slice(4, path.len())
+      if upstream_path == "" { upstream_path = "/" }
+      return { base: route.upstream, path: upstream_path }
+    }
+  }
+  return None
+}
+
+pub fn forward(method, path, body, routes, query) {
+  let route_opt = resolve(path, routes)
+  if route_opt == None { return None }
+  let route = route_opt ?? { base: "", path: "" }
+
+  let base  = route.base
+  let rpath = route.path
+  let qs    = query ?? ""
+  let url   = if qs == "" { "{base}{rpath}" } else { "{base}{rpath}?{qs}" }
+
+  let resp = None
+  if method == "GET" or method == "HEAD" {
+    return forward_to(http.get(url))
+  } else if method == "POST" {
+    return forward_to(http.post(url, body))
+  } else if method == "PUT" {
+    return forward_to(http.put(url, body))
+  } else if method == "PATCH" {
+    return forward_to(http.patch(url, body))
+  } else if method == "DELETE" {
+    return forward_to(http.delete(url))
+  }
+  return None
+}
+
+fn forward_to(resp) {
+  return { status: resp.status, body: resp.body }
+}

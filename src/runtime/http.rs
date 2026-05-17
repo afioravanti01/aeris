@@ -90,6 +90,7 @@ pub fn do_request(
     body: &[u8],
     trace_id: &str,
     idempotency_key: Option<&str>,
+    content_type: Option<&str>,
 ) -> Result<HttpResponse, HttpError> {
     let parsed = parse_url(url)?;
     let addr = format!("{}:{}", parsed.host, parsed.port);
@@ -122,6 +123,9 @@ pub fn do_request(
     .map_err(|e| HttpError::Io(e.to_string()))?;
     if let Some(key) = idempotency_key {
         write!(&mut req, "Idempotency-Key: {key}\r\n").map_err(|e| HttpError::Io(e.to_string()))?;
+    }
+    if let Some(ct) = content_type {
+        write!(&mut req, "Content-Type: {ct}\r\n").map_err(|e| HttpError::Io(e.to_string()))?;
     }
     req.extend_from_slice(b"\r\n");
     req.extend_from_slice(body);

@@ -1,0 +1,32 @@
+pub let BUCKET = "open-city"
+
+pub fn get_data() {
+  return minio.get(bucket: BUCKET, object: "data.json") catch err { None }
+}
+
+pub fn start(web_dir, backend_port) {
+  let server = net.http(port: backend_port)
+  io.println("[server] listening on http://localhost:{backend_port}")
+
+  loop {
+    let req    = server.accept()
+    let method = req.method
+    let path   = req.path
+
+    spawn {
+      if method == "GET" and (path == "/" or path == "/index.html") {
+        let html = fs.read_text("{web_dir}/index.html")
+        req.reply(status: 200, body: html, content_type: "text/html; charset=utf-8")
+      } else if method == "GET" and path == "/api/data" {
+        let content = get_data()
+        if content == None {
+          req.reply_json(status: 503, body: json.stringify({ error: "data not available yet" }))
+        } else {
+          req.reply_json(status: 200, body: content)
+        }
+      } else {
+        req.reply_json(status: 404, body: json.stringify({ error: "not found", path: path }))
+      }
+    }
+  }
+}

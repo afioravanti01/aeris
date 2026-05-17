@@ -1,0 +1,56 @@
+// OpenStreetMap Overpass API: count amenities within a 5 km radius
+// around the city centre. Returns a list of { label, count } records;
+// the dashboard renderer reduces this to a JSON object.
+
+pub fn fetch_amenities(city) {
+  let lat = city.lat
+  let lon = city.lon
+  let rad = 5000
+
+  let categories = [
+    { key: "amenity", value: "hospital",         label: "hospitals" },
+    { key: "amenity", value: "school",           label: "schools" },
+    { key: "amenity", value: "restaurant",       label: "restaurants" },
+    { key: "leisure", value: "park",             label: "parks" },
+    { key: "amenity", value: "bicycle_parking",  label: "bike_parking" },
+    { key: "amenity", value: "charging_station", label: "ev_charging" },
+  ]
+
+  var counts = []
+  for cat in categories {
+    let label = cat.label
+    let k     = cat.key
+    let v     = cat.value
+    let query = "[out:json][timeout:25];"
+      + "(node['{k}'='{v}'](around:{rad},{lat},{lon});"
+      + "way['{k}'='{v}'](around:{rad},{lat},{lon}););"
+      + "out count;"
+
+    let resp = retry 2, delay: 5s {
+      http.post(
+        "https://overpass-api.de/api/interpreter",
+        query,
+        content_type: "application/x-www-form-urlencoded",
+      )
+    } catch err { None }
+
+    var n = None
+    if resp != None {
+      let data = json.parse(resp.body) catch err { None }
+      if data != None {
+        let elems = data.get("elements") ?? []
+        for el in elems {
+          let tags_opt = el.get("tags")
+          if tags_opt != None {
+            let tags = tags_opt ?? el
+            let cnt  = tags.get("total") ?? None
+            if cnt != None { n = cnt }
+          }
+        }
+      }
+    }
+    counts.push({ label: label, count: n })
+  }
+
+  return counts
+}

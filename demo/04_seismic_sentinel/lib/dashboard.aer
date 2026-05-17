@@ -1,0 +1,29 @@
+pub fn build_data(regions_data, ai_report, generated_at) {
+  var all_events = []
+  for reg in regions_data {
+    for ev in reg.events {
+      all_events.push({
+        lat:     ev.lat,
+        lon:     ev.lon,
+        mag:     ev.magnitude,
+        depth:   ev.depth,
+        place:   ev.place,
+        alert:   ev.alert,
+        tsunami: ev.tsunami,
+        region:  reg.region,
+      })
+    }
+  }
+
+  var regions = []
+  for reg in regions_data {
+    regions.push({ name: reg.region, count: reg.count })
+  }
+
+  return json.stringify({
+    generated_at: generated_at,
+    events:       all_events,
+    regions:      regions,
+    report:       ai_report,
+  })
+}

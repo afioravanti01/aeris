@@ -84,31 +84,33 @@ I layer sono *opt-in by depth*: uno script puro vive in L1; una pipeline self-re
 <div class="columns">
 <div class="column compact">
 
-**Per chi è**
+**Un linguaggio general purpose**
 
-- Platform / ops engineer che oggi cucina YAML + Python + shell + Terraform
-- Autore di pipeline AI che oggi compone LangChain + prompt-string + retry manuali
-- Team con vincoli di audit / compliance che non possono fidarsi di "un container che gira"
+Aeris si usa come si usano Python o Go: per scrivere CLI, parser, validatori, piccoli servizi, automazioni di tutti i giorni. La sintassi è familiare a chi conosce Rust, Swift o TypeScript.
 
-**Cosa rimpiazza, in un solo file**
+Tre profili lo trovano particolarmente naturale, perché il linguaggio porta nella grammatica esattamente le cose che oggi devono cucirsi a mano:
 
-- Lo script ops (`bash` / Python) → `.aer` con `intent` e capability esplicite
-- Il manifesto pipeline (Airflow / Argo) → `saga` con `do`/`undo` obbligatori
-- Il grafo agenti (LangChain / CrewAI) → `agent_net` tipato, validato edge-by-edge
-- La policy egress (OPA / `policy.rego`) → `policy` valutata a runtime
+- **Platform e DevOps engineer**, che oggi combinano YAML, Python, shell e Terraform per far girare deploy e operazioni
+- **Autori di pipeline AI**, che oggi mettono insieme LangChain, stringhe di prompt e logica di retry artigianale
+- **Team in contesti regolamentati** — banca, sanità, pubblica amministrazione — che hanno bisogno di sapere con precisione cosa fa il codice e di poterlo riprodurre offline
 
 </div>
 <div class="column compact">
 
-**Tre modalità d'uso**
+**Cosa permette di tenere in un solo file**
 
-- **Script** (v0.3, `enforce = "off"`) — top-level statements, no `cap`, no `main`. Per automation rapide, prototipi, demo
-- **Pipeline** (`enforce = "loose"`) — funzioni con `cap`, manifest come ceiling. Per ops che salgono progressivamente
-- **Mission-critical** (`enforce = "strict"`) — disciplina v0.2 piena. Per produzione, audit, compliance
+- Lo script operativo, oggi in `bash` o Python, diventa un programma Aeris con `intent` esplicito sugli effetti esterni
+- Il manifesto di pipeline, oggi in Airflow o Argo, diventa una `saga` con `do` e `undo` obbligatori
+- Il grafo di agenti AI, oggi in LangChain o CrewAI, diventa un `agent_net` tipato, validato a ogni passaggio
+- La policy di egress, oggi in OPA o `policy.rego`, diventa un costrutto `policy` valutato a runtime
 
-**Il trace e il replay non si toccano mai.** Tutte e tre le modalità emettono JSONL e supportano `aeris replay` bit-identical sul subset deterministico — l'audit non è una feature opt-in.
+**Tre modi di scriverlo, una sola sintassi**
 
-> Lo stesso linguaggio scala da `aeris run triage.aer` allo stack di produzione regolamentata.
+- **Modalità script**: istruzioni a livello modulo, niente `cap`, niente `main`. Per automazioni rapide, prototipi, demo
+- **Modalità progressiva**: funzioni con `cap`, il manifesto del progetto fa da tetto runtime. Per chi vuole salire gradualmente verso la disciplina piena
+- **Modalità rigida**: `cap` ovunque, `intent` obbligatorio su ogni scrittura esterna, surface lock controllato in pull request. Per produzione, audit, compliance
+
+> Il trace JSONL e `aeris replay` sono attivi in tutte e tre le modalità. L'audit non è una funzionalità opzionale.
 
 </div>
 </div>
@@ -123,8 +125,8 @@ I layer sono *opt-in by depth*: uno script puro vive in L1; una pipeline self-re
 <div class="column">
 
 ```aeris
-// Script v0.3 — niente main, niente cap, niente boilerplate.
-// Triage di log con un LLM headless (claude --print).
+// Triage di log con un modello headless (claude --print).
+// Niente main, niente cap, niente boilerplate.
 
 let session = ai.session(
   system: "Classify a log line: critical | warning | info.",
@@ -151,62 +153,53 @@ io.println("triage done — {ai.usage().calls} LLM calls")
 </div>
 <div class="column compact">
 
-**Cosa è visibile a colpo d'occhio**
+**Cosa rende possibile questo stile**
 
-- **Top-level statements** (M26) — niente `fn main`, lo script gira
-- **String interpolation** (M16) — `"{line}"`, `"{ai.usage().calls}"`
-- **Named arguments** (v0.3) — `system:`, `model:`, `choices:` su builtin
-- **AI di prima classe** — `ai.session`, `ai.decide`, `ai.usage` nella stdlib, non in libreria esterna
-- **`?` propaga `err.llm`** quando il modello non rispetta `choices`
-- **Trace JSONL** — ogni `ai.decide`, ogni `audit.event` finisce in `.aeris/traces/<id>.jsonl`, riproducibile con `aeris replay`
+- Le istruzioni a livello modulo vengono eseguite in ordine, senza bisogno di scrivere `fn main`: come uno script Python
+- Le stringhe interpolano direttamente le espressioni: `"{line}"` al posto della concatenazione
+- Le funzioni built-in accettano argomenti nominali. `ai.decide(prompt: ..., choices: [...])` si legge come una chiamata documentata
+- Le funzioni AI vivono nella libreria standard, non in un pacchetto esterno: `ai.session`, `ai.decide`, `ai.usage` sono sempre disponibili
+- Il punto interrogativo `?` propaga gli errori del modello — per esempio quando la risposta non rientra in `choices`
+- Ogni chiamata ad `ai.decide` e ad `audit.event` viene registrata in un file JSON Lines a fianco del sorgente. Lo stesso programma si rigioca offline con `aeris replay`, ottenendo gli stessi byte
 
-> Stessa identica grammatica scala fino al programma "settle" dell'Atto III: si aggiunge `fn`, `cap`, `intent`, `saga` — non si cambia linguaggio.
+> La stessa grammatica scala fino al programma "settle" dell'Atto III. Si aggiungono `fn`, `cap`, `intent`, `saga`: non si cambia linguaggio.
 
 </div>
 </div>
 
 ---
 
-# LLM-friendly per costruzione
+# Perché è adatto a essere scritto e letto da un LLM
 
 <div class="columns">
 <div class="column compact">
 
-**Grammatica densa, una sola forma legale**
+**Una grammatica con una sola forma legale**
 
-- Tutti i keyword **riservati** — niente soft keyword, `grep step` è autorevole
-- **Una forma canonica** per ogni costrutto: `aeris fmt` è totale, non parziale
-- **Nessuna alternativa sintattica** (no `function`/`def`/`fn` insieme, solo `fn`)
-- Densità: una `saga` di 10 step sta in mezza pagina, un `agent_net` in 6 righe
+Ogni parola chiave è riservata: nessun termine cambia significato a seconda del contesto, e una ricerca testuale di `step` o `saga` trova davvero ogni occorrenza. Ogni costrutto ha una sola scrittura canonica, e il formatter `aeris fmt` la impone: dato un programma valido, esiste una sola forma legale. Non esistono varianti sintattiche per la stessa cosa — si scrive `fn`, mai `function` o `def`.
 
-> *Fewer decisions to make → fewer points of failure.* Lo spazio dei completamenti validi è piccolo, l'LLM ha meno modo di sbagliare.
+Il risultato è uno spazio di completamenti valido piccolo. Un modello che genera codice ha meno decisioni da prendere, e quindi meno modi di sbagliare. Una `saga` di dieci passi sta in mezza pagina; una rete di agenti in sei righe.
 
-**Why-as-grammar**
+**Il "perché" entra nella grammatica**
 
-- `intent "..."` — il *perché* del write è antenato grammaticale, non un commento
-- `model X@vN` — schema versionato sui trust boundary, validato a runtime
-- `policy` — guardrail come costrutto, non come prompt-string convention
-- `requires:` / `ensures:` — pre/post-condizioni come parte della firma
+Concetti che in altri linguaggi vivono nei commenti, nelle PR o nei ticket, in Aeris sono costrutti del linguaggio. `intent "..."` dichiara lo scopo di ogni scrittura esterna ed è obbligatorio in modalità rigida. `model Invoice@v1` versiona gli schemi sui confini di fiducia e li valida a runtime. `policy` esprime una regola di sicurezza come parte del programma. `requires:` ed `ensures:` portano pre-condizioni e post-condizioni dentro la firma di una funzione.
 
 </div>
 <div class="column compact">
 
-**AI built-in, non bolted-on**
+**AI nella libreria standard, non in libreria esterna**
 
-- `ai.session` / `ai.session_ask` con auto-compaction 40→20
-- `ai.decide(prompt, choices)` enum-style con retry su `SchemaViolation`
-- `ai.chat(system, dir)` carica una knowledge base markdown in startup
-- `ai.network(max_rounds)` programmatico + `agent` / `agent_net` dichiarativi
-- Backend `http` *o* `cli` (`claude --print`, `ollama`, ...) — niente SDK linkati
+Le funzioni che oggi si trovano in framework come LangChain qui sono primitive del linguaggio.
 
-**Reproducibility built-in**
+- `ai.session` e `ai.session_ask` per conversazioni multi-turno, con compaction automatica della cronologia
+- `ai.decide(prompt, choices)` per scelte enum-style, con retry quando la risposta cade fuori dall'insieme dichiarato
+- `ai.chat(system, dir)` per costruire un chatbot su una cartella di markdown
+- `ai.network` programmatico, oppure `agent` e `agent_net` dichiarativi per pipeline tipate
+- Il backend del modello è configurabile: chiamata HTTP a un'API (Anthropic, OpenAI) oppure subprocess CLI (`claude --print`, `ollama`). Niente SDK da linkare.
 
-- Ogni `ai.*` registrato come `ai_call` nel trace (`prompt`, `model`, `response`, `tokens`)
-- `aeris replay <trace>` rigioca offline, bit-identical
-- La **prima** esecuzione resta stocastica; ogni replay è deterministico
-- Coerente con l'audience che conta: audit, debug, post-mortem, regression test
+**Riproducibilità inclusa**
 
-> Aeris non promette LLM deterministici. Promette **un linguaggio che li tiene visibili, registrati e replayabili**.
+Ogni chiamata al modello viene registrata sul trace come un evento JSON con prompt, modello, risposta e numero di token. `aeris replay` rigioca l'intera sessione offline e ottiene gli stessi byte sul sottoinsieme deterministico. La prima esecuzione resta stocastica; ogni replay successivo è deterministico.
 
 </div>
 </div>

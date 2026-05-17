@@ -1,0 +1,80 @@
+/// Aeris Docs Chatbot (HTTP server).
+///
+/// Loads the Aeris documentation as a knowledge base via `ai.chat(dir:)`
+/// and serves a chat UI over HTTP. Each request runs in its own spawn
+/// so the server stays concurrent.
+///
+/// Endpoints:
+///   GET  /            -> the HTML frontend (index.html)
+///   POST /api/chat    -> { "message": "..." } -> { "response": "..." }
+///   GET  /api/health  -> { "status": "ok", "docs": N }
+
+fn main() {
+  let port = 8080
+
+  io.println("Loading Aeris documentation...")
+  let chat = ai.chat(
+    system:
+      "You are Aeris Assistant, an expert on the Aeris programming language. "
+      + "Aeris is a general-purpose interpreted language with a Rust runtime, "
+      + "designed for automation, AI orchestration and system integration. "
+      + "Scripts use the .aer file extension. "
+      + "Answer using the provided documentation context. Be concise. "
+      + "Use ```aeris fenced code blocks for code examples. If the docs "
+      + "do not cover a question, say so clearly rather than guessing.",
+    dir: "./docs",
+  )
+
+  let doc_count = chat.kb_size()
+
+  io.println("Loaded {doc_count} documentation files.")
+  io.println("")
+  io.println("  UI  ->  http://localhost:{port}")
+  io.println("  API ->  POST http://localhost:{port}/api/chat")
+  io.println("")
+
+  let server = net.http(port: port)
+
+  loop {
+    let req = server.accept()
+
+    spawn {
+      let path   = req.path
+      let method = req.method
+
+      if path == "/" or path == "/index.html" {
+        let html = fs.read_text("index.html") catch err {
+          req.reply(status: 500, body: "Could not read index.html")
+          return
+        }
+        req.reply(status: 200, body: html, content_type: "text/html; charset=utf-8")
+      } else if path == "/api/chat" and method == "POST" {
+        let raw  = req.body ?? ""
+        if raw.trim() == "" {
+          req.reply_json(status: 400, body: "\{\"error\":\"empty body\"\}")
+          return
+        }
+        let body = json.parse(raw) catch err {
+          req.reply_json(status: 400, body: "\{\"error\":\"invalid JSON body\"\}")
+          return
+        }
+        let message = body.get("message") ?? ""
+        if message.trim() == "" {
+          req.reply_json(status: 400, body: "\{\"error\":\"message is required\"\}")
+          return
+        }
+        let response = chat.ask(prompt: message) catch err {
+          req.reply_json(status: 500, body: "\{\"error\":\"LLM call failed\"\}")
+          return
+        }
+        req.reply_json(status: 200, body: json.encode({ response: response }))
+      } else if path == "/api/health" {
+        req.reply_json(status: 200, body: json.encode({ status: "ok", docs: doc_count }))
+      } else if method == "OPTIONS" {
+        req.reply(status: 204, body: "")
+      } else {
+        req.reply(status: 404, body: "Not found")
+      }
+    }
+  }
+}

@@ -1,0 +1,196 @@
+/// Open City Intelligence.
+///
+/// For each city: pull weather, air quality and OSM amenity counts,
+/// then ask a 3-agent network (orchestrator -> urban_analyst ->
+/// comparator) to score and compare them. The dashboard payload is
+/// stored in MinIO and served over a local HTTP backend.
+
+use weather_api from "./lib/weather.aer"
+use airquality  from "./lib/airquality.aer"
+use osm         from "./lib/osm.aer"
+use dash        from "./lib/dashboard.aer"
+use store       from "./lib/store.aer"
+use server      from "./lib/server.aer"
+
+let AGENTS_DIR   = "./agents"
+let WEB_DIR      = "./web"
+let BACKEND_PORT = 7778
+
+let CITIES = [
+  { name: "Rome",      country: "Italy",   lat: 41.9028, lon: 12.4964 },
+  { name: "Berlin",    country: "Germany", lat: 52.5200, lon: 13.4050 },
+  { name: "Barcelona", country: "Spain",   lat: 41.3851, lon: 2.1734  },
+  { name: "Delhi",     country: "India",   lat: 28.6139, lon: 77.2090 },
+]
+
+fn fetch_city(city) {
+  io.println("  [{city.name}] weather...")
+  let w = weather_api.fetch(city)
+  io.println("    -> temp={w.temperature}C wind={w.wind_speed}km/h humidity={w.humidity}%")
+
+  io.println("  [{city.name}] air quality...")
+  let aq = airquality.fetch(city) catch err {
+    io.println("  [{city.name}] air quality unavailable: {err}")
+    { pm25: None, pm10: None, no2: None, aqi_label: "No data" }
+  }
+  io.println("    -> pm25={aq.pm25} pm10={aq.pm10} aqi={aq.aqi_label}")
+
+  io.println("  [{city.name}] OSM amenities...")
+  let am = osm.fetch_amenities(city) catch err {
+    io.println("  [{city.name}] OSM unavailable: {err}");
+    []
+  }
+  io.println("    -> amenities: {json.stringify(am)}")
+
+  return {
+    name:      city.name,
+    country:   city.country,
+    lat:       city.lat,
+    lon:       city.lon,
+    weather:   w,
+    air:       aq,
+    amenities: am,
+    scores:    { livability: 0, sustainability: 0, infrastructure: 0 },
+    report:    "",
+  }
+}
+
+fn fetch_all() {
+  io.println("Fetching data for {CITIES.len()} cities...")
+  io.println("")
+  var results = []
+  for city in CITIES {
+    let data = fetch_city(city)
+    results.push(data)
+    io.println("")
+  }
+  return results
+}
+
+fn city_summary(cd) {
+  let w  = cd.weather
+  let aq = cd.air
+  let am = cd.amenities
+  return "## {cd.name}, {cd.country}\n"
+    + "Weather: {w.temperature}C, wind {w.wind_speed}km/h, humidity {w.humidity}%, precip {w.precip_mm}mm\n"
+    + "Air Quality: PM2.5={aq.pm25}, PM10={aq.pm10}, NO2={aq.no2} -> {aq.aqi_label}\n"
+    + "Amenities (5km radius): {json.stringify(am)}"
+}
+
+fn run_analysis(cities_data) {
+  io.println("Running AI analysis...")
+  io.println("")
+
+  var summary = ""
+  for cd in cities_data {
+    summary = "{summary}{city_summary(cd)}\n\n"
+  }
+
+  var net = ai.network(max_rounds: 8)
+  net.agent(name: "orchestrator",  system: fs.read_text("{AGENTS_DIR}/orchestrator.md"))
+  net.agent(name: "urban_analyst", system: fs.read_text("{AGENTS_DIR}/urban_analyst.md"))
+  net.agent(name: "comparator",    system: fs.read_text("{AGENTS_DIR}/comparator.md"))
+
+  let result = net.run(
+    entry:   "orchestrator",
+    message: "Analyse these cities:\n\n{summary}",
+    until:   "DONE",
+  ) catch err {
+    io.println("AI analysis error: {err}")
+    { trace: [], rounds: 0 }
+  }
+
+  io.println("Analysis complete ({result.rounds} rounds)")
+  return result
+}
+
+// Returns the per-city scores record extracted from a ```json fenced
+// block in the analyst's reply, or None if anything fails along the way.
+fn parse_scores(analyst_response) {
+  let opt_start = analyst_response.index_of("```json")
+  if opt_start == None { return None }
+  let start = opt_start ?? 0
+  let opt_end = analyst_response.index_of("```", start + 7)
+  if opt_end == None { return None }
+  let stop = opt_end ?? 0
+  let raw = analyst_response.slice(start + 7, stop).trim()
+  let parsed = json.parse(raw) catch err { None }
+  if parsed == None { return None }
+  return parsed.get("scores")
+}
+
+fn extract_report(analyst_response, city_name) {
+  let marker = "**{city_name}**"
+  let opt = analyst_response.index_of(marker)
+  if opt == None { return "See full analysis above." }
+  let start = opt ?? 0
+  let next = analyst_response.index_of("**", start + 4)
+  if next == None {
+    return analyst_response.slice(start, analyst_response.len()).trim()
+  }
+  let stop = next ?? 0
+  return analyst_response.slice(start, stop).trim()
+}
+
+fn extract_results(trace, cities_data) {
+  var analyst_response    = ""
+  var comparator_response = ""
+
+  for entry in trace {
+    if entry.from == "urban_analyst" { analyst_response    = entry.response }
+    if entry.from == "comparator"    { comparator_response = entry.response }
+  }
+
+  let scores_map = parse_scores(analyst_response)
+
+  var enriched = []
+  for cd in cities_data {
+    let cs_opt = if scores_map == None { None } else { (scores_map ?? cd).get(cd.name) }
+    let scores = if cs_opt == None {
+      { livability: 0, sustainability: 0, infrastructure: 0 }
+    } else {
+      let cs = cs_opt ?? cd
+      {
+        livability:     cs.get("livability")     ?? 0,
+        sustainability: cs.get("sustainability") ?? 0,
+        infrastructure: cs.get("infrastructure") ?? 0,
+      }
+    }
+    enriched.push({
+      ..cd,
+      scores: scores,
+      report: extract_report(analyst_response, cd.name),
+    })
+  }
+
+  return { cities: enriched, comparison: comparator_response }
+}
+
+fn main() {
+  io.println("=== Open City Intelligence ===")
+  io.println("")
+
+  let cities_data = fetch_all()
+  let result      = run_analysis(cities_data)
+  let extracted   = extract_results(result.trace, cities_data)
+  let enriched    = extracted.cities
+  let comparison  = extracted.comparison
+  let generated   = date.format(date.now(), "%Y-%m-%d %H:%M UTC")
+
+  io.println("")
+  io.println("=== City data snapshot ===")
+  for cd in enriched {
+    io.println("  {cd.name}: scores={json.stringify(cd.scores)}")
+  }
+  io.println("  comparison_len={comparison.len()}")
+
+  let payload = dash.build_data(enriched, comparison, generated)
+  store.save_data(payload)
+
+  io.println("")
+  io.println("=== Starting backend on http://localhost:{BACKEND_PORT} ===")
+  io.println("    open http://localhost:{BACKEND_PORT}")
+  io.println("")
+
+  server.start(WEB_DIR, BACKEND_PORT)
+}

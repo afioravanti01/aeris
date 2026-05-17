@@ -1,30 +1,48 @@
 # Aeris v0.3 — Demo set
 
-Mini-progetti Aeris autosufficienti (`main.aer` + `aeris.toml`),
-pensati per essere mostrati live durante la presentazione.
+Self-contained Aeris projects (`main.aer` + `aeris.toml`) ported from
+the v0.1 scenario gallery. All eight run under `enforce = "off"` and
+pass `aeris check`. Some depend on external services (MinIO,
+Python upstreams, OpenStreetMap Overpass); those are noted in each
+project's own files.
 
-| # | Scenario | Feature v0.3 evidenziate |
+| # | Scenario | What it demonstrates |
 |---|---|---|
-| 01 | `01_chatbot_md` | `enforce = "off"` + `loop` + `??` + `ai.chat(system, dir)` + `chat.ask` + `chat.kb_size` + backend CLI Claude headless |
+| 01 | `01_chatbot_md` | `enforce = "off"` + `loop` + `??` + `ai.chat(system, dir)` + `chat.ask` + CLI Claude backend |
+| 02 | `02_chatbot_http` | HTTP server + `ai.chat(dir:)` knowledge base + concurrent request handling via `spawn` |
+| 03 | `03_project_template` | `ai.session` / `ai.session_ask` driving file generation from a markdown brief |
+| 04 | `04_seismic_sentinel` | Periodic `every 5m` ingest + 4-agent `ai.network` + MinIO persistence + dashboard HTTP server |
+| 05 | `05_open_city` | Multi-source aggregator (Open-Meteo, OSM Overpass) + 3-agent network + MinIO + dashboard |
+| 06 | `06_reverse_engineering` | 4-agent doc generator + AI chat server (`net.http` + `chat.ask`) + dashboard + MinIO docs |
+| 07 | `07_crypto_pipeline` | Multi-step crypto chain (normalise → hash → sign → verify → encode → emit) + `defer` audit + shell-out |
+| 08 | `08_api_gateway` | YAML-driven reverse proxy + fixed-window rate limiter + Python upstreams + `test` suite |
 
-## Come eseguire
+## Running
 
-Dal root del repo:
+From the repo root:
 
 ```bash
 cargo build --release
-cd demo/01_chatbot_md
-aeris run main.aer
+cd demo/<scenario>
+aeris run ./main.aer
 ```
 
-`aeris.toml` configura il backend (`[ai.backend] kind = "cli" cmd = "claude --print …"`). Per provare offline, basta cambiare temporaneamente `kind = "mock"` — la risposta diventa un echo deterministico del prompt.
+Some scenarios need extra services:
 
-## Anatomia
+- `04_seismic_sentinel`, `05_open_city`, `06_reverse_engineering`
+  use the MinIO bucket stubs — they run as mock under the default
+  `aeris-core` and trace every op. Pointing to a real MinIO endpoint
+  is configured via `MINIO_*` env vars.
+- `08_api_gateway` expects three Python uvicorn services on ports
+  8001 / 8002 / 8003. Start them with `aeris run upstreams.aer`
+  (in another terminal) before `aeris run main.aer`.
+
+## Anatomy — the v0.3 surface in one screen
 
 ```aeris
 fn main() {
   let chat = ai.chat(
-    "Sei un assistente conciso. Rispondi solo dalla knowledge base.",
+    "You are concise. Answer from the knowledge base.",
     "./docs",
   )
   io.println("loaded {chat.kb_size()} files")
@@ -38,22 +56,49 @@ fn main() {
 }
 ```
 
-Niente `cap`, niente `intent`, niente `load_corpus` a mano. Per i
-dettagli di ciascuna feature vedi `docs/language.md` §§ 2.3 / 2.6 /
-6.1 / 8.4.1 / 22 / 23 e l'Appendice D.
+No `cap`, no `intent`, no manual KB loading — script mode runs the
+v0.3 surface as a high-level interpreted language. Flipping
+`enforce` from `"off"` to `"loose"` or `"strict"` (per
+`docs/language.md` § 8.4.1) tightens the discipline without
+changing the program's meaning.
 
-## Promozione a `loose` o `strict`
+## v0.3 features each scenario exercises
 
-Per gradi:
+| Feature | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
+|---|---|---|---|---|---|---|---|
+| String interpolation `{x}` | yes | yes | yes | yes | yes | yes | yes |
+| `loop`, `??` | yes |  | yes | yes | yes |  | yes |
+| `catch`, `defer`, `error()` | yes | yes | yes | yes | yes | yes | yes |
+| `every`, `retry`, `timeout` |  |  | yes | yes |  |  |  |
+| `ai.session` / `ai.session_ask` |  | yes |  |  |  |  |  |
+| `ai.chat(dir:)` | yes |  |  |  | yes |  |  |
+| `ai.network` |  |  | yes | yes | yes |  |  |
+| `net.http(port:)` + `HttpServer`/`HttpReq` | yes |  | yes | yes | yes |  | yes |
+| `minio.{get,put,mb,bucket_exists,list}` |  |  | yes | yes | yes |  |  |
+| `shell.exec(["sh","-c", ...])` |  |  |  |  |  | yes | yes |
+| `assert_status` / `assert_json` / `assert_semantic` |  |  |  |  |  |  | yes |
+| `list.map(f)` |  |  | yes |  |  |  |  |
+| `string.index_of` |  |  |  | yes |  |  |  |
+| `http.post(url, body, content_type:)` |  |  |  | yes |  |  |  |
 
-```toml
-# enforce = "off"   → script mode, niente check
-# enforce = "loose" → manifest allow-list enforced (fs.allow_read, ai.models)
-[caps]
-enforce       = "loose"
-fs.allow_read = ["./docs/**"]
-ai.models     = ["claude-sonnet-4-6"]
-```
+## Known v0.3 surface gaps surfaced during the port
 
-In `strict` ogni funzione effettuale deve dichiarare `cap[...]`;
-`aeris fmt --narrow-caps` deriva la firma minima dal body.
+These are not blockers — every scenario has a working workaround —
+but they should be tracked as future polish:
+
+1. **Triple-quoted strings `"""..."""`** are documented in
+   `docs/language.md` § 2.4 but not implemented by the lexer.
+   Workaround: concatenate single-line strings with `+`.
+2. **Tuple destructuring in `let (a, b) = expr`** is rejected by the
+   parser. Workaround: `let r = expr; let a = r[0]; let b = r[1]`.
+3. **Empty record / map literal `{}`** is always parsed as an empty
+   block expression. There is no syntax for an empty map.
+4. **Auto-semicolon insertion** is missing in some block positions.
+   A bare expression like `[]` on the line after a call is read as a
+   subscript of the previous line. Workaround: insert an explicit `;`.
+5. **Reserved keywords as record-literal field names** (`limit:`,
+   `match:`, `when:`, …) are rejected. Workaround: rename to a
+   non-keyword field.
+
+If you hit any of these in another scenario, please flag them — they
+are candidates for a follow-up milestone.

@@ -1,0 +1,34 @@
+pub fn aqi_label(eaqi) {
+  if eaqi == None  { return "Unknown" }
+  if eaqi <= 20    { return "Good" }
+  if eaqi <= 40    { return "Fair" }
+  if eaqi <= 60    { return "Moderate" }
+  if eaqi <= 80    { return "Poor" }
+  if eaqi <= 100   { return "Very Poor" }
+  return "Extremely Poor"
+}
+
+pub fn fetch(city) {
+  let lat = city.lat
+  let lon = city.lon
+  let url = "https://air-quality-api.open-meteo.com/v1/air-quality"
+    + "?latitude={lat}&longitude={lon}"
+    + "&current=pm10,pm2_5,nitrogen_dioxide,european_aqi"
+
+  let resp = retry 3, delay: 2s { http.get(url) }
+  let data = json.parse(resp.body)
+
+  let cur_opt = data.get("current")
+  if cur_opt == None {
+    return { pm25: None, pm10: None, no2: None, aqi_label: "No data" }
+  }
+  let cur = cur_opt ?? data
+
+  let pm25 = cur.get("pm2_5")            ?? None
+  let pm10 = cur.get("pm10")             ?? None
+  let no2  = cur.get("nitrogen_dioxide") ?? None
+  let eaqi = cur.get("european_aqi")     ?? None
+
+  let label = aqi_label(eaqi)
+  return { pm25: pm25, pm10: pm10, no2: no2, aqi_label: label }
+}

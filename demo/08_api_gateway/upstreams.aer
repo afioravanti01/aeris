@@ -1,0 +1,19 @@
+/// Boots the three Python upstream services (users, products,
+/// orders) used by the gateway. Each `shell.exec` call wraps a
+/// shell-string command in `sh -c`; the loop keeps the parent alive
+/// while the children own their own lifetime.
+
+fn main() {
+  io.println("[upstreams] starting services...")
+
+  spawn { shell.exec(["sh", "-c", "cd ./services/users    && uv run uvicorn main:app --port 8001 --log-level warning"]) }
+  spawn { shell.exec(["sh", "-c", "cd ./services/products && uv run uvicorn main:app --port 8002 --log-level warning"]) }
+  spawn { shell.exec(["sh", "-c", "cd ./services/orders   && uv run uvicorn main:app --port 8003 --log-level warning"]) }
+
+  io.println("[upstreams] services started on ports 8001, 8002, 8003")
+  io.println("[upstreams] press Ctrl+C to stop")
+
+  loop {
+    clock.sleep(1h)
+  }
+}

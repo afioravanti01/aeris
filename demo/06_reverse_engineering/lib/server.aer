@@ -1,0 +1,39 @@
+use store from "./store.aer"
+
+pub fn start(web_dir, chat_port, backend_port) {
+  let server = net.http(port: backend_port)
+  io.println("[server] listening on http://localhost:{backend_port}")
+
+  loop {
+    let req    = server.accept()
+    let method = req.method
+    let path   = req.path
+
+    spawn {
+      if method == "GET" and (path == "/" or path == "/index.html") {
+        let html = fs.read_text("{web_dir}/index.html")
+        req.reply(status: 200, body: html, content_type: "text/html; charset=utf-8")
+      } else if method == "GET" and path == "/api/docs" {
+        let names = store.list_docs()
+        req.reply_json(status: 200, body: json.stringify(names))
+      } else if method == "GET" and path.starts_with("/api/docs/") {
+        let name = path.slice(10, path.len())
+        let content = store.get_doc(name)
+        if content == None {
+          req.reply_json(status: 404, body: json.stringify({ error: "not found", name: name }))
+        } else {
+          req.reply(status: 200, body: content, content_type: "text/plain; charset=utf-8")
+        }
+      } else if method == "POST" and path == "/api/chat" {
+        let body = req.body ?? ""
+        let resp = http.post("http://localhost:{chat_port}/chat", body) catch err {
+          req.reply_json(status: 502, body: json.stringify({ error: "chat upstream failed" }))
+          return
+        }
+        req.reply_json(status: resp.status, body: resp.body)
+      } else {
+        req.reply_json(status: 404, body: json.stringify({ error: "not found", path: path }))
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+/// Project template generator.
+///
+/// Reads `template.md` (the project brief) and `agents/generator.md`
+/// (the agent system prompt), asks the LLM to emit a JSON list of
+/// files `[{ path, content }, ...]`, then materialises them under
+/// `./output`.
+///
+/// Uses `ai.session` for a single multi-turn exchange and `fs.*` for
+/// file output. No `cap` ceremony — runs under `enforce = "off"`.
+
+shell.exec(["sh", "-c", "rm -rf ./output/*"])
+
+let template   = fs.read_text("./template.md")
+let model_name = "claude-sonnet-4-6"
+let session    = ai.session(
+  system: fs.read_text("./agents/generator.md"),
+  model:  model_name,
+)
+
+let result = ai.session_ask(session, template)
+let raw    = result[1]
+let out    = raw.replace("```json", "").replace("```", "")
+let files  = json.parse(out)?
+
+fs.mkdir("./output")
+
+for file in files {
+  let parts = file.path.split("/")
+  if parts.len() > 1 {
+    let dir = parts.slice(0, parts.len() - 1).join("/")
+    fs.mkdir("./output/{dir}")
+  }
+  fs.write_text("./output/{file.path}", file.content)
+  io.println("Created: {file.path}")
+}
