@@ -3620,6 +3620,26 @@ fn builtin_method_dispatch(
                 .unwrap_or_else(Value::none);
             Ok(Some(v))
         }
+        // ---- generic record methods (M32) ----
+        // Lets a parsed-JSON record be treated like a map for
+        // dynamic-key lookup: `body.get("message")` returns
+        // `option<value>`. Symmetric `.len()` reports the field count.
+        (Value::Record(r), "get") => {
+            arity_check(".get", 1, &arg_values, span)?;
+            let key = expect_string(".get key", &arg_values[0], span)?;
+            let v = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == &key)
+                .map(|(_, v)| v.clone())
+                .map(Value::some)
+                .unwrap_or_else(Value::none);
+            Ok(Some(v))
+        }
+        (Value::Record(r), "len") => {
+            arity_check(".len", 0, &arg_values, span)?;
+            Ok(Some(Value::Int(r.fields.len() as i64)))
+        }
         // No match → caller decides what to do.
         _ => Ok(None),
     }
@@ -8081,16 +8101,24 @@ fn eval_block(b: &Block, env: &mut Env) -> Result<Flow, EvalError> {
 
 fn eval_stmt(s: &Stmt, env: &mut Env) -> Result<Flow, EvalError> {
     match s {
-        Stmt::Let { name, value, .. } => {
-            let v = eval_value(value, env)?;
-            env.bind_let(name, v);
-            Ok(Flow::Value(Value::Unit))
-        }
-        Stmt::Var { name, value, .. } => {
-            let v = eval_value(value, env)?;
-            env.bind_var(name, v);
-            Ok(Flow::Value(Value::Unit))
-        }
+        // Propagate `Flow::Return / Break / Continue` from the RHS
+        // instead of materialising the value: a `let x = expr catch
+        // err { ...; return }` must let the `return` exit the
+        // enclosing function rather than fail as `StrayControlFlow`.
+        Stmt::Let { name, value, .. } => match eval_expr(value, env)? {
+            Flow::Value(v) => {
+                env.bind_let(name, v);
+                Ok(Flow::Value(Value::Unit))
+            }
+            other => Ok(other),
+        },
+        Stmt::Var { name, value, .. } => match eval_expr(value, env)? {
+            Flow::Value(v) => {
+                env.bind_var(name, v);
+                Ok(Flow::Value(Value::Unit))
+            }
+            other => Ok(other),
+        },
         Stmt::For {
             var,
             iter,
@@ -14440,6 +14468,62 @@ mod tests {
     }
 
     // ---- M31 — spawn-as-sync fallback (§ 19.1) ----
+
+    // ---- M32 — record .get / .len for dynamic key access ----
+
+    #[test]
+    fn m32_let_propagates_return_from_catch_handler() {
+        // A `return` inside a `catch` handler bound by `let` must
+        // unwind the enclosing function instead of being caught as
+        // a stray control-flow error.
+        let src = r#"
+            fn boom() -> result<int> { Err(error("nope")) }
+            fn pick() -> int {
+              let r = boom() catch err {
+                return 42
+              }
+              r
+            }
+            fn main() -> int { pick() }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let v = run_main(&m).unwrap();
+        assert!(matches!(v, Value::Int(42)), "got {v:?}");
+    }
+
+    #[test]
+    fn m32_record_get_present_key_returns_some() {
+        let v = ev(r#"{ a: 1, b: 2 }.get("a")"#);
+        match v {
+            Value::Option(Some(inner)) => assert!(matches!(*inner, Value::Int(1))),
+            other => panic!("expected Some(1), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m32_record_get_missing_key_returns_none() {
+        let v = ev(r#"{ a: 1 }.get("missing")"#);
+        assert!(matches!(v, Value::Option(None)), "got {v:?}");
+    }
+
+    #[test]
+    fn m32_record_get_on_json_parsed_record() {
+        // `json.parse` produces a Record; `.get` should work on it.
+        let v = ev(r#"json.parse("\{\"message\":\"hello\"\}")?.get("message")"#);
+        match v {
+            Value::Option(Some(inner)) => match *inner {
+                Value::Str(s) => assert_eq!(s, "hello"),
+                other => panic!("expected Str, got {other:?}"),
+            },
+            other => panic!("expected Some(\"hello\"), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m32_record_len_returns_field_count() {
+        let v = ev(r#"{ a: 1, b: 2, c: 3 }.len()"#);
+        assert!(matches!(v, Value::Int(3)), "got {v:?}");
+    }
 
     #[test]
     fn m31_spawn_runs_body_inline_and_returns_unit() {

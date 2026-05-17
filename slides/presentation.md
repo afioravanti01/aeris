@@ -484,36 +484,38 @@ Il file di progetto raccoglie in un solo posto informazioni che oggi vivono dist
 
 <!-- _class: divider -->
 
-# Sistema di capability
+# Parte III — Le capabilities
 
-> Capabilities come valori passati per parametro. La signature è il contratto. Niente namespace globale, niente effetti nascosti.
+> Il permesso di compiere un effetto esterno è un **valore** passato come parametro. La firma della funzione è il contratto. Non esiste uno spazio dei nomi globale da cui poter chiamare funzioni con effetti; non esistono effetti collaterali nascosti.
 
 ---
 
-# Capability come tipo first-class
+# Una capability è un valore di tipo `cap`
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-// Funzione pura: niente parametro cap → niente effetti, mai.
-fn total(items: list<Invoice@v1>) -> decimal {
-  items.fold(0, fn(acc, it) { acc + it.amount })
+// Funzione pura: senza il parametro cap non può compiere
+// alcun effetto esterno (rete, file, modello).
+fn totale(items: list<Fattura@v1>) -> decimal {
+  items.map(fn(it) { it.importo }).sum()
 }
 
-// Funzione effettuale: l'intera surface è in firma.
-fn settle(
-  items: list<Invoice@v1>,
+// Funzione con effetti: l'elenco degli effetti permessi
+// è esposto interamente nella firma.
+fn chiudi_lotto(
+  items: list<Fattura@v1>,
   cap: cap[
-    http.post @ ["api.acme.com"],
-    audit.event,
+    http.post @ ["api.acme.com"],   // solo questo host
+    audit.event,                    // qualsiasi evento
   ],
 ) -> result<unit> {
-  intent "settle invoice batch" {
+  intent "chiudi il lotto fatture" {
     for it in items {
       http.post("https://api.acme.com/charge", it)?
     }
-    audit.event("settle.complete", { count: len(items) })
+    audit.event("chiusura.completata", { conteggio: len(items) })
   }
 }
 ```
@@ -521,37 +523,41 @@ fn settle(
 </div>
 <div class="column compact">
 
-- `cap[op @ ["allow-list"]]` — il tipo elenca le operazioni concesse e i loro vincoli
-- Allow-list per host, path glob, model, bucket, queue, ...
-- Una funzione **senza** parametro `cap` non può fare IO/rete/AI: il parser rifiuta `http.post(...)` se nessun `cap` in scope contiene `http.post`
-- Il body resolution lega `<module>.<op>(...)` al `cap` ricevuto — non c'è namespace globale
+**Cosa significa "capability come valore"**
 
-> Object-capability security applicato agli effetti esterni, non all'aliasing di memoria.
+Per compiere una chiamata che ha un effetto esterno (`http.post`, `fs.write_file`, `ai.complete`, ...) una funzione deve aver ricevuto un parametro di tipo `cap` che concede quel preciso permesso. Senza tale parametro, il compilatore *rifiuta* la chiamata.
+
+Il tipo `cap[...]` elenca le operazioni concesse e i loro vincoli: ogni operazione può avere una lista di valori ammessi (host per HTTP, percorso per il file system, modello per le chiamate AI, bucket, coda di messaggi, e così via).
+
+La firma di `chiudi_lotto` dice **tutto**: questa funzione può fare `http.post` solo verso `api.acme.com` e scrivere eventi di audit; nient'altro. Né lei né le funzioni che chiama possono uscire da questo perimetro.
+
+> È l'idea della *object-capability security*: tenere a vista il diritto di compiere un effetto, sotto forma di valore esplicito, invece di leggerlo da uno spazio dei nomi globale.
 
 </div>
 </div>
 
 ---
 
-# Narrowing e regole di escape
+# Restringere la capability quando si passa al chiamato
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-fn settle(items, cap: cap[
-  http.post @ ["api.acme.com", "api.stripe.com"],
+fn chiudi_lotto(items, cap: cap[
+  http.post     @ ["api.acme.com", "api.stripe.com"],
   fs.write_file @ ["./out/**"],
 ]) {
-  // Restringo prima di passare a charge:
-  // mai broadening, sempre subset.
-  charge(items, cap.subset[
+  // Quando si chiama `addebita` le si passa una capability
+  // più stretta: solo http.post verso api.stripe.com.
+  // Non si può MAI allargare ciò che si è ricevuto.
+  addebita(items, cap.subset[
     http.post @ ["api.stripe.com"]
   ])
 }
 
-fn charge(items, cap: cap[http.post @ ["api.stripe.com"]]) {
-  intent "charge cards" {
+fn addebita(items, cap: cap[http.post @ ["api.stripe.com"]]) {
+  intent "addebita le carte di credito" {
     for it in items { http.post(it.endpoint, it)? }
   }
 }
@@ -560,121 +566,140 @@ fn charge(items, cap: cap[http.post @ ["api.stripe.com"]]) {
 </div>
 <div class="column compact">
 
-**Regole strutturali (verificate da M2):**
+**Quattro regole strutturali**
 
-- `cap.subset[...]` ammette solo restringimenti — broadening rifiutato
-- `cap` non può essere salvato in record, ritornato come tipo non-cap, inviato in un `channel`
-- `cap[*]` proibito nel codice utente (E65)
-- Solo `main` riceve il `cap` sintetizzato dal lockset
+Sono verificate dal controllore statico, prima che il programma giri.
 
-> Un cap che scende lungo l'albero delle chiamate può solo restringersi. Un'attacco che inietta una chiamata a `evil.com` muore al parser, non in produzione.
+- L'operatore `cap.subset[...]` accetta solo **restringimenti** della capability ricevuta. Un tentativo di allargarla (chiedere un permesso non posseduto) viene rifiutato.
+- Un valore di tipo `cap` non può essere salvato dentro un record, restituito come campo di un altro tipo, inviato attraverso un canale. La sua circolazione resta visibile nella firma delle funzioni.
+- La forma "tuttofare" `cap[*]` è proibita nel codice utente: nessuna funzione può chiedere "tutti i permessi possibili".
+- Solo `main` riceve la capability iniziale, e la riceve **sintetizzata a partire dal file di progetto**. Non c'è modo di costruirne una da zero altrove.
+
+> Una capability che scende lungo l'albero delle chiamate può solo restringersi. Un attacco che cerca di inserire una chiamata a `evil.com` viene fermato dal compilatore, prima di arrivare in produzione.
 
 </div>
 </div>
 
 ---
 
-# Body resolution
+# Le chiamate con effetti sono legate al `cap` ricevuto
 
-`http.post(...)` **non** è una chiamata a un namespace globale. È risolta verso il `cap` in scope.
+<div class="columns">
+<div class="column">
 
 ```aeris
-use http                                          // rende il modulo visibile
+use http       // rende il modulo http visibile nel file
 
-fn ping_status() -> int {
-  http.get("https://api.acme.com/health")?.status // E65: nessun cap in scope
+// FALLISCE: in questa funzione non esiste alcun cap
+// che concede http.get. Il compilatore rifiuta la
+// chiamata con un errore di tipo "permesso mancante".
+fn stato_servizio() -> int {
+  http.get("https://api.acme.com/health")?.status
 }
 
-fn ping_status_ok(cap: cap[http.get @ ["api.acme.com"]]) -> int {
-  http.get("https://api.acme.com/health")?.status // ok
+// OK: la firma dichiara il permesso http.get verso
+// api.acme.com; la chiamata viene legata a quel cap.
+fn stato_servizio_ok(
+  cap: cap[http.get @ ["api.acme.com"]]
+) -> int {
+  http.get("https://api.acme.com/health")?.status
 }
 ```
 
-- Importare un modulo capability-bearing **non** introduce alcuna funzione globale `http.post`
-- Aggiungere `use http` in cima al file non abilita niente; serve il `cap` nella firma
-- Un LLM che genera codice e dimentica di dichiarare la capability fallisce **al compile time**, non in runtime
+</div>
+<div class="column compact">
+
+**Le chiamate `modulo.operazione(...)` non sono globali**
+
+Quando in un programma compare `http.get(...)`, non si sta invocando una funzione di uno spazio dei nomi globale. Il compilatore risolve la chiamata cercando, fra i parametri visibili nel contesto, un valore di tipo `cap` che concede l'operazione `http.get`. Se non lo trova, la chiamata viene rifiutata.
+
+**Conseguenze pratiche**
+
+- Importare un modulo (`use http`) non introduce alcuna funzione globale `http.post`. L'`use` rende visibile il nome del modulo per scrivere la chiamata, ma il permesso vero arriva sempre dal `cap` ricevuto.
+- Aggiungere `use http` in cima al file non abilita nulla: serve un `cap` nella firma della funzione che lo concede.
+- Un modello linguistico che genera codice e dimentica di dichiarare il permesso necessario **fallisce al momento del controllo statico**, prima di girare. L'errore viene visto in fase di revisione, non in produzione.
+
+</div>
+</div>
 
 ---
 
-# Surface lock — V3
+# La firma delle funzioni `pub` viene congelata in un file di blocco
 
-Per ogni funzione `pub`, la sua effect surface va in `.aeris/surface.lock`:
+<div class="columns">
+<div class="column">
 
 ```toml
-[settle]
+# .aeris/surface.lock — generato da `aeris lock surface`,
+# controllato in revisione.
+
+[chiudi_lotto]
 caps = [
   "http.post @ [\"api.acme.com\"]",
   "audit.event",
 ]
 
-[total]
-caps = []
+[totale]
+caps = []     # funzione pura, nessun effetto esterno
+
+[stato_servizio_ok]
+caps = [
+  "http.get @ [\"api.acme.com\"]",
+]
 ```
 
-- Una PR che amplia una surface (aggiunge una sub-cap) **deve** rigenerare il lockfile
-- Il diff del `surface.lock` appare come **primo hunk** nella review
-- Le contrazioni non richiedono re-lock
-- `aeris fmt --narrow-caps` (V1) propone restringimenti basati sull'uso reale del body
+</div>
+<div class="column compact">
 
-> Una PR LLM-generata che aggiunge una chiamata di rete a una funzione prima air-gapped è visibile a colpo d'occhio nella review.
+**Cosa c'è nel file di blocco**
+
+Per ogni funzione `pub` (esportata) del progetto, il file `.aeris/surface.lock` registra l'elenco esatto dei permessi che la firma dichiara. Il file viene generato automaticamente con `aeris lock surface` e viene messo sotto controllo di versione.
+
+**Cosa significa in revisione**
+
+Quando qualcuno (umano o modello) modifica una funzione esportata aggiungendo un nuovo effetto — per esempio una chiamata di rete dove prima non ce n'erano — il file di blocco va rigenerato, e la differenza appare come **prima modifica** nella richiesta di merge.
+
+- Un allargamento dei permessi richiede di rigenerare il file: il revisore vede il diff come prima cosa.
+- Un restringimento non richiede di rigenerarlo (il vecchio insieme è ancora un sovrainsieme di quello nuovo).
+- `aeris fmt --narrow-caps` propone in automatico il restringimento minimo della firma in base ai permessi davvero usati dal corpo della funzione.
+
+> Una pull request generata da un modello che aggiunge una chiamata di rete a una funzione finora isolata risulta visibile a colpo d'occhio: la prima cosa che il revisore legge è il cambio del file di blocco.
+
+</div>
+</div>
 
 ---
 
 <!-- _class: divider -->
 
-# Contracts, intent, model
+# Parte IV — Contratti, intenzioni, schemi
 
-> Tre costrutti per portare il *perché* dentro la grammatica: pre/post-condizioni, intent obbligatorio sui write, schemi versionati ai trust boundary.
-
----
-
-# Contracts — `requires:` / `ensures:`
-
-```aeris
-fn pay(
-  amount: decimal,
-  account: string,
-  cap: cap[http.post @ ["api.stripe.com"]],
-) -> result<Receipt@v1>
-  requires: amount > 0
-  requires: len(account) == 26
-  ensures:  result.ok implies result.value.amount == amount
-{
-  intent "charge customer" {
-    let resp = http.post("https://api.stripe.com/v1/charges",
-                          { amount, account })?
-    Ok(Receipt@v1 { amount, txn_id: resp.id })
-  }
-}
-```
-
-- Pre-condizioni controllate **all'ingresso**, post-condizioni a **ogni return path**
-- Violazione → `ContractViolation`, flush della trace, exit 64
-- **Non** catchabile da `?` — è un errore strutturale, non un `Err` di dominio
-- Niente SMT, niente proof obligations: tutto runtime, errori actionable
+> Tre costrutti per portare il *perché* del codice dentro la grammatica: condizioni di ingresso e di uscita di una funzione, dichiarazione di scopo obbligatoria sulle scritture esterne, schemi versionati validati sui confini di fiducia.
 
 ---
 
-# Intent obbligatorio — V2
-
-Ogni chiamata **write-effectful** deve stare dentro un blocco `intent "..."`.
+# Condizioni di ingresso e di uscita — `requires:` ed `ensures:`
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-// E66 — parse-time error:
-// "missing enclosing intent for write-effectful call"
-fn rotate_cert(cap: cap[fs.write_file @ ["/etc/ssl/**"]]) {
-  fs.write_file("/etc/ssl/new.pem", new_pem())?
-}
-```
+fn paga(
+  importo: decimal,
+  conto:   string,
+  cap:     cap[http.post @ ["api.stripe.com"]],
+) -> result<Ricevuta@v1>
+  // pre-condizioni: controllate all'ingresso
+  requires: importo > 0
+  requires: len(conto) == 26
 
-```aeris
-// OK — intent dichiara il perché.
-fn rotate_cert(cap: cap[fs.write_file @ ["/etc/ssl/**"]]) {
-  intent "rotate TLS cert before 30-day expiry" {
-    fs.write_file("/etc/ssl/new.pem", new_pem())?
+  // post-condizione: controllata su ogni via di uscita
+  ensures:  result.ok implies result.value.importo == importo
+{
+  intent "addebita il cliente" {
+    let r = http.post("https://api.stripe.com/v1/charges",
+                       { importo, conto })?
+    Ok(Ricevuta@v1 { importo, id_transazione: r.id })
   }
 }
 ```
@@ -682,143 +707,171 @@ fn rotate_cert(cap: cap[fs.write_file @ ["/etc/ssl/**"]]) {
 </div>
 <div class="column compact">
 
-**Op write-effectful**: `cap.fs.write*`, `cap.http.{post,put,patch,delete}`, `cap.kube.apply`, `cap.audit.*`, `cap.ai.*`
+**Cosa dichiarano `requires:` ed `ensures:`**
 
-**Trace events:**
+`requires:` elenca le pre-condizioni che gli argomenti devono soddisfare *prima* che il corpo della funzione venga eseguito. `ensures:` elenca le post-condizioni che il valore di ritorno deve soddisfare *dopo*, su qualsiasi via di uscita della funzione (ritorno normale, ritorno anticipato, propagazione di errore).
 
-- `intent_enter` — stringa, scope, ts
-- `intent_exit` — outcome, durata
-- ogni evento dentro il body porta `"intent": "..."` come campo
+Il binding speciale `result` dentro `ensures:` permette di ragionare sul valore restituito.
 
-> Il *perché* diventa antenato grammaticale di ogni effetto. Una PR non può nascondere una write nel silenzio.
+**Cosa succede quando una condizione fallisce**
+
+La violazione produce un errore strutturale del tipo `ContractViolation`. Il runtime:
+
+1. registra l'evento nella traccia, incluse le variabili coinvolte;
+2. svuota i buffer di scrittura della traccia su disco;
+3. termina il programma con codice di uscita 64.
+
+> Una violazione di contratto **non** si propaga con `?` né si recupera con `catch`: è un errore strutturale, non un errore di dominio. Recuperare in silenzio da una violazione di contratto significherebbe vanificare la dichiarazione del contratto stesso.
 
 </div>
 </div>
 
 ---
 
-# Model versionato — `@vN`
+# Il blocco `intent` è obbligatorio su ogni scrittura esterna
+
+<div class="columns">
+<div class="column">
 
 ```aeris
-model Invoice@v1 {
-  id:       uuid
-  amount:   decimal where amount > 0
-  customer: string  where len(customer) <= 64
-  status:   InvoiceStatus
-
-  where: status == Cancelled implies amount == 0   // invariante cross-field
-}
-
-// Bare `Invoice` senza @vN su un trust boundary → exit 68.
-fn ingest(raw: string) -> result<Invoice@v1> {
-  json.decode<Invoice@v1>(raw)        // validazione automatica al confine
+// FALLISCE al controllo statico:
+// "manca il blocco intent intorno a una scrittura esterna"
+fn ruota_certificato(
+  cap: cap[fs.write_file @ ["/etc/ssl/**"]],
+) -> result<unit> {
+  fs.write_file("/etc/ssl/new.pem", nuovo_pem())?
 }
 ```
 
-- Validazione **automatica** sui trust boundary: HTTP ingress, `json.decode`, agent boundary
-- `where` per campo (predicato) e `where:` record-level (invariante cross-field)
-- Migrazione tra versioni = funzione pura **esplicita**, mai implicita
-- Bare `Invoice` rifiutato al check (E68) — versioning forzato dove conta
+```aeris
+// CORRETTO: il blocco intent dichiara lo scopo della
+// scrittura. La descrizione finisce nella traccia.
+fn ruota_certificato(
+  cap: cap[fs.write_file @ ["/etc/ssl/**"]],
+) -> result<unit> {
+  intent "ruota il certificato TLS prima dello scadere a 30 giorni" {
+    fs.write_file("/etc/ssl/new.pem", nuovo_pem())?
+  }
+}
+```
+
+</div>
+<div class="column compact">
+
+**Quali chiamate richiedono un `intent`**
+
+Tutte le operazioni che producono un effetto **scritturale** verso l'esterno: scritture su file system (`fs.write_*`), HTTP modificanti (`http.{post,put,patch,delete}`), apply su Kubernetes (`kube.apply`), eventi di audit (`audit.*`), chiamate al modello (`ai.*`).
+
+Le operazioni di sola lettura (`io.println`, `fs.read_file`, `http.get`) non lo richiedono: possono comparire dentro un blocco `intent` ma non sono obbligate a farlo.
+
+**Cosa finisce nella traccia**
+
+Il runtime emette tre eventi attorno al blocco:
+
+- `intent_enter` all'ingresso: contiene la descrizione testuale, lo scope, il timestamp.
+- `intent_exit` all'uscita: contiene l'esito (`ok`, `err`, `partial`) e la durata.
+- Ogni evento emesso *dentro* il corpo porta il campo `"intent"` con la stessa descrizione, in modo che si riesca a risalire allo scopo di ogni singola riga della traccia.
+
+> Lo scopo della scrittura diventa parte della grammatica. Una pull request non può aggiungere una scrittura esterna in silenzio: il `intent` deve esistere, e la sua descrizione è leggibile al colpo d'occhio.
+
+</div>
+</div>
+
+---
+
+# Schemi versionati — `model X@vN`
+
+<div class="columns">
+<div class="column">
+
+```aeris
+model Fattura@v1 {
+  id:       uuid
+  importo:  decimal where importo > 0
+  cliente:  string  where len(cliente) <= 64
+  stato:    StatoFattura
+
+  // Vincoli che coinvolgono più campi insieme
+  // si scrivono come "where:" a livello del record.
+  where: stato == Annullata implies importo == 0
+}
+
+// Sui confini di fiducia (richieste HTTP in ingresso,
+// decodifica JSON, scambi fra agenti) il tipo DEVE
+// portare la sua versione. Usare "Fattura" senza @vN
+// è rifiutato dal controllore.
+fn ingerisci(raw: string) -> result<Fattura@v1> {
+  json.decode<Fattura@v1>(raw)   // validazione automatica al confine
+}
+```
+
+</div>
+<div class="column compact">
+
+**Cos'è un `model@vN`**
+
+È uno schema tipizzato — l'analogo di una `struct` Rust o di un `class` Python — etichettato con un numero di versione obbligatorio. La versione è parte del tipo: `Fattura@v1` e `Fattura@v2` sono due tipi distinti, non convertibili l'uno nell'altro senza una funzione di migrazione esplicita.
+
+**Quando il valore viene validato a runtime**
+
+- alla costruzione (`Fattura@v1 { ... }`);
+- alla decodifica da JSON (`json.decode<Fattura@v1>(...)`);
+- al passaggio fra agenti (lo schema `accept` / `produce` di ogni agente);
+- in ingresso da HTTP o da una coda di messaggi.
+
+**Due forme di vincolo**
+
+- Vincolo per campo: `importo: decimal where importo > 0`.
+- Vincolo a livello del record, che mette in relazione più campi: `where: stato == Annullata implies importo == 0`.
+
+> Il versioning **è obbligatorio sui confini di fiducia** del programma. Una bare `Fattura` (senza `@vN`) viene rifiutata dal controllore statico con codice di uscita 68. La migrazione fra versioni è sempre una funzione pura, scritta a mano: niente conversioni implicite, niente sorprese alla decodifica.
+
+</div>
+</div>
 
 ---
 
 <!-- _class: divider -->
 
-# Saga e agenti
+# Parte V — Operazioni reversibili e agenti AI
 
-> Operazioni multi-step con compensation obbligatoria. LLM unit tipati. Dataflow aciclico fra agenti.
+> Operazioni composte da più passi, dove ogni passo dichiara come **compensare** in caso di errore (`saga`). Agenti AI come unità tipizzate (`agent`). Reti di agenti come grafi aciclici fra unità (`agent_net`).
 
 ---
 
 <!-- _class: tight -->
 
-# Saga — anatomia
-
-```aeris
-saga settle(
-  batch: list<Invoice@v1>,
-  cap: cap[
-    http.post  @ ["api.acme.com"],
-    kube.apply @ ["prod-eu-1"],
-    audit.event,
-  ],
-) {
-  intent "settle invoice batch and notify finance"
-
-  step charge {
-    do   { for it in batch { http.post("https://api.acme.com/charge", it)? } }
-    undo { for it in batch { http.post("https://api.acme.com/refund", it)? } }
-  }
-
-  step ledger {
-    requires: charge.ok
-    do   { kube.apply(ledger_manifest(batch))? }
-    undo { kube.delete(ledger_manifest(batch))? }
-  }
-
-  step record {
-    requires: ledger.ok
-    do   { audit.event("settle.complete",    { count: len(batch) }) }
-    undo { audit.event("settle.rolled_back", { count: len(batch) }) }
-  }
-}
-```
-
-- `do`/`undo` obbligatori. `undo: noop` ammesso **solo** se il `do` non è write-effectful (E67)
-- Esiti deterministici: `ok` | `rolled_back` | `PartialFailure` (exit 74) — mai stato a metà
-
----
-
-# Idempotency key — N1
-
-Ogni capability di scrittura riceve automaticamente:
-
-```text
-key = blake3(trace_id ‖ step_name ‖ invocation_index)
-```
-
-| Capability | Iniezione |
-|---|---|
-| `http.post/put/patch` | Header `Idempotency-Key: <key>` |
-| `kube.apply` | Annotation `aeris.dev/idempotency-key: <key>` |
-| `rabbitmq.publish` | `message-id: <key>` |
-| `mongodb.insert` | Sentinel field `_aeris_idem: <key>` |
-
-- Replay di uno step già completato → **no-op** lato backend
-- Cascading undo durante rollback è retry-driven con queste chiavi
-- Un retry su un undo già parzialmente applicato non duplica l'effetto
-
-> Riduce la frequenza pratica di `PartialFailure` senza pretendere di eliminarla.
-
----
-
-# Agent — single LLM unit
+# Una `saga` — passi con `do` e `undo` obbligatori
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-model Invoice@v1  { id: uuid, amount: decimal where amount > 0 }
-model Category@v1 { kind: string }
+saga chiudi_lotto(
+  lotto: list<Fattura@v1>,
+  cap:   cap[
+    http.post  @ ["api.acme.com"],
+    kube.apply @ ["prod-eu-1"],
+    audit.event,
+  ],
+) {
+  intent "chiudi il lotto fatture e avvisa la finanza"
 
-agent classify {
-  llm:     "claude-haiku-4-5"
-  intent:  "classify invoice into expense kind"
-  prompt:  """
-    Classify the invoice with amount {input.amount}.
-    Return JSON with a single field `kind`.
-  """
-  accept:  Invoice@v1
-  produce: Category@v1
-  retries: 2
-  budget:  { tokens: 2_000, latency: 3s }
-}
+  step addebita {
+    do   { for it in lotto { http.post("https://api.acme.com/charge", it)? } }
+    undo { for it in lotto { http.post("https://api.acme.com/refund", it)? } }
+  }
 
-fn main(cap: cap[ai.complete @ ["claude-haiku-4-5"]])
-  -> result<Category@v1>
-{
-  intent "classify one invoice" {
-    classify(Invoice@v1 { id: uuid_v7(), amount: 99.0 }, cap)
+  step registro {
+    requires: addebita.ok
+    do   { kube.apply(manifesto_registro(lotto))? }
+    undo { kube.delete(manifesto_registro(lotto))? }
+  }
+
+  step audit {
+    requires: registro.ok
+    do   { audit.event("chiusura.completata",    { conteggio: len(lotto) }) }
+    undo { audit.event("chiusura.annullata",     { conteggio: len(lotto) }) }
   }
 }
 ```
@@ -826,169 +879,331 @@ fn main(cap: cap[ai.complete @ ["claude-haiku-4-5"]])
 </div>
 <div class="column compact">
 
-- `accept`/`produce` sono **`model@vN`** validati a ogni invocazione
-- Routing contract auto-iniettato dal runtime nel system prompt — non scritto a mano
-- `retries:` su `SchemaViolation` con backoff
-- `budget:` per token e latency; sforamento → `BudgetExceeded`, exit 1
-- Ogni invocazione registrata nel trace JSONL (tape recorder N3)
+**Cosa garantisce una `saga`**
+
+Una `saga` è un'operazione composta da più passi (`step`), dove ogni passo dichiara *come si fa* (`do`) e *come si annulla* (`undo`).
+
+Se uno step intermedio fallisce, il runtime esegue automaticamente gli `undo` dei passi già completati, in ordine inverso. L'effetto è quello di una transazione: o l'intera operazione va a buon fine, oppure il sistema torna allo stato precedente.
+
+**Regole strutturali**
+
+- `do` e `undo` sono **obbligatori** su ogni passo. La forma `undo: noop` è ammessa solo quando il `do` non scrive nulla all'esterno (per esempio se è una pura lettura). Una scrittura senza `undo` viene rifiutata dal controllore statico.
+- Gli esiti possibili sono **tre, deterministici**: `ok` (tutto a buon fine), `rolled_back` (rollback completato con successo), `parziale` (uno o più `undo` hanno esaurito i ritentativi). Non esiste un quarto stato "a metà strada".
+
+> Una `saga` rende il rollback un'esigenza grammaticale, non una scelta del programmatore. Una pipeline che scrive senza dichiarare come disfare la scrittura non parsa.
 
 </div>
 </div>
 
 ---
 
-# agent_net — dataflow tipato
+# Chiavi di idempotenza generate automaticamente dal runtime
+
+<div class="columns">
+<div class="column compact">
+
+**Il problema dell'idempotenza**
+
+Quando un'operazione esterna fallisce a metà — chiamata HTTP scaduta, connessione di rete caduta — il runtime non sa se l'effetto sul sistema remoto sia avvenuto o meno. Un semplice ritentativo rischia di duplicare l'effetto: due addebiti per la stessa fattura, due `apply` dello stesso manifesto Kubernetes.
+
+**Come Aeris lo risolve**
+
+Per ogni chiamata di scrittura, il runtime genera **automaticamente** una chiave di idempotenza derivata da:
+
+```text
+chiave = blake3(id_traccia ‖ nome_step ‖ indice_invocazione)
+```
+
+Cioè un'impronta crittografica che dipende solo dall'identità dell'esecuzione e dal punto del programma. Lo stesso programma rigiocato con `aeris replay` produce le stesse chiavi: il sistema remoto, se le riconosce, scarta i duplicati.
+
+</div>
+<div class="column compact">
+
+**Dove viene inserita la chiave**
+
+A seconda del protocollo, il runtime la inserisce nel campo che il sistema remoto si aspetta.
+
+| Operazione | Dove finisce la chiave |
+|---|---|
+| `http.post`, `http.put`, `http.patch` | Intestazione `Idempotency-Key: <chiave>` |
+| `kube.apply` | Annotation `aeris.dev/idempotency-key: <chiave>` |
+| `rabbitmq.publish` | Campo `message-id: <chiave>` |
+| `mongodb.insert` | Campo di sentinella `_aeris_idem: <chiave>` |
+
+**Conseguenze pratiche**
+
+- Rigiocare uno step già completato non lo esegue di nuovo: il sistema remoto, vedendo la chiave già usata, risponde senza ripetere l'effetto.
+- Durante un rollback, i ritentativi sui passi `undo` non duplicano gli annullamenti già applicati.
+- La frequenza pratica dello stato "parziale" si riduce molto. Il problema non si elimina del tutto (richiede cooperazione del sistema remoto), ma il linguaggio fa quello che può.
+
+</div>
+</div>
+
+---
+
+# Un singolo agente AI come costrutto del linguaggio
+
+<div class="columns">
+<div class="column">
 
 ```aeris
-agent_net invoice_pipeline {
-  flow extract  -> classify  -> route
-  flow classify -> { audit, archive }            // fan-out type-driven
-  flow audit    -> notify_finance
+model Fattura@v1   { id: uuid, importo: decimal where importo > 0 }
+model Categoria@v1 { tipo: string }
 
-  until: classify.confidence > 0.95 || iterations >= 3
+agent classifica {
+  llm:     "claude-haiku-4-5"
+  intent:  "classifica la fattura per tipo di spesa"
+  prompt:  """
+    Classifica la fattura di importo {input.importo}.
+    Restituisci un JSON con un solo campo `tipo`.
+  """
+  accept:  Fattura@v1
+  produce: Categoria@v1
+  retries: 2
+  budget:  { tokens: 2_000, latency: 3s }
+}
+
+fn main(cap: cap[ai.complete @ ["claude-haiku-4-5"]])
+  -> result<Categoria@v1>
+{
+  intent "classifica una fattura" {
+    classifica(Fattura@v1 { id: uuid_v7(), importo: 99.0 }, cap)
+  }
 }
 ```
 
-- **DAG aciclico** — ciclo dichiarato → E70 al parse
-- Routing risolto per **match `accept` ↔ `produce`**: il runtime sa quale ramo prendere dai tipi
-- `until:` per loop di convergenza con bound massimo
-- Una net può essere usata come **nodo** di un'altra net — composizione gerarchica
-- Esiti: `ok(value)` o `Err("agent_net <name> exhausted")`
+</div>
+<div class="column compact">
 
-> Il protocollo di routing diventa parte del *programma*, non una stringa di prompt.
+**Cosa dichiara un `agent`**
+
+Un `agent` è un'unità di chiamata al modello linguistico promossa a costrutto del linguaggio. Dichiara cinque cose:
+
+- `llm`: il nome del modello da usare;
+- `intent`: lo scopo, parte del trace ad ogni invocazione;
+- `prompt`: il testo da inviare, con interpolazione dei campi dell'input;
+- `accept` e `produce`: gli schemi versionati (`model@vN`) dell'input e dell'output, validati a ogni chiamata;
+- `retries:` e `budget:`: vincoli su ritentativi, token e latenza.
+
+**Cosa fa il runtime per ogni invocazione**
+
+- Inietta automaticamente nel prompt di sistema un **contratto di formato** in JSON che descrive lo schema di uscita atteso. Il prompt del modello non lo deve scrivere a mano.
+- Valida la risposta contro lo schema `produce`. Se la risposta non corrisponde, ritenta entro il budget `retries:`.
+- Se viene sforato il budget di token o latenza, l'agente fallisce con `BudgetExceeded` e codice di uscita 1.
+- L'intera invocazione (prompt, risposta, token, esito) viene registrata nel file di traccia per il replay successivo.
+
+</div>
+</div>
+
+---
+
+# Una rete di agenti — `agent_net`
+
+<div class="columns">
+<div class="column">
+
+```aeris
+agent_net pipeline_fatture {
+  intent "estrai → classifica → smista la fattura"
+
+  flow estrai     -> classifica   -> smista
+  flow classifica -> { audit, archivio }   // fork sui due rami
+  flow audit      -> avvisa_finanza
+
+  // L'iterazione si ferma quando la fiducia del classificatore
+  // supera 0.95, o dopo 3 giri.
+  until: classifica.confidence > 0.95 or iterations >= 3
+}
+```
+
+<div class="mermaid">
+flowchart LR
+  E[estrai] --> C[classifica]
+  C --> S[smista]
+  C --> A[audit]
+  C --> AR[archivio]
+  A --> N[avvisa_finanza]
+  classDef ag fill:#F6F3F0,stroke:#1C2035,stroke-width:1px,color:#0E1020;
+  class E,C,S,A,AR,N ag;
+</div>
+
+</div>
+<div class="column compact">
+
+**Cos'è una `agent_net`**
+
+È un grafo di agenti connessi da archi `flow`. Il grafo deve essere **aciclico**: un ciclo dichiarato esplicitamente nel codice viene rifiutato dal controllore con codice di uscita 70. L'iterazione si ottiene con la clausola `until:`, che mette un bound massimo sul numero di giri.
+
+**Come avviene lo smistamento**
+
+Il runtime risolve la diramazione a un nodo a più uscite confrontando lo schema `produce` del nodo di partenza con gli schemi `accept` dei nodi di destinazione: prende il ramo i cui schemi combaciano. Il protocollo di smistamento è parte del **programma**, non una stringa di prompt scritta a mano.
+
+**Composizione**
+
+Una `agent_net` può comparire come nodo di un'altra `agent_net`, permettendo di comporre reti più grandi a partire da reti più piccole. Gli esiti possibili sono `ok(valore)` oppure `Err("agent_net <nome> esaurita")` quando il bound di iterazioni viene raggiunto senza convergenza.
+
+> Lo schema dei messaggi che attraversano la rete è parte della firma. Una hallucination del modello che viola lo schema viene bloccata dal sistema dei tipi, non dal revisore umano.
+
+</div>
+</div>
 
 ---
 
 <!-- _class: divider -->
 
-# Policy, refusal, limiti
+# Parte VI — Regole di runtime, rifiuti, limiti
 
-> Policy come costrutto. Le scelte rifiutate per principio. I limiti onesti del modello.
+> Le `policy` come costrutto valutato a runtime. Le scelte che il linguaggio rifiuta per principio. I limiti che Aeris dichiara onestamente di non risolvere.
 
 ---
 
-# Policy come costrutto
+# Regole di runtime — `policy`
+
+<div class="columns">
+<div class="column">
 
 ```aeris
-policy production_egress {
-  match:  http.*
-  deny:   url.host not in ["api.acme.com", "api.stripe.com"]
-  audit:  { url, method }
-  when:   env == "production"
+policy egress_produzione {
+  match: http.*
+  deny:  url.host not in ["api.acme.com", "api.stripe.com"]
+  audit: { url, method }
+  when:  env == "production"
 }
 
-policy ai_budget {
+policy budget_modello {
   match: ai.complete
   limit: tokens_per_minute = 60_000
   audit: { model, tokens }
 }
 ```
 
-- Attivata via **import del modulo**, **attributo** `#[policy(name)]`, o **lockset** `[policies] active`
-- Valutata su ogni chiamata che matcha — non "ricordata" da un system prompt
-- Violazione → `PolicyViolation`, trace event, exit 1
-- **Drift in replay**: se la policy diverge fra live e replay, evento `policy_drift` nel trace
+</div>
+<div class="column compact">
+
+**Cos'è una `policy`**
+
+Una `policy` esprime una regola di sicurezza o di limite operativo come **costrutto del linguaggio**, non come convenzione esterna al codice. È fatta di alcune clausole, tutte facoltative:
+
+- `match:` — su quali chiamate la regola si applica (per esempio `http.*` o `ai.complete`).
+- `deny:` — una violazione se la condizione è vera (rifiuta la chiamata).
+- `require:` — una violazione se la condizione è falsa.
+- `limit:` — quota su una finestra temporale (per minuto, ora, giorno).
+- `audit:` — campi aggiuntivi da includere nell'evento di trace per le chiamate che combaciano.
+- `when:` — pre-condizione di attivazione (per esempio "solo in produzione").
+
+**Quando una policy è attiva**
+
+Una `policy` può essere attivata in tre modi: dall'`use` di un modulo che la dichiara, con l'attributo `#[policy(nome)]` su una funzione, o dichiarandola nel file di progetto `aeris.toml [policies] active = [...]`.
+
+Ad ogni chiamata che corrisponde a `match:`, il runtime valuta la regola. Una violazione produce un `PolicyViolation`, un evento dedicato nel file di traccia, e un'uscita con codice 1. Se durante una riesecuzione (replay) l'esito della policy diverge dall'esecuzione registrata, il runtime emette un evento `policy_drift` invece di fermarsi.
+
+</div>
+</div>
 
 ---
 
-# Cose che il linguaggio rifiuta — e perché
+# Scelte che il linguaggio rifiuta per principio
 
-| Refusal | Motivazione tecnica |
+| Cosa Aeris non ha | Perché |
 |---|---|
-| **No SMT / refinement types** | Il verdetto del solver dipende dalla macchina → introduce non-determinismo *nel tooling*, peggio di quello che proviamo a controllare |
-| **No tier system** (`draft/standard/verified`) | La semantica del boundary fra tier è inevitabilmente confusa: cosa succede se `standard` importa `draft`? Nessuna risposta ergonomica |
-| **No capability inference** | Cambi interni a un callee modificherebbero silenziosamente la surface dei caller; il diff PR diventa ingannevole |
-| **No soft keyword** | Lookahead position-dependent produce bug di parsing sottili (`time` token splittato silenziosamente). `grep step` deve trovare ogni `step` |
-| **No import di riferimenti mutabili** | Niente `latest`, niente `*`, nessun tag git mutabile. Ogni `use X@vN.M.P` deve combaciare col lockset o fallisce alla risoluzione |
-| **No `.so` plugin** | Un binario su disco introdurrebbe una effect surface invisibile al check M2. Romperebbe la verificabilità statica delle capability |
+| **Nessuna verifica formale tramite SMT solver** | Il verdetto di un solver dipende dalla macchina e dalle euristiche di ricerca, e quindi introduce non-determinismo *negli strumenti di sviluppo*. Sarebbe peggio del non-determinismo che cerchiamo di controllare. |
+| **Nessun sistema di "livelli" del codice** (`draft / standard / verified`) | Definire la semantica del confine fra un livello e l'altro è inevitabilmente confuso: cosa succede se `standard` importa `draft`? Nessuna risposta è ergonomica. |
+| **Nessuna inferenza automatica dei permessi** | Una modifica interna a una funzione chiamata cambierebbe in silenzio i permessi delle funzioni chiamanti. Il diff in revisione diventerebbe ingannevole: l'ambito degli effetti deve essere dichiarato a mano. |
+| **Nessuna parola chiave "morbida"** (con significato dipendente dal contesto) | Un parser che decide il senso di una parola in base ai token successivi (*lookahead* variabile) produce errori sottili: la parola `time` può essere interpretata in modo diverso da quanto si vede a colpo d'occhio. Cercare una parola chiave con `grep` deve restituire *tutte* le occorrenze. |
+| **Nessun riferimento mutabile fra le dipendenze** | Niente `latest`, niente `*`, nessun tag Git che possa cambiare contenuto. Ogni `use X@v1.2.3` deve combaciare con il file di blocco oppure fallisce alla risoluzione. |
+| **Nessuna libreria binaria caricata dinamicamente** (`.so` o `.dll`) | Un binario su disco aggiungerebbe una superficie di effetti che il controllore statico non può ispezionare. Romperebbe la verificabilità delle capability. |
 
 ---
 
-# Limiti onesti del modello
+# Limiti dichiarati onestamente
 
-| Limite | Cosa significa |
+| Limite | Cosa significa concretamente |
 |---|---|
-| **Prima esecuzione LLM non-deterministica** | Il tape recorder rende `aeris replay` bit-identical *dopo* la prima run. Quella prima resta in balìa del modello: `temperature=0` riduce la varianza, non la elimina |
-| **Logica dentro capability legittima non verificata** | Se una funzione tiene legittimamente `cap[audit.write]` e scrive l'attore sbagliato, Aeris non se ne accorge. Garantiamo visibilità (firma) e obbligo (intent, saga); la correttezza del body è responsabilità di test, review, RBAC |
-| **Cascading undo best-effort** | L'`undo` di uno step può a sua volta fallire. Ritentiamo con idempotency key di N1; dopo retry, evento `PartialFailure` ed exit 74 → richiesta risoluzione umana. Limite noto del pattern SAGA, nessun linguaggio lo elimina |
+| **La prima esecuzione del modello resta non-deterministica** | La registrazione su nastro rende `aeris replay` identico byte per byte *dopo* la prima esecuzione. La prima volta resta in balia del modello: impostare `temperature = 0` riduce la varianza, non la elimina. |
+| **La correttezza del corpo di una funzione non viene verificata** | Se una funzione possiede legittimamente il permesso `audit.write` e all'interno scrive l'attore sbagliato, Aeris non se ne accorge. Il linguaggio garantisce visibilità (la firma dichiara cosa la funzione può fare) e obbligo (i blocchi `intent` e `saga` non si possono saltare); la correttezza interna resta affidata a test, code review e controlli di accesso lato sistema (RBAC). |
+| **Il rollback a catena è "il meglio che si può"** | Anche l'`undo` di un passo può a sua volta fallire. Il runtime ritenta usando le chiavi di idempotenza. Esauriti i ritentativi emette `PartialFailure` con codice di uscita 74, e chiede risoluzione umana. È un limite noto del pattern SAGA, nessun linguaggio lo elimina davvero. |
 
-> Aeris è la **prima linea difensiva**, non l'unica. Promettere di più sarebbe disonesto con l'audience che conta (compliance, audit, security).
+> Aeris è la **prima linea di difesa**, non l'unica. Promettere di più sarebbe disonesto con chi davvero deve fidarsi del linguaggio: chi fa compliance, audit, sicurezza.
 
 ---
 
-# v0.3 — superficie ergonomica
+# Le novità di v0.3 — riepilogo delle aggiunte
 
 <div class="columns">
 <div class="column compact">
 
-**Stringhe, controllo, errori**
+**Più ergonomia su stringhe, controllo, errori**
 
-- Interpolazione `"hi {name}"` con `\{` / `\}` escapes (M16)
-- `loop { … }` sugar per `while true` (M24)
-- `??` null-coalesce: `Ok/Some/value → v`, `Err/None/() → rhs` (M24)
-- `expr catch err { … }`, `error("...")`, `defer stmt` (M17)
-- `every 5s { }`, `retry 3, delay: 1s { }`, `timeout 30s { }`, `clock.sleep` (M18)
+- Interpolazione `"ciao {nome}"` con `\{` e `\}` come sequenze di escape per le graffe letterali.
+- `loop { … }` come abbreviazione di `while true { … }`.
+- L'operatore `??` di sostituzione: `Ok(v) → v`, `Some(v) → v`, `Err`/`None` → valore di destra.
+- `expr catch err { … }`, `error("...")`, `defer stmt` per il recupero locale dagli errori.
+- I blocchi temporali `every D { … }`, `retry N, delay: D { … }`, `timeout D { … }` e la primitiva `clock.sleep`.
 
 **Tipi e moduli**
 
-- `model X@v2 extends X@v1 { … }` (M23) — fields + `where:` ereditati
-- Top-level statements senza `main` (M26)
-- Parametri non tipati per script (`fn f(x, y)`) (v0.3)
-- `strings.*`, `date.*`, `json.pretty/parse`, `yaml.parse` (M24)
+- `model X@v2 extends X@v1 { … }`: una versione successiva eredita campi e clausole `where:` della versione precedente.
+- Istruzioni a livello di file senza la necessità di `fn main` (modalità script).
+- Parametri di funzione senza annotazione di tipo, per scripting (`fn f(x, y) { ... }`).
+- Funzioni di utilità sui tipi base: `strings.*`, `date.*`, `json.pretty`, `json.parse`, `yaml.parse`.
 
 </div>
 <div class="column compact">
 
-**Toolkit AI**
+**Strumenti per il modello linguistico**
 
-- `ai.session(system, model)` + `ai.session_ask(s, p)` con auto-compaction 40→20 (M19)
-- `ai.decide(p, choices, retries?)` enum-style (M19)
-- `ai.usage() → { total_tokens, cost_usd, calls }` (M19)
-- `ai.chat(system, dir)` + `chat.ask` + `chat.kb_size` (M19.T6)
-- `ai.network(max_rounds)` builder programmatico (M28)
-- Backend `cli` per `ai.complete` (M9.T1) — subprocess spawn
+- `ai.session(system, model)` e `ai.session_ask(s, p)`: sessione multi-turno con compattazione automatica della cronologia oltre i quaranta messaggi.
+- `ai.decide(p, choices, retries?)`: scelta vincolata fra valori dichiarati.
+- `ai.usage()`: contatori di token, costo, numero di chiamate.
+- `ai.chat(system, dir)`, con i metodi `.ask(p)` e `.kb_size()`: chatbot costruito su una cartella di documentazione.
+- `ai.network(max_rounds)`: rete di agenti costruita programmaticamente.
+- Backend di tipo `cli` per `ai.complete`: il modello viene invocato come sottoprocesso a riga di comando, in alternativa alla chiamata HTTP.
 
-**Test helpers**
+**Strumenti per i test**
 
-- `assert_status`, `assert_json`, `assert_semantic` (M21) — l'ultimo usa il backend AI come giudice
+- Le funzioni `assert_status`, `assert_json` e `assert_semantic` (quest'ultima usa il modello stesso come giudice del contenuto).
 
 </div>
 </div>
 
-> Trace, replay, `model@vN` e `policy` restano attivi sopra **tutta** la superficie v0.3: nessuna ergonomia toglie l'audit.
+> La traccia, la riesecuzione, gli schemi `model@vN` e le `policy` restano attivi **su tutta la superficie v0.3**: nessuna scelta di ergonomia rimuove la possibilità di audit.
 
 ---
 
 <!-- _class: tight -->
 
-# Resilienza inline — `catch`, `retry`, `timeout`, `defer`, `every`
+# Recupero locale dagli errori — `catch`, `retry`, `timeout`, `defer`, `every`
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-// catch — gestore inline; il valore del blocco è il fallback.
-let bytes = fs.read_file("config.json") catch err {
-  io.eprintln("config mancante: {err.message}")
+// catch — gestore in linea; il valore del blocco è
+// l'alternativa restituita in caso di errore.
+let dati = fs.read_file("config.json") catch err {
+  io.eprintln("configurazione mancante: {err.message}")
   b"{}"
 }
 
-// retry — riesegue il blocco su Err, con pausa configurabile.
-let resp = retry 5, delay: 2s {
-  http.get("https://unstable/health")
+// retry — riesegue il blocco se l'ultimo esito è Err,
+// con pausa configurata fra un tentativo e l'altro.
+let risposta = retry 5, delay: 2s {
+  http.get("https://servizio-instabile/health")
 }
 
-// timeout — bound sul wall-clock; non interrompe a metà.
+// timeout — limite massimo sul tempo a parete; non
+// interrompe a metà di un'istruzione.
 let r = timeout 30s {
-  long_running_call()
+  chiamata_lunga()
 }
 
-// defer — pulizia LIFO su ogni via d'uscita.
-fn build(cap: cap[fs.write_file @ ["./build/**"]]) -> result<unit> {
+// defer — pulizia che gira a ogni uscita dalla funzione,
+// in ordine inverso rispetto alla dichiarazione.
+fn compila(cap: cap[fs.write_file @ ["./build/**"]]) -> result<unit> {
   let tmp = fs.create_temp()?
   defer fs.remove(tmp)
   intent "compila l'artefatto in {tmp}" {
-    fs.write_file("./build/out.bin", compile(tmp))?
+    fs.write_file("./build/out.bin", compila_da(tmp))?
     Ok(())
   }
 }
@@ -996,26 +1211,26 @@ fn build(cap: cap[fs.write_file @ ["./build/**"]]) -> result<unit> {
 // every — ciclo periodico, granularità al secondo.
 every 5m {
   let h = http.get("https://api/health")
-  if !h.ok { audit.event("api.down", { ts: clock.now() }) }
+  if !h.ok { audit.event("api.giu", { ts: clock.now() }) }
 }
 ```
 
 </div>
 <div class="column compact">
 
-**Pattern temporali ricorrenti, come costrutti del linguaggio**
+**Pattern temporali ricorrenti, promossi a costrutti del linguaggio**
 
-`catch` è un gestore inline. Il valore del blocco di recupero diventa il valore dell'espressione. Si compone con `?`: il blocco di recupero stesso può propagare un errore.
+`catch` è un gestore inserito in linea sull'espressione. Quando il valore prodotto è un errore (`Err(e)`), il blocco di recupero viene eseguito con `e` legato al nome dichiarato (qui `err`), e il suo valore prende il posto dell'errore. Si compone con `?`: il blocco di recupero stesso può a sua volta propagare un errore.
 
-`retry N, delay: D` riesegue il blocco se restituisce `Err`, fino a `N` tentativi totali, con pausa `D` tra l'uno e l'altro. Il valore dell'espressione è il risultato dell'ultimo tentativo, riuscito o meno.
+`retry N, delay: D` riesegue il blocco se il valore restituito è `Err`, fino a `N` tentativi totali, attendendo `D` fra un tentativo e l'altro. Il valore dell'espressione è il risultato dell'ultimo tentativo, riuscito o meno.
 
-`timeout D` misura il wall-clock alla fine di ogni cancel-point. Non interrompe il blocco a metà istruzione — il runtime tree-walk è onesto sui suoi limiti, e l'esito è un `Err(err.user("timeout"))` propagabile.
+`timeout D` misura il tempo a parete (*wall clock*) e produce `Err(err.user("timeout"))` se il blocco supera la soglia. Non interrompe il corpo a metà istruzione: l'interprete a visita d'albero (*tree-walking*) è onesto sui suoi limiti, il controllo del tempo avviene a fine istruzione.
 
-`defer stmt` registra una pulizia che gira al ritorno della funzione, in ordine LIFO. Gira su **ogni** via d'uscita: ritorno normale, propagazione con `?`, fallimento di contratto. È il posto giusto per chiudere file, rimuovere temporanei, rilasciare lock.
+`defer stmt` programma una pulizia che verrà eseguita al ritorno della funzione, in ordine inverso (l'ultima dichiarata gira per prima). Viene eseguita su **ogni** via di uscita: ritorno normale, propagazione di errore con `?`, violazione di contratto. È il posto giusto per chiudere file, cancellare temporanei, rilasciare lock.
 
-`every D` rientra nel blocco ogni `D` dopo la fine dell'iterazione precedente. `break` esce, `continue` salta al prossimo tick. La prima iterazione parte subito.
+`every D` esegue il blocco, attende `D`, e lo riesegue. `break` esce dal ciclo, `continue` salta direttamente al prossimo intervallo. La prima iterazione parte subito.
 
-> Tutti e cinque emettono eventi nel trace JSONL — tentativi, durate, esiti, ogni `defer` eseguito. Il debugging non richiede `println` aggiuntivi.
+> Tutti e cinque i costrutti generano eventi nel file di traccia: numero di tentativi, durate, esiti, ogni `defer` eseguito. Per fare debug non servono `println` aggiuntivi.
 
 </div>
 </div>
@@ -1024,153 +1239,158 @@ every 5m {
 
 <!-- _class: tight -->
 
-# Inventario AI built-in
+# Le funzioni del modulo `ai`
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-// Chiamata diretta — input string, output string.
-let answer = ai.complete("Analizza: {log}")
+// Chiamata diretta al modello: prende una stringa,
+// restituisce una stringa.
+let risposta = ai.complete("Analizza: {log}")
 
-// Scelta vincolata — la risposta deve cadere in choices,
-// altrimenti retry e infine Err(err.llm(...)) propagabile.
-let action = ai.decide(
+// Scelta vincolata: la risposta deve essere uno dei
+// valori elencati in choices, altrimenti il runtime
+// ritenta e infine restituisce Err(err.llm(...)).
+let azione = ai.decide(
   prompt:  "CPU al 95%. Cosa fare?",
-  choices: ["scale_up", "restart", "alert", "noop"],
+  choices: ["scala_su", "riavvia", "avvisa", "ignora"],
   retries: 3,
 )?
 
-// Conversazione multi-turno con compaction automatica 40→20.
-let s         = ai.session(
-  system: "Sei un assistente SRE.",
+// Conversazione multi-turno, con compattazione
+// automatica della cronologia oltre i 40 messaggi.
+let s          = ai.session(
+  system: "Sei un assistente per l'affidabilità di sistema.",
   model:  "claude-haiku-4-5",
 )
-let (s2, a)   = ai.session_ask(s,  "Analizza: {log}")
-let (s3, b)   = ai.session_ask(s2, "Qual è la causa principale?")
+let (s2, a)    = ai.session_ask(s,  "Analizza: {log}")
+let (s3, b)    = ai.session_ask(s2, "Qual è la causa principale?")
 
-// Chatbot su una cartella di documentazione.
+// Chatbot costruito su una cartella di documentazione.
+// La cartella viene caricata all'avvio nel prompt di sistema.
 let chat = ai.chat(
-  "Rispondi solo dalla knowledge base.",
+  "Rispondi solo usando la base di conoscenza fornita.",
   "./docs",
 )
-io.println("kb: {chat.kb_size()} file")
+io.println("base di conoscenza: {chat.kb_size()} file")
 io.println(chat.ask("come funzionano le capability?"))
 
-// Contatori di processo.
+// Contatori dell'intero processo: token, costo, chiamate.
 let u = ai.usage()
-io.println("speso: ${u.cost_usd} su {u.calls} chiamate")
+io.println("speso: ${u.cost_usd} in {u.calls} chiamate")
 ```
 
 </div>
 <div class="column compact">
 
-**Sei builtin per i casi d'uso più frequenti**
+**Sei funzioni per i casi d'uso più frequenti**
 
-- **`ai.complete(prompt)`** — chiamata diretta al backend del modello. È la primitiva su cui poggiano gli altri builtin.
-- **`ai.decide(prompt, choices, retries?)`** — scelta vincolata. La risposta deve essere uno degli elementi di `choices`; il runtime ritenta automaticamente fino a `retries` volte, poi produce un `Err(err.llm(...))` propagabile con `?`.
-- **`ai.session` / `ai.session_ask`** — conversazione multi-turno. La sessione accumula la cronologia; quando supera quaranta messaggi viene compattata al riassunto degli ultimi venti.
-- **`ai.chat(system, dir)`** — chatbot su una cartella di markdown, testo o yaml. La knowledge base viene caricata in startup come parte del prompt di sistema. Il valore restituito espone `.ask(prompt)` e `.kb_size()`.
-- **`ai.usage()`** — contatori di processo: token totali, costo accumulato in dollari, numero di chiamate.
-- **`ai.network(max_rounds)`** — builder programmatico di una rete di agenti con hand-off testuale (sibling più leggero di `agent_net`).
+- **`ai.complete(prompt)`** — invio diretto al modello. È la primitiva su cui sono costruite tutte le altre funzioni del modulo.
+- **`ai.decide(prompt, choices, retries?)`** — scelta vincolata. La risposta del modello deve coincidere con uno dei valori dichiarati in `choices`; in caso contrario il runtime ritenta fino a `retries` volte, poi produce un `Err(err.llm(...))` che può essere propagato con `?`.
+- **`ai.session` e `ai.session_ask`** — conversazione multi-turno. La sessione accumula la cronologia dei messaggi; superati i quaranta messaggi viene compattata automaticamente al riassunto degli ultimi venti, in modo da contenere la lunghezza del prompt.
+- **`ai.chat(system, dir)`** — chatbot su una cartella di documenti (markdown, testo, yaml). I documenti vengono concatenati nel prompt di sistema come *base di conoscenza* fissa. Il valore restituito ha i metodi `.ask(prompt)` e `.kb_size()`.
+- **`ai.usage()`** — contatori dell'intero processo: token consumati, costo accumulato in dollari, numero di chiamate.
+- **`ai.network(max_rounds)`** — costruttore programmatico di una rete di agenti coordinata via instradamento testuale (il fratello più leggero di `agent_net`).
 
-**Backend pluggable, niente SDK linkati**
+**Il backend del modello è configurabile, niente librerie collegate**
 
-Il backend del modello viene scelto dal manifest `aeris.toml [ai.backend]`: una chiamata HTTP verso un'API OpenAI-compatible (Anthropic, OpenAI), oppure un subprocess CLI (`claude --print`, `ollama run`, `llm`).
+Il modello viene raggiunto in due modi, a scelta nel file di progetto `aeris.toml [ai.backend]`: o tramite chiamata HTTP a un'API compatibile con il protocollo OpenAI (Anthropic, OpenAI), oppure tramite invocazione di un sottoprocesso a riga di comando (`claude --print`, `ollama run`, `llm`). Niente librerie di terze parti collegate in fase di compilazione.
 
-> Ogni chiamata `ai.*` emette un evento `ai_call` nel trace JSONL con prompt, modello, risposta e numero di token. `aeris replay` rigioca offline sulla traccia.
+> Ogni chiamata `ai.*` genera un evento `ai_call` nel file di traccia che contiene prompt, modello, risposta e numero di token consumati. `aeris replay` rigioca offline sulla traccia.
 
 </div>
 </div>
 
 ---
 
-# Rilassamento controllato del non-determinismo
+# Tre modalità di disciplina, una sola grammatica
 
-La tesi v0.2 fissa la disciplina; la pratica v0.3 ammette che non tutti i progetti vogliono pagarla *da subito*. Tre modalità, una sola sorgente di verità.
+La tesi del linguaggio fissa la disciplina alla sua forma più rigorosa; in pratica, non tutti i progetti vogliono pagarne il costo *da subito*. Il file di progetto può scegliere fra tre modalità di applicazione, tutte basate sulla stessa grammatica.
 
-| Modalità | Default `aeris init` | Effetto |
+| Modalità | Predefinita per `aeris init` | Cosa succede |
 |---|---|---|
-| `enforce = "off"` | **sì** (v0.3) | `cap[*]` sintetizzato a `main`; niente E65/E66/E67/E71; niente allow-list runtime |
-| `enforce = "loose"` | — | manifest cap come ceiling runtime; le fn senza `cap` restano ammesse; le fn con `cap` sono check-ate normalmente |
-| `enforce = "strict"` | — | piena disciplina v0.2 (`intent` obbligatorio, `cap[*]` rifiutato nel codice utente, surface lock) |
+| `enforce = "off"` | **sì** (v0.3) | I permessi vengono sintetizzati come "tutto consentito" e passati a `main`. Il controllore statico ignora le verifiche di capability, `intent` e `saga`; nessun controllo di lista bianca a runtime. |
+| `enforce = "loose"` | — | I permessi elencati nel manifesto fanno da limite massimo a runtime. Le funzioni *senza* parametro `cap` restano ammesse; quelle *con* parametro `cap` vengono controllate normalmente dal compilatore. |
+| `enforce = "strict"` | — | Disciplina piena: `cap` obbligatorio sulle funzioni con effetti, `intent` obbligatorio sulle scritture, `cap[*]` rifiutato nel codice utente, file di blocco sulle firme `pub` controllato in revisione. |
 
-**Cosa NON cambia mai:**
+**Cosa resta attivo in tutte e tre le modalità**
 
-- Trace JSONL sempre attivo
-- `aeris replay` bit-identical sul subset deterministico
-- Validazione `model@vN` ai trust boundary
-- `policy` valutata su ogni chiamata che matcha
+- La scrittura del file di traccia non si può disattivare.
+- `aeris replay` produce esecuzioni identiche byte per byte sulla parte deterministica.
+- Gli schemi `model@vN` vengono validati a ogni confine di fiducia.
+- Le `policy` vengono valutate a runtime su ogni chiamata che combacia con il loro `match:`.
 
-> Il rilassamento è solo del **vincolo statico**, non della **registrazione runtime**. Un progetto può salire la ladder (`off` → `loose` → `strict`) senza riscrivere codice — solo aggiungendo annotazioni.
+> La modalità di applicazione regola solo il **controllo statico**, non la **registrazione a runtime**. Un progetto può salire dalla modalità `off` alla modalità `strict` *senza riscrivere il codice esistente* — basta aggiungere progressivamente le annotazioni (`cap`, `intent`) là dove vanno.
 
 ---
 
 <!-- _class: tight -->
 
-# Esempio end-to-end — triage SRE (1/2)
+# Esempio completo — triage di un sistema SRE (1 di 2)
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-// Schemi versionati ai trust boundary, validati a runtime.
-model Alert@v1 {
-  id:      uuid
-  service: string
-  message: string
+// Schemi versionati sui confini di fiducia,
+// validati a runtime ad ogni ingresso e uscita.
+model Allarme@v1 {
+  id:        uuid
+  servizio:  string
+  messaggio: string
 }
 
-model Diagnosis@v1 {
-  severity:   string  where ["critical","high","medium","low"].contains(severity)
-  kind:       string  where ["database","api","infra"].contains(kind)
-  confidence: f64     where confidence >= 0.0 and confidence <= 1.0
+model Diagnosi@v1 {
+  severita:  string  where ["critica","alta","media","bassa"].contains(severita)
+  tipo:      string  where ["database","api","infrastruttura"].contains(tipo)
+  fiducia:   f64     where fiducia >= 0.0 and fiducia <= 1.0
 }
 
-model FixPlan@v1 {
-  commands:  list<string>
-  rollback:  list<string>
-  rationale: string
+model PianoFix@v1 {
+  comandi:    list<string>
+  rollback:   list<string>
+  spiegazione: string
 }
 
-agent classify {
+agent classifica {
   llm:     "claude-haiku-4-5"
-  intent:  "classifica l'alert per severità, tipo, fiducia"
-  prompt:  "Classifica: {input.message} su {input.service}."
-  accept:  Alert@v1
-  produce: Diagnosis@v1
+  intent:  "classifica l'allarme per severità, tipo, fiducia"
+  prompt:  "Classifica: {input.messaggio} sul servizio {input.servizio}."
+  accept:  Allarme@v1
+  produce: Diagnosi@v1
   retries: 2
   budget:  { tokens: 2_000, latency: 3s }
 }
 
-agent plan {
+agent pianifica {
   llm:     "claude-opus-4-7"
-  intent:  "propone un fix concreto e il suo rollback"
-  prompt:  "Fix per {input.severity} {input.kind}. Dati: {input}."
-  accept:  Diagnosis@v1
-  produce: FixPlan@v1
+  intent:  "propone un fix concreto e il rollback corrispondente"
+  prompt:  "Fix per allarme {input.severita} di tipo {input.tipo}. Dati: {input}."
+  accept:  Diagnosi@v1
+  produce: PianoFix@v1
 }
 
 agent_net triage {
-  flow classify -> plan
-  until: classify.confidence > 0.85 or iterations >= 3
+  flow classifica -> pianifica
+  until: classifica.fiducia > 0.85 or iterations >= 3
 }
 ```
 
 </div>
 <div class="column compact">
 
-**Una rete di agenti tipata**
+**La parte AI: una rete di agenti tipizzata**
 
-L'intera pipeline AI di triage è una `agent_net`. Ogni agente dichiara il suo schema di **input** (`accept`) e di **output** (`produce`) come `model@vN`, validati a runtime su ogni passaggio.
+L'intera pipeline di triage degli allarmi è scritta come `agent_net`. Ogni agente dichiara lo schema dell'**ingresso** (`accept`) e dello **uscita** (`produce`) come `model@vN`, validati ad ogni invocazione.
 
-Il routing tra agenti è risolto dal runtime per **match dei tipi**: l'output di `classify` è un `Diagnosis@v1`, e `plan` lo accetta — non c'è prompt-string di coordinamento. Il protocollo di scambio è parte del programma.
+Il passaggio fra agenti è risolto dal runtime per **combaciamento dei tipi**: l'uscita di `classifica` è una `Diagnosi@v1`, e `pianifica` la accetta. Non esiste un prompt-string di coordinamento scritto a mano; il protocollo di scambio è parte del programma.
 
 Il sistema dei tipi taglia le hallucination del modello: una risposta che non rispetta lo schema diventa `Err(err.schema(...))` e l'agente la ritenta entro il budget `retries`.
 
-`until:` mette un bound sulla convergenza: niente loop infiniti. La rete restituisce il valore dell'ultimo nodo terminale, oppure `Err(err.user("agent_net exhausted"))` allo scadere delle iterazioni.
+La clausola `until:` stabilisce un limite massimo alla convergenza: niente loop infiniti. La rete restituisce il valore prodotto dall'ultimo nodo terminale, oppure `Err(err.user("rete agenti esaurita"))` quando il limite di iterazioni viene raggiunto senza che il criterio di convergenza sia soddisfatto.
 
-> Niente prompt-string per il routing, niente JSON parsing manuale, niente retry casalingo. Tutto è infrastruttura del linguaggio.
+> Niente stringhe di prompt per smistare i messaggi, niente parsing manuale del JSON di risposta, niente ritentativi cuciti a mano. Tutto questo è infrastruttura del linguaggio.
 
 </div>
 </div>
@@ -1179,53 +1399,53 @@ Il sistema dei tipi taglia le hallucination del modello: una risposta che non ri
 
 <!-- _class: tight -->
 
-# Esempio end-to-end — triage SRE (2/2)
+# Esempio completo — triage di un sistema SRE (2 di 2)
 
 <div class="columns">
 <div class="column">
 
 ```aeris
-policy production_egress {
+policy egress_produzione {
   match: http.*
   deny:  url.host not in ["api.acme.com", "slack.com"]
   audit: { url, method }
 }
 
-saga apply_fix(
-  fix:   FixPlan@v1,
-  alert: Alert@v1,
-  cap:   cap[
+saga applica_fix(
+  fix:      PianoFix@v1,
+  allarme:  Allarme@v1,
+  cap:      cap[
     shell.run @ ["kubectl"],
     http.post @ ["slack.com"],
     audit.event,
   ],
 ) {
-  intent "applica il fix per l'alert {alert.id} ({alert.service})"
+  intent "applica il fix per l'allarme {allarme.id} ({allarme.servizio})"
 
   step snapshot {
-    do   { shell.run("kubectl get all -n prod -o yaml > /tmp/{alert.id}.yaml") }
-    undo { shell.run("rm -f /tmp/{alert.id}.yaml") }
+    do   { shell.run("kubectl get all -n prod -o yaml > /tmp/{allarme.id}.yaml") }
+    undo { shell.run("rm -f /tmp/{allarme.id}.yaml") }
   }
 
-  step apply {
+  step applica {
     requires: snapshot.ok
-    do   { for cmd in fix.commands { shell.run(cmd)? } }
-    undo { for cmd in fix.rollback { shell.run(cmd)? } }
+    do   { for c in fix.comandi  { shell.run(c)? } }
+    undo { for c in fix.rollback { shell.run(c)? } }
   }
 
-  step notify {
-    requires: apply.ok
-    do   { http.post("https://slack.com/hook", { text: "fix ok: {fix.rationale}" })? }
-    undo { http.post("https://slack.com/hook", { text: "rollback: {alert.id}" })? }
+  step notifica {
+    requires: applica.ok
+    do   { http.post("https://slack.com/hook", { text: "fix ok: {fix.spiegazione}" })? }
+    undo { http.post("https://slack.com/hook", { text: "rollback: {allarme.id}" })? }
   }
 }
 
 every 30s {
-  let raw   = http.get("https://alertmanager/api/v1/alerts")?
-  let items = json.decode<list<Alert@v1>>(raw.body)?
-  for it in items {
-    let plan = triage(it)?
-    apply_fix(plan, it, cap.subset[shell.run, http.post, audit.event])?
+  let raw      = http.get("https://alertmanager/api/v1/alerts")?
+  let allarmi  = json.decode<list<Allarme@v1>>(raw.body)?
+  for a in allarmi {
+    let piano = triage(a)?
+    applica_fix(piano, a, cap.subset[shell.run, http.post, audit.event])?
   }
 }
 ```
@@ -1233,32 +1453,40 @@ every 30s {
 </div>
 <div class="column compact">
 
-**Lato ops: saga, policy, scheduler — tutto nello stesso file**
+**La parte operativa: `saga`, `policy`, scheduler nello stesso file**
 
-La `saga apply_fix` esegue lo snapshot del cluster, applica il fix, notifica Slack. Ogni `step` dichiara `do` e `undo`. Se uno step intermedio fallisce, il runtime esegue gli `undo` degli step già completati in ordine inverso — niente stato a metà strada.
+La `saga applica_fix` salva una fotografia dello stato del cluster (snapshot), applica il fix, e notifica un canale Slack. Ogni `step` dichiara `do` e `undo`. Se uno step intermedio fallisce, il runtime esegue automaticamente gli `undo` dei passi già completati in ordine inverso: il sistema torna allo stato precedente, non rimane mai a metà strada.
 
-La `policy production_egress` viene valutata su ogni chiamata `http.*`. Una richiesta verso un host non autorizzato finisce in `PolicyViolation`, con evento dedicato nel trace. Una review della PR vede subito chi ha provato a violarla.
+La `policy egress_produzione` viene valutata su ogni chiamata `http.*`. Una richiesta verso un host che non compare nella lista bianca finisce in `PolicyViolation`, con un evento dedicato nel file di traccia. In revisione si vede subito chi ha tentato di violarla.
 
-Lo scheduler `every 30s` chiude il loop: scarica gli alert da Alertmanager, lancia la rete di agenti `triage` per ottenere un `FixPlan@v1`, e invoca la saga con una capability ristretta da `cap.subset[...]` — il principio del minimo privilegio applicato per chiamata.
+Lo scheduler `every 30s` chiude il giro: scarica gli allarmi da Alertmanager, lancia la rete di agenti `triage` per ottenere un `PianoFix@v1`, e invoca la `saga` con una capability ridotta da `cap.subset[...]` (è il principio del *minimo privilegio*, applicato a ogni singola chiamata).
 
-> Un solo file `.aer`, una sola sintassi. Quello che oggi richiede LangChain + Argo + OPA + script bash, qui sta in un centinaio di righe. Ed è eseguibile, audit-friendly, replayabile.
+> Un solo file `.aer`, una sola grammatica. Quello che oggi richiede LangChain, Argo, Open Policy Agent e qualche script bash messi insieme, qui sta in poco più di cento righe. Ed è eseguibile, controllabile in audit, riproducibile offline.
 
 </div>
 </div>
 
 ---
 
-# Stato dell'implementazione
+# Stato dello sviluppo
 
-| Tag | Milestone | Stato |
+| Versione | Cosa contiene | Stato |
 |---|---|---|
-| **v0.1** | Prototipo esplorativo: AI builtins, L2 handlers, network listeners, inline errors — senza cap typing, intent, replay | legacy |
-| **v0.2** | M0–M8 bootstrap → policy (parser, check, interp, trace, http, saga, manifest, model) | done |
-| | M9–M15 AI + replay, agent_net, L2 handlers, test/fmt, diagnostics, packaging, prototype mode | done |
-| **v0.3** | M15B `enforce = off \| loose \| strict` · M24 script surface (`loop`, `??`, `strings.*`, methods, natural JSON) | done |
-| | M16 interpolazione `{x}` · M17 `catch`/`error`/`defer` · M18 `every`/`retry`/`timeout`/`clock.sleep` · M23 `model extends` | done |
-| | M19 AI builtins (`session`, `decide`, `usage`, `ai.chat(dir:)`+`chat.ask`+`kb_size`) · M21 `assert_status`/`json`/`semantic` | partial |
-| | M20 network listeners · M22 parità L2 estesa con v0.1 | deferred |
+| **v0.1** | Prototipo esplorativo: funzioni di intelligenza artificiale di base, gestori di rete e file, recupero locale dagli errori. **Non** ha ancora capability tipizzate, blocco `intent` obbligatorio, replay deterministico. | precedente |
+| **v0.2** | Le fondamenta: lexer, parser, interprete, file di traccia, supporto a `http`, `saga`, file di progetto, `model@vN`. | completata |
+| | Aggiunte: funzioni `ai.*`, replay deterministico, `agent_net`, gestori dei livelli più alti, comandi `aeris test` e `aeris fmt`, diagnostica, impacchettamento, modalità prototipo. | completata |
+| **v0.3** | Le tre modalità di applicazione (`enforce = "off" / "loose" / "strict"`) e la superficie da scripting (`loop`, `??`, libreria standard più ricca, metodi sui tipi base, codifica naturale di JSON). | completata |
+| | Interpolazione delle stringhe `"{x}"`, recupero locale dagli errori (`catch`/`error`/`defer`), costrutti temporali (`every`/`retry`/`timeout`/`clock.sleep`), versioning di schemi con `model X@v2 extends X@v1`. | completata |
+| | Funzioni AI di livello più alto (`ai.session`, `ai.decide`, `ai.usage`, `ai.chat(system, dir)`); strumenti di test (`assert_status`, `assert_json`, `assert_semantic`). | parzialmente |
+| | Server TCP/HTTP di basso livello (M20) e parità completa con la libreria v0.1 (M22). | rimandate |
 
-> Binario v0.2: < 8 MB stripped · tree-walk interpreter · zero dipendenze runtime.
-> M20/M22 rinviati: richiedono runtime async / SDK esterni fuori dallo scope di v0.3.
+> Eseguibile sotto gli 8 MB una volta strippato. Interprete a visita d'albero, nessuna dipendenza esterna a runtime.
+> Le voci rimandate richiedono un runtime asincrono o librerie esterne, scelte fuori dallo scopo di v0.3.
+
+---
+
+<!-- _class: divider -->
+
+# Grazie
+
+> Aeris è un progetto aperto. Domande, riscontri e contributi sono benvenuti.
