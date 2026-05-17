@@ -7,19 +7,21 @@
 /// Nessuna `cap`, nessuna `intent`, nessun `load_corpus` a mano —
 /// `enforce = "off"` lascia il codice come uno script v0.1.
 
+let PROMPT: string = "you> "
+
 fn main() {
   let chat = ai.chat(
-    "Sei un assistente conciso. Rispondi SOLO usando la knowledge "
+    system: "Sei un assistente conciso. Rispondi SOLO usando la knowledge "
     + "base tra i marker FILE qui sotto. Se la risposta non c'è, "
     + "di' 'non lo so'. Rispondi in italiano.",
-    "./docs",
+    dir: "./docs",
   )
 
   io.println("Aeris chatbot avviato su ./docs ({chat.kb_size()} file caricati).")
   io.println("Digita una domanda, riga vuota o 'quit' per uscire.\n")
 
   loop {
-    io.print("you> ")
+    io.print("{PROMPT}")
     let q = io.read_line() ?? ""
     if q == "" { break }
     if q == "quit" { break }

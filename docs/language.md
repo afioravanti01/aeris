@@ -491,16 +491,28 @@ is its value.
 ### 5.3 String interpolation
 
 ```aeris
-let s = "user \(u.name) age \(u.age)"
-let q = "raw \\( not interpolated )"   // backslash escapes
+let s = "user {u.name} age {u.age}"
+let q = "literal braces \{ \}"      // \{ and \} are the only escapes
+let z = "nested {f(g(1, 2))} call"  // braces inside the body nest
 ```
 
-`\(...)` accepts any expression. Format specifiers use `:fmt`:
+The braces inside a double-quoted string introduce an interpolation
+segment (§ 2.4). The body is any expression; the runtime converts
+the result to a string and concatenates it. `\{` and `\}` produce
+literal braces (no `{{`/`}}` doubling); an empty `{}` is a lex
+error (escape it as `\{\}` to get the empty-object literal).
+
+Format specifiers are **not** part of v0.3 — the legacy
+`"\(amount:.2)"` form is removed. Callers format explicitly:
 
 ```aeris
-"\(amount:.2)"      // 12.50
-"\(t:iso)"          // 2026-05-07T08:30:00Z
+"price = {round(amount, 2)}"        // numeric rounding
+"ts    = {t.to_iso()}"              // timestamp formatting
 ```
+
+The legacy `\(...)` form from v0.2.0-dev is rejected by the lexer.
+`aeris fmt --migrate-strings` performs the one-shot rewrite to the
+brace syntax.
 
 ### 5.4 Method-call syntax
 
@@ -567,6 +579,43 @@ authors don't have to spell out the condition (§ 6.1, M24.T1).
 
 Every `{ }` introduces a scope. `let` shadowing is scope-local. There
 is no block-level `var` to outer-scope hoisting.
+
+### 6.4 Time-control sugar — `every`, `retry`, `timeout` (v0.3, M18)
+
+Three block forms wrap common temporal patterns. The body is an
+ordinary block; the keyword tags how the runtime schedules it.
+
+```aeris
+every 5s {                              // periodic loop
+  io.println("tick")
+  if should_stop() { break }
+}
+
+let r = retry 3, delay: 1s {            // bounded retry on Err
+  http.get("https://api.acme.com/status")
+}
+
+let r = timeout 30s {                   // bounded wall-clock
+  long_running_call()
+}
+```
+
+- `every D { body }` — re-enters `body` every `D` after the previous
+  iteration completes. `break` exits the loop; `continue` skips to
+  the next tick. The first iteration runs immediately.
+- `retry N, delay: D { body }` — evaluates `body`; if it returns
+  `Err(_)`, sleeps `D` and retries up to `N-1` more times. The last
+  result (success or error) is the value of the expression.
+- `timeout D { body }` — evaluates `body`. The runtime checks the
+  wall-clock at every cooperative cancel-point (§ 19.3) and produces
+  `Err(err.user("timeout"))` if `D` is exceeded. The block is **not
+  preempted** mid-statement; this is honest about the tree-walk
+  runtime's limits.
+
+`clock.sleep(D)` is the underlying primitive — a read-classified
+operation that blocks the current OS thread for `D`. Under replay,
+`clock.sleep` returns immediately and the recorded duration is
+re-emitted to the trace; live runs honour the wall-clock.
 
 ---
 
@@ -663,14 +712,29 @@ the callee:
 ```aeris
 fn greet(name: string, greeting: string) -> string { greeting + " " + name }
 greet(name: "Bob", greeting: "hello")
-greet("Alice", "ciao")          // positional also accepted
+greet(greeting: "ciao", name: "Alice")   // order-independent when named
+greet("Alice", "ciao")                   // positional also accepted
+greet("Alice", greeting: "ciao")         // positional first, then kwargs
 ```
 
 Named arguments work identically against:
-- user-defined functions and closures (matched by parameter name);
+- user-defined functions and closures (matched against the
+  closure's parameter list);
 - L1 / L2 builtins (matched against a frozen kwarg table in the
   runtime — see § 22);
 - record methods on `Chat`, `HttpReq`, `HttpServer`, `AiNetwork`.
+
+Resolution rules (uniform across the three groups above):
+
+- Positional arguments fill leading parameter slots.
+- Named arguments fill by name and may appear in **any order** after
+  the positional ones.
+- A positional argument after a named one is a parse error.
+- An unknown name is `EvalError::Type("unknown kwarg `<name>` for
+  `<fn>`")`.
+- A repeated name is `EvalError::Type("duplicate kwarg `<name>`")`.
+- A missing slot (whether positional or via name) raises the
+  existing arity error.
 
 Reserved keywords (`match`, `until`, `policy`, `agent`, …) are
 admissible as argument names — the v0.1 `network.run(until: "DONE")`
@@ -1094,7 +1158,7 @@ Saga-level (always present, applies to every step):
 
 ```aeris
 saga deploy_release(...) {
-  intent "ship release \(version) to production"
+  intent "ship release {version} to production"
   step build { ... }
   step apply { ... }
 }
@@ -1162,7 +1226,7 @@ two ways:
   ```aeris
   fn ingest_users(source: string, cap: cap[fs.read_file @ ["./data/**"]]) -> result<list<User@v1>>
   {
-    intent "ingest \(source) users for offline analysis" {
+    intent "ingest {source} users for offline analysis" {
       let bytes      = fs.read_file(source)?
       let parsed     = json.decode<list<User@v1>>(bytes)?
       let normalised = parsed.map(canonicalise)
@@ -1499,6 +1563,33 @@ therefore pure by structure). There is no implicit upgrade. A consumer
 that needs `@v2` from a producer emitting `@v1` calls the migration
 explicitly; the runtime records the migration call in the trace.
 
+### 16.5 Inheritance — `extends` (v0.3, M23)
+
+A `@v2` schema may extend an earlier version of the same model:
+
+```aeris
+model User@v1 {
+  id:    uuid
+  name:  string  where len(name) > 0
+}
+
+model User@v2 extends User@v1 {
+  email: string  where contains(email, "@")
+}
+```
+
+The runtime merges the parent's fields and `where:` clauses into the
+child at parse time. The child may add new fields and new clauses;
+it may **not** remove or rename parent fields. Adding a `where:`
+clause on a parent field is allowed and is appended to the parent's
+predicate — both must hold.
+
+`extends` is **not** an implicit migration: `User@v1` and `User@v2`
+remain distinct types (§ 4.5). A consumer that needs `@v2` from a
+producer emitting `@v1` still calls a migration function explicitly.
+`extends` is the way to *describe* the v2 shape without retyping
+the v1 fields.
+
 ---
 
 ## 17. Pattern matching
@@ -1614,6 +1705,48 @@ the program after the trace flush. This is by design — see thesis
 § 8.2 (mandatory undo) and § 8.4 (mandatory intent): hidden recovery
 from a structural violation defeats the purpose.
 
+### 18.5 Inline recovery — `catch`, `error()`, `defer` (v0.3, M17)
+
+Three constructs for local error handling without leaving the
+`result<T>` discipline:
+
+```aeris
+let bytes = fs.read_file(p) catch err {
+  io.eprintln("read failed: {err.message}")
+  b""                                     // fallback value
+}
+
+if amount < 0 { return Err(error("amount must be positive")) }
+
+fn render(items, cap: cap[fs.write_file @ ["./out/**"]]) -> result<unit> {
+  let tmp = fs.create_temp()?
+  defer fs.remove(tmp)                    // runs LIFO on every exit
+  intent "render report" {
+    fs.write_file("./out/report.html", build(items, tmp))?
+    Ok(())
+  }
+}
+```
+
+- `expr catch err { recovery }` — if `expr` is `Ok(v)` (or any
+  non-error value) the value flows through. If it is `Err(e)`, `e`
+  is bound to `err` inside the recovery block and the block's value
+  becomes the expression's value. The recovery body itself may
+  return an `Err`, propagate with `?`, or supply a fallback.
+- `error(msg)` — constructor for `err.user(msg)`. Used inside
+  `Err(error("..."))` or `raise error("...")`. It is *only* a
+  shorthand; the wire-level error type is still `err`.
+- `defer stmt` — schedules `stmt` to run when the enclosing function
+  returns, in LIFO order. Deferred statements run on **every** exit
+  path (normal return, `?` propagation, `raise`, contract violation
+  shutdown). They cannot see the function's return value and cannot
+  themselves return; they exist to release resources.
+
+`catch` does **not** catch contract or policy violations (§ 18.4) —
+those still terminate the program. `defer` *does* run before a
+contract-violation shutdown, so it is safe to put resource cleanup
+there.
+
 ---
 
 ## 19. Concurrency
@@ -1656,7 +1789,7 @@ spawn {
   ch.close()
 }
 
-for x in ch { io.println("\(x)") }   // iterates until close
+for x in ch { io.println("{x}") }    // iterates until close
 ```
 
 - Channels are bounded MPMC. `send` on a full channel blocks; `recv`
@@ -1775,7 +1908,41 @@ property "concat is associative" with (a: list<int>, b: list<int>, c: list<int>)
 (configurable). Counter-examples are recorded as `tests/fixtures/<id>.json`
 and re-run on subsequent invocations (regression seed).
 
-### 21.4 Fixture mode
+### 21.4 Specialised assertions (v0.3, M21)
+
+Three helpers for the common LLM / HTTP test patterns:
+
+```aeris
+test "GET /health" {
+  let resp = http_client_for_tests().get("http://localhost/health")
+  assert_status(resp, 200)
+}
+
+test "agent emits well-formed JSON" {
+  let raw = chat.ask("describe in JSON form")
+  assert_json(raw, ["kind", "confidence"])    // required keys
+}
+
+test "summary is faithful" {
+  let summary = summarise(doc)
+  assert_semantic(
+    actual:   summary,
+    criteria: "faithful and complete to the original",
+    judge:    "claude-haiku-4-5",
+  )
+}
+```
+
+- `assert_status(resp, code)` — pass iff the response's `status`
+  field equals `code`; failure includes the actual status.
+- `assert_json(text, required_keys)` — pass iff `text` parses as a
+  JSON object containing every key in `required_keys`.
+- `assert_semantic(actual, criteria, judge)` — uses the configured
+  AI backend as a judge. Pass iff the judge replies that `actual`
+  meets `criteria`. The judge call is recorded into the trace and
+  re-played offline like every other `ai.*` call.
+
+### 21.5 Fixture mode
 
 ```aeris
 test "settle rolls back on ledger failure" with fixture: "settle.broken_ledger" {
@@ -1806,7 +1973,7 @@ The L1 stdlib is bundled with `aeris-core`. The full list:
 | `date`    | `today() -> date`, `timestamp() -> int`, `now() -> timestamp`, `format(t, fmt)` (v0.3 — `%Y %m %d %H %M %S`) |
 | `json`    | `decode<T>(s)`, `encode(v)`, `parse(s)`, `stringify(v)` ≡ `encode`, `pretty(v)` (v0.3 — natural JSON) |
 | `yaml`    | `parse(s)`, `parse_file(path)` (v0.3 — v0.1-compatible subset) |
-| `clock`   | `now`, `sleep` (M18) |
+| `clock`   | `now`, `sleep(D)` (M18 — read-classified; recorded for replay) |
 | `random`  | `next` |
 | `net`     | `http(port: int) -> HttpServer` (v0.3, M20) |
 
@@ -1927,6 +2094,46 @@ declarative `agent_net` validates each edge against `accept` /
 uses free-form text and text-based routing. Use `agent_net` when
 the schemas are stable; use `ai.network` when the agent set is
 discovered at runtime from a directory.
+
+**`ai.session(system, model) -> Session` and `ai.session_ask(session,
+prompt) -> (Session, string)` (v0.3, M19).** Multi-turn conversation
+with auto-compaction. The session holds the rolling message history;
+each `session_ask` appends the user message, calls `ai.complete`, and
+appends the reply. When the history grows beyond 40 entries the
+runtime trims it to the last 20 in-place, summarising older context
+into a single system message. Each call is recorded into the trace as
+an `ai_call` event and re-played offline.
+
+```aeris
+let s = ai.session(
+  system: "You are a concise assistant.",
+  model:  "claude-haiku-4-5",
+)
+let (s2, a) = ai.session_ask(s, "hello")
+let (s3, b) = ai.session_ask(s2, "summarise the previous answer")
+io.println(b)
+```
+
+**`ai.decide(prompt, choices, retries?) -> string` (v0.3, M19).**
+Enum-style decision builtin. Calls the model with `prompt`, then
+post-validates that the reply contains one of `choices`. On
+mismatch it retries up to `retries` times (default `3`); after
+exhaustion it returns `Err(err.llm(...))`. Use this in place of an
+agent + `produce` enum when the agent set is trivial.
+
+```aeris
+let kind = ai.decide(
+  prompt:  "Classify the invoice: utilities, software, travel, other.",
+  choices: ["utilities", "software", "travel", "other"],
+)?
+```
+
+**`ai.usage() -> { total_tokens: int, cost_usd: f64, calls: int }`
+(v0.3, M19).** Returns the per-process running totals of LLM usage
+since program start. Token counts come from the backend; cost is
+computed from a static price table indexed by `model`. Always
+available; it is a read-classified diagnostic on the in-memory
+counter, not a network call.
 
 **`ai.chat(system, dir) -> Chat` (v0.3, M19.T6).** Convenience
 constructor that loads a directory of markdown / text files

@@ -2894,13 +2894,11 @@ fn eval_call(
         if let Some(v) = builtin_method_dispatch(&recv, name, args, env, span)? {
             return Ok(Flow::Value(v));
         }
-        let arg_values: Vec<Value> = args
-            .iter()
-            .map(|a| eval_value(&a.value, env))
-            .collect::<Result<_, _>>()?;
         if let Value::Record(r) = &recv {
             if let Some((_, callee_val)) = r.fields.iter().find(|(k, _)| k == name) {
-                return invoke_value(&callee_val.clone(), &arg_values, span);
+                let callee_val = callee_val.clone();
+                let arg_values = eval_args_for_callable(&callee_val, name, args, env, span)?;
+                return invoke_value(&callee_val, &arg_values, span);
             }
         }
         return Err(EvalError::new(
@@ -2912,11 +2910,43 @@ fn eval_call(
         ));
     }
     let callee_value = eval_value(callee, env)?;
-    let arg_values: Vec<Value> = args
-        .iter()
-        .map(|a| eval_value(&a.value, env))
-        .collect::<Result<_, _>>()?;
+    let label = match callee {
+        Expr::Ident(n, _) => n.clone(),
+        _ => "<lambda>".into(),
+    };
+    let arg_values = eval_args_for_callable(&callee_value, &label, args, env, span)?;
     invoke_value(&callee_value, &arg_values, span)
+}
+
+/// M29 — eager argument evaluation that respects the callee's
+/// parameter names when the call uses kwargs. For non-closure
+/// callees (sagas, agents, agent_nets, non-callable values) it
+/// falls through to positional evaluation; `invoke_value` raises
+/// the appropriate `NotCallable` / arity error.
+fn eval_args_for_callable(
+    callee: &Value,
+    fn_label: &str,
+    args: &[CallArg],
+    env: &mut Env,
+    span: Span,
+) -> Result<Vec<Value>, EvalError> {
+    if let Value::Closure(c) = callee {
+        let ordered = reorder_kwargs_for_closure(fn_label, &c.params, args, span)?;
+        return ordered
+            .iter()
+            .map(|a| eval_value(&a.value, env))
+            .collect();
+    }
+    if args.iter().any(|a| a.name.is_some()) {
+        let kind = value_kind(callee);
+        return Err(EvalError::new(
+            EvalErrorKind::Type(format!(
+                "named arguments not supported on {kind} callee `{fn_label}`"
+            )),
+            span,
+        ));
+    }
+    args.iter().map(|a| eval_value(&a.value, env)).collect()
 }
 
 /// M25.T2 — known parameter names for L1/L2 builtins, in positional
@@ -3038,6 +3068,84 @@ fn reorder_kwargs_for_builtin(
                 out[idx] = Some(a.clone());
             }
         }
+    }
+    Ok(out.into_iter().flatten().collect())
+}
+
+/// M29 — Reorders a call's `args` against a user-defined closure's
+/// parameter list. Positional args fill leading slots, kwargs fill
+/// by name (in any order), duplicates / unknowns / arity mismatches
+/// raise typed errors. When no `name:` label is present the helper
+/// is a pass-through.
+fn reorder_kwargs_for_closure(
+    fn_label: &str,
+    params: &[String],
+    args: &[CallArg],
+    span: Span,
+) -> Result<Vec<CallArg>, EvalError> {
+    if args.iter().all(|a| a.name.is_none()) {
+        return Ok(args.to_vec());
+    }
+    let mut out: Vec<Option<CallArg>> = vec![None; params.len()];
+    let mut next_pos = 0usize;
+    let mut seen_kwarg = false;
+    for a in args {
+        match &a.name {
+            None => {
+                if seen_kwarg {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "{fn_label}: positional argument after named argument"
+                        )),
+                        span,
+                    ));
+                }
+                while next_pos < params.len() && out[next_pos].is_some() {
+                    next_pos += 1;
+                }
+                if next_pos >= params.len() {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Arity {
+                            name: fn_label.into(),
+                            expected: params.len(),
+                            found: args.len(),
+                        },
+                        span,
+                    ));
+                }
+                out[next_pos] = Some(a.clone());
+                next_pos += 1;
+            }
+            Some(n) => {
+                seen_kwarg = true;
+                let idx = params.iter().position(|p| p == n).ok_or_else(|| {
+                    EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "unknown kwarg `{n}` for `{fn_label}` (expected one of {params:?})"
+                        )),
+                        span,
+                    )
+                })?;
+                if out[idx].is_some() {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!("duplicate kwarg `{n}` for `{fn_label}`")),
+                        span,
+                    ));
+                }
+                out[idx] = Some(a.clone());
+            }
+        }
+    }
+    // Surface a clear arity error when a slot is left unfilled.
+    if out.iter().any(|s| s.is_none()) {
+        return Err(EvalError::new(
+            EvalErrorKind::Arity {
+                name: fn_label.into(),
+                expected: params.len(),
+                found: args.len(),
+            },
+            span,
+        ));
     }
     Ok(out.into_iter().flatten().collect())
 }
@@ -4379,6 +4487,11 @@ fn builtin_io_print(env: &Env, args: &[Value], span: Span) -> Result<Value, Eval
     arity_check("io.print", 1, args, span)?;
     let s = value_as_display(&args[0]);
     print!("{s}");
+    // Without an explicit flush, a prompt like `io.print("you> ")` would
+    // sit in the line-buffered stdout until the next `\n` — meaning the
+    // prompt only appears *after* the user's first read_line completes.
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
     record_event(env, "io_print", vec![("len".into(), s.len().to_string())]);
     Ok(Value::Unit)
 }
@@ -4395,6 +4508,8 @@ fn builtin_io_eprint(env: &Env, args: &[Value], span: Span) -> Result<Value, Eva
     arity_check("io.eprint", 1, args, span)?;
     let s = value_as_display(&args[0]);
     eprint!("{s}");
+    use std::io::Write;
+    let _ = std::io::stderr().flush();
     record_event(env, "io_eprint", vec![("len".into(), s.len().to_string())]);
     Ok(Value::Unit)
 }
@@ -4503,6 +4618,10 @@ fn builtin_io_read_line(env: &Env, args: &[Value], span: Span) -> Result<Value, 
                 record_event(env, "io_read_line", vec![("eof".into(), "true".into())]);
                 return Ok(Value::none());
             }
+            // Flush stdout before blocking on input so any pending
+            // prompt (`io.print("you> ")`) reaches the terminal.
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
             let mut s = String::new();
             std::io::stdin().read_line(&mut s).map_err(|e| {
                 EvalError::new(
@@ -13908,5 +14027,132 @@ mod tests {
         );
         let kinds = trace_kinds(&body, cap_val);
         assert_eq!(kinds, load_golden("fs_write_read.jsonl"));
+    }
+
+    // ---- M29 — kwargs on user-defined functions (§ 7.6) ----
+
+    fn run_returns_string(src: &str) -> String {
+        let m = crate::syntax::parse(src).unwrap();
+        match run_main(&m).unwrap() {
+            Value::Str(s) => s,
+            other => panic!("expected Str, got {other:?}"),
+        }
+    }
+
+    fn run_returns_error(src: &str) -> EvalError {
+        let m = crate::syntax::parse(src).unwrap();
+        run_main(&m).unwrap_err()
+    }
+
+    #[test]
+    fn m29_kwargs_positional_unchanged() {
+        let s = run_returns_string(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet("Alice", "hey") }"#,
+        );
+        assert_eq!(s, "hey Alice");
+    }
+
+    #[test]
+    fn m29_kwargs_in_declared_order_match_positions() {
+        let s = run_returns_string(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet(name: "Bob", greeting: "hello") }"#,
+        );
+        assert_eq!(s, "hello Bob");
+    }
+
+    #[test]
+    fn m29_kwargs_reversed_order_routes_by_name() {
+        let s = run_returns_string(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet(greeting: "ciao", name: "Alice") }"#,
+        );
+        assert_eq!(s, "ciao Alice");
+    }
+
+    #[test]
+    fn m29_kwargs_mixed_positional_then_named() {
+        let s = run_returns_string(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet("Alice", greeting: "ciao") }"#,
+        );
+        assert_eq!(s, "ciao Alice");
+    }
+
+    #[test]
+    fn m29_kwargs_single_arg_function() {
+        let s = run_returns_string(
+            r#"fn shout(s) -> string { s + "!" }
+               fn main() -> string { shout(s: "ok") }"#,
+        );
+        assert_eq!(s, "ok!");
+    }
+
+    #[test]
+    fn m29_kwargs_on_lambda_via_let_binding() {
+        let s = run_returns_string(
+            r#"fn main() -> string {
+                 let f = fn(a, b) { a + "-" + b }
+                 f(b: "bb", a: "aa")
+               }"#,
+        );
+        assert_eq!(s, "aa-bb");
+    }
+
+    #[test]
+    fn m29_kwargs_on_record_field_closure() {
+        let s = run_returns_string(
+            r#"record R { f: fn(int, int) -> int }
+               fn main() -> string {
+                 let r = R { f: fn(a, b) { a - b } }
+                 let v = r.f(b: 2, a: 10)
+                 "{v}"
+               }"#,
+        );
+        assert_eq!(s, "8");
+    }
+
+    #[test]
+    fn m29_kwargs_unknown_name_errors() {
+        let e = run_returns_error(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet(typo: "x", greeting: "y") }"#,
+        );
+        let msg = format!("{:?}", e.kind);
+        assert!(msg.contains("unknown kwarg"), "got {msg}");
+        assert!(msg.contains("typo"), "got {msg}");
+    }
+
+    #[test]
+    fn m29_kwargs_duplicate_name_errors() {
+        let e = run_returns_error(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet(name: "a", name: "b") }"#,
+        );
+        let msg = format!("{:?}", e.kind);
+        assert!(msg.contains("duplicate kwarg"), "got {msg}");
+    }
+
+    #[test]
+    fn m29_kwargs_positional_after_named_errors() {
+        let e = run_returns_error(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet(greeting: "y", "x") }"#,
+        );
+        let msg = format!("{:?}", e.kind);
+        assert!(
+            msg.contains("positional argument after named argument"),
+            "got {msg}"
+        );
+    }
+
+    #[test]
+    fn m29_kwargs_missing_slot_errors() {
+        let e = run_returns_error(
+            r#"fn greet(name, greeting) -> string { greeting + " " + name }
+               fn main() -> string { greet(name: "a") }"#,
+        );
+        assert!(matches!(e.kind, EvalErrorKind::Arity { .. }), "got {:?}", e.kind);
     }
 }

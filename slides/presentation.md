@@ -16,7 +16,7 @@ footer: 'Aeris v0.2 · interpreted language for ops, AI and governance'
 
 ## AERIS v0.2
 
-Un linguaggio interpretato in Rust dove capabilities sono valori passati per parametro, la compensation di ogni write esterna è obbligatoria, la supply chain è content-addressed e il replay è bit-identical.
+Linguaggio interpretato per **ops, AI e automation** — pensato per essere scritto *e* letto da LLM. Capabilities come valori, compensation obbligatoria, supply chain content-addressed, replay bit-identical.
 
 ---
 
@@ -24,7 +24,7 @@ Un linguaggio interpretato in Rust dove capabilities sono valori passati per par
 
 | # | Atto | Contenuto |
 |---|---|---|
-| **I** | Inquadramento | Problema, cosa fa Aeris |
+| **I** | Inquadramento | Problema, posizionamento, anatomia del linguaggio, perché LLM-friendly |
 | **II** | Modello di esecuzione | Quattro layer, pipeline, trace, lockset |
 | **III** | Sistema di capability | Tipo first-class, narrowing, body resolution, surface lock |
 | **IV** | Contracts, intent, model | `requires`/`ensures`, `intent` obbligatorio, `@vN` |
@@ -73,6 +73,140 @@ I rimedi noti coprono solo un sottoinsieme:
 - **L4** — multi-agent (`agent`, `agent_net`)
 
 I layer sono *opt-in by depth*: uno script puro vive in L1; una pipeline self-recovering usa L1+L2+L3.
+
+</div>
+</div>
+
+---
+
+# Un linguaggio per ops, AI, automation
+
+<div class="columns">
+<div class="column compact">
+
+**Per chi è**
+
+- Platform / ops engineer che oggi cucina YAML + Python + shell + Terraform
+- Autore di pipeline AI che oggi compone LangChain + prompt-string + retry manuali
+- Team con vincoli di audit / compliance che non possono fidarsi di "un container che gira"
+
+**Cosa rimpiazza, in un solo file**
+
+- Lo script ops (`bash` / Python) → `.aer` con `intent` e capability esplicite
+- Il manifesto pipeline (Airflow / Argo) → `saga` con `do`/`undo` obbligatori
+- Il grafo agenti (LangChain / CrewAI) → `agent_net` tipato, validato edge-by-edge
+- La policy egress (OPA / `policy.rego`) → `policy` valutata a runtime
+
+</div>
+<div class="column compact">
+
+**Tre modalità d'uso**
+
+- **Script** (v0.3, `enforce = "off"`) — top-level statements, no `cap`, no `main`. Per automation rapide, prototipi, demo
+- **Pipeline** (`enforce = "loose"`) — funzioni con `cap`, manifest come ceiling. Per ops che salgono progressivamente
+- **Mission-critical** (`enforce = "strict"`) — disciplina v0.2 piena. Per produzione, audit, compliance
+
+**Il trace e il replay non si toccano mai.** Tutte e tre le modalità emettono JSONL e supportano `aeris replay` bit-identical sul subset deterministico — l'audit non è una feature opt-in.
+
+> Lo stesso linguaggio scala da `aeris run triage.aer` allo stack di produzione regolamentata.
+
+</div>
+</div>
+
+---
+
+<!-- _class: tight -->
+
+# Anatomia di un programma Aeris
+
+<div class="columns">
+<div class="column">
+
+```aeris
+// Script v0.3 — niente main, niente cap, niente boilerplate.
+// Triage di log con un LLM headless (claude --print).
+
+let session = ai.session(
+  system: "Classify a log line: critical | warning | info.",
+  model:  "claude-haiku-4-5",
+)
+
+let lines = fs.read_file("./error.log")
+              .split("\n")
+
+for line in lines.slice(0, 50) {
+  let kind = ai.decide(
+    prompt:  "Classify: {line}",
+    choices: ["critical", "warning", "info"],
+  )?
+
+  if kind == "critical" {
+    audit.event("triage.critical", { line: line })
+  }
+}
+
+io.println("triage done — {ai.usage().calls} LLM calls")
+```
+
+</div>
+<div class="column compact">
+
+**Cosa è visibile a colpo d'occhio**
+
+- **Top-level statements** (M26) — niente `fn main`, lo script gira
+- **String interpolation** (M16) — `"{line}"`, `"{ai.usage().calls}"`
+- **Named arguments** (v0.3) — `system:`, `model:`, `choices:` su builtin
+- **AI di prima classe** — `ai.session`, `ai.decide`, `ai.usage` nella stdlib, non in libreria esterna
+- **`?` propaga `err.llm`** quando il modello non rispetta `choices`
+- **Trace JSONL** — ogni `ai.decide`, ogni `audit.event` finisce in `.aeris/traces/<id>.jsonl`, riproducibile con `aeris replay`
+
+> Stessa identica grammatica scala fino al programma "settle" dell'Atto III: si aggiunge `fn`, `cap`, `intent`, `saga` — non si cambia linguaggio.
+
+</div>
+</div>
+
+---
+
+# LLM-friendly per costruzione
+
+<div class="columns">
+<div class="column compact">
+
+**Grammatica densa, una sola forma legale**
+
+- Tutti i keyword **riservati** — niente soft keyword, `grep step` è autorevole
+- **Una forma canonica** per ogni costrutto: `aeris fmt` è totale, non parziale
+- **Nessuna alternativa sintattica** (no `function`/`def`/`fn` insieme, solo `fn`)
+- Densità: una `saga` di 10 step sta in mezza pagina, un `agent_net` in 6 righe
+
+> *Fewer decisions to make → fewer points of failure.* Lo spazio dei completamenti validi è piccolo, l'LLM ha meno modo di sbagliare.
+
+**Why-as-grammar**
+
+- `intent "..."` — il *perché* del write è antenato grammaticale, non un commento
+- `model X@vN` — schema versionato sui trust boundary, validato a runtime
+- `policy` — guardrail come costrutto, non come prompt-string convention
+- `requires:` / `ensures:` — pre/post-condizioni come parte della firma
+
+</div>
+<div class="column compact">
+
+**AI built-in, non bolted-on**
+
+- `ai.session` / `ai.session_ask` con auto-compaction 40→20
+- `ai.decide(prompt, choices)` enum-style con retry su `SchemaViolation`
+- `ai.chat(system, dir)` carica una knowledge base markdown in startup
+- `ai.network(max_rounds)` programmatico + `agent` / `agent_net` dichiarativi
+- Backend `http` *o* `cli` (`claude --print`, `ollama`, ...) — niente SDK linkati
+
+**Reproducibility built-in**
+
+- Ogni `ai.*` registrato come `ai_call` nel trace (`prompt`, `model`, `response`, `tokens`)
+- `aeris replay <trace>` rigioca offline, bit-identical
+- La **prima** esecuzione resta stocastica; ogni replay è deterministico
+- Coerente con l'audience che conta: audit, debug, post-mortem, regression test
+
+> Aeris non promette LLM deterministici. Promette **un linguaggio che li tiene visibili, registrati e replayabili**.
 
 </div>
 </div>
@@ -636,6 +770,70 @@ policy ai_budget {
 
 ---
 
+# v0.3 — superficie ergonomica
+
+<div class="columns">
+<div class="column compact">
+
+**Stringhe, controllo, errori**
+
+- Interpolazione `"hi {name}"` con `\{` / `\}` escapes (M16)
+- `loop { … }` sugar per `while true` (M24)
+- `??` null-coalesce: `Ok/Some/value → v`, `Err/None/() → rhs` (M24)
+- `expr catch err { … }`, `error("...")`, `defer stmt` (M17)
+- `every 5s { }`, `retry 3, delay: 1s { }`, `timeout 30s { }`, `clock.sleep` (M18)
+
+**Tipi e moduli**
+
+- `model X@v2 extends X@v1 { … }` (M23) — fields + `where:` ereditati
+- Top-level statements senza `main` (M26)
+- Parametri non tipati per script (`fn f(x, y)`) (v0.3)
+- `strings.*`, `date.*`, `json.pretty/parse`, `yaml.parse` (M24)
+
+</div>
+<div class="column compact">
+
+**Toolkit AI**
+
+- `ai.session(system, model)` + `ai.session_ask(s, p)` con auto-compaction 40→20 (M19)
+- `ai.decide(p, choices, retries?)` enum-style (M19)
+- `ai.usage() → { total_tokens, cost_usd, calls }` (M19)
+- `ai.chat(system, dir)` + `chat.ask` + `chat.kb_size` (M19.T6)
+- `ai.network(max_rounds)` builder programmatico (M28)
+- Backend `cli` per `ai.complete` (M9.T1) — subprocess spawn
+
+**Test helpers**
+
+- `assert_status`, `assert_json`, `assert_semantic` (M21) — l'ultimo usa il backend AI come giudice
+
+</div>
+</div>
+
+> Trace, replay, `model@vN` e `policy` restano attivi sopra **tutta** la superficie v0.3: nessuna ergonomia toglie l'audit.
+
+---
+
+# Rilassamento controllato del non-determinismo
+
+La tesi v0.2 fissa la disciplina; la pratica v0.3 ammette che non tutti i progetti vogliono pagarla *da subito*. Tre modalità, una sola sorgente di verità.
+
+| Modalità | Default `aeris init` | Effetto |
+|---|---|---|
+| `enforce = "off"` | **sì** (v0.3) | `cap[*]` sintetizzato a `main`; niente E65/E66/E67/E71; niente allow-list runtime |
+| `enforce = "loose"` | — | manifest cap come ceiling runtime; le fn senza `cap` restano ammesse; le fn con `cap` sono check-ate normalmente |
+| `enforce = "strict"` | — | piena disciplina v0.2 (`intent` obbligatorio, `cap[*]` rifiutato nel codice utente, surface lock) |
+
+**Cosa NON cambia mai:**
+
+- Trace JSONL sempre attivo
+- `aeris replay` bit-identical sul subset deterministico
+- Validazione `model@vN` ai trust boundary
+- `policy` valutata su ogni chiamata che matcha
+
+> Il rilassamento è solo del **vincolo statico**, non della **registrazione runtime**. Un progetto può salire la ladder (`off` → `loose` → `strict`) senza riscrivere codice — solo aggiungendo annotazioni.
+
+---
+
 # Stato dell'implementazione
 
 | Tag | Milestone | Stato |
@@ -644,9 +842,9 @@ policy ai_budget {
 | **v0.2** | M0–M8 bootstrap → policy (parser, check, interp, trace, http, saga, manifest, model) | done |
 | | M9–M15 AI + replay, agent_net, L2 handlers, test/fmt, diagnostics, packaging, prototype mode | done |
 | **v0.3** | M15B `enforce = off \| loose \| strict` · M24 script surface (`loop`, `??`, `strings.*`, methods, natural JSON) | done |
-| | M16 string interpolation · M17 inline errors · M18 time control · M23 `model extends` | done |
-| | M19 AI builtins (`session`, `decide`, `usage`, **`ai.chat(dir:)`+`chat.ask`+`kb_size`**) · M21 test helpers | partial |
-| | M20 network listeners · M22 L2 parity con v0.1 | deferred |
+| | M16 interpolazione `{x}` · M17 `catch`/`error`/`defer` · M18 `every`/`retry`/`timeout`/`clock.sleep` · M23 `model extends` | done |
+| | M19 AI builtins (`session`, `decide`, `usage`, `ai.chat(dir:)`+`chat.ask`+`kb_size`) · M21 `assert_status`/`json`/`semantic` | partial |
+| | M20 network listeners · M22 parità L2 estesa con v0.1 | deferred |
 
 > Binario v0.2: < 8 MB stripped · tree-walk interpreter · zero dipendenze runtime.
 > M20/M22 rinviati: richiedono runtime async / SDK esterni fuori dallo scope di v0.3.

@@ -8,7 +8,7 @@ Build: `npm install && npm run build` (HTML) o `npm run pdf` / `npm run pptx`.
 
 ---
 
-## Struttura — 6 atti, 22 slide
+## Struttura — 6 atti, 24 slide di contenuto
 
 ### ATTO I — Inquadramento (3 slide)
 
@@ -57,7 +57,7 @@ Build: `npm install && npm run build` (HTML) o `npm run pdf` / `npm run pptx`.
 | 21 | Agent — single LLM unit | `llm`, `intent`, `prompt`, `accept`/`produce`, `retries`, `budget`; routing contract auto-iniettato |
 | 22 | agent_net — dataflow tipato | DAG aciclico; fan-out type-driven; `until:`; net annidate |
 
-### ATTO VI — Policy, refusal, limiti (4 slide)
+### ATTO VI — Policy, refusal, limiti, v0.3 (6 slide)
 
 | # | Titolo | Contenuto |
 |---|---|---|
@@ -65,9 +65,11 @@ Build: `npm install && npm run build` (HTML) o `npm run pdf` / `npm run pptx`.
 | 24 | Policy come costrutto | `match`/`deny`/`require`/`limit`/`audit`/`when`; drift in replay → `policy_drift` event |
 | 25 | Cose che il linguaggio rifiuta | No SMT, no tier system, no capability inference, no soft keyword, no import mutabili, no `.so` plugin |
 | 26 | Limiti onesti del modello | Prima chiamata LLM non-deterministica; logica dentro cap legittima non verificata; cascading undo best-effort |
-| 27 | Stato dell'implementazione | M0–M17 done, M18–M23 v0.3 pending; binario < 8 MB, zero deps runtime |
+| 27 | v0.3 — superficie ergonomica | Interpolazione `{x}`, `loop`/`??`, `catch`/`defer`, `every`/`retry`/`timeout`, `ai.session`/`decide`/`usage`, `model extends`, assert helpers |
+| 28 | Rilassamento controllato del non-determinismo | Tre modalità `enforce = off \| loose \| strict`; trace/replay/`model@vN`/`policy` invariati su tutta la superficie |
+| 29 | Stato dell'implementazione | v0.2 done, v0.3 M16–M18/M23 done, M19/M21 partial, M20/M22 deferred; < 8 MB stripped, zero deps |
 
-> **Conteggio reale**: 5 divider + 22 slide di contenuto = 27 slide.
+> **Conteggio reale**: 5 divider + 24 slide di contenuto = 29 slide.
 
 ---
 

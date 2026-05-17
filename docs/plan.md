@@ -127,6 +127,7 @@ Module responsibilities (one-liners):
 | M26 | v0.3 — Top-level effectful statements | A `.aer` module may contain `let`, expression-statements, and cap calls outside any `fn`. They run in declaration order before `main` (or as the program body when `main` is absent). Module-level `var` remains forbidden | 1 | M3 | done |
 | M27 | v0.3 — Script builtins (env.set, date.now/format, list.push/pop, yaml.parse) | `env.set(key, value)` writes a process env var (cap: `env.write`); `date.now() -> timestamp`, `date.format(t, fmt) -> string`; mutable `list.push(x)` / `list.pop()` on `var` bindings; `yaml.parse(s) -> result<record>` minimal v0.1-compatible subset | 1 | M3 | done |
 | M28 | v0.3 — Programmatic agent network (`ai.network`) | `ai.network(max_rounds: int) -> Network`; `network.agent(name: string, system: string)`; `network.run(entry:, message:, until:) -> { trace, rounds }`. Thin builder atop the M10 `agent_net` runtime; routing is text-based (until-string match in last reply) rather than type-based | 1 | M9, M10 | done |
+| M29 | v0.3 — Kwargs on user-defined functions and closures | M25 shipped kwargs for L1/L2 builtins and method receivers but `eval_call`'s user-fn path silently dropped the `name:` labels and bound args by position. M29 reorders kwargs against the closure's parameter list before `invoke_value`, validates duplicates / unknown names / missing positional, and accepts mixed positional+kwargs (positional first, kwargs after) | 1 | M3, M25 | done |
 | M20 | v0.3 — Network listeners (`net.http server` minimal) | `net.http(port: int) -> http_server`, `server.accept() -> http_req`, `req.reply(status:, body:, content_type:)`, blocking single-threaded; concurrent handlers via `spawn { … }`; trace events per accept | 2 | M5 | done (HTTP only — TCP/UDP/`net.resolve` deferred to v0.4) |
 | M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | partial (assert_status / assert_json / assert_semantic done; @example and suite-level setup parser sugar deferred) |
 | M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | deferred (every sub-op is shell-out or external SDK plumbing — out of scope for this batch; current minimal handlers from M11 still ship) |
@@ -505,6 +506,22 @@ scripting language, not a stripped-down systems language.
 | M24.T9 | `ai.chat(system: string, dir: string) -> Chat` (M19.T6 reified): walks the directory, loads `*.md \| .txt \| .rst \| .adoc \| .yaml \| .yml`, concatenates with `=== FILE: <path> ===` markers, returns a `Chat` record. `chat.ask(prompt) -> string` calls the backend; `chat.kb_size() -> int` reports the file count. Coexists with the v0.2 `ai.chat(messages)` form | smoke test under mock and CLI backend | § 23 | done |
 | M24.T10 | `language.md § 2.3 / § 2.6 / § 5.4 / § 6.1 / § 8.4.1 / § 22 / § 23 / § 24.1 / Appendix D` updated; `RELEASE.md` records v0.3 surface | docs cross-referenced | — | done |
 
+### 5.25 M29 — Kwargs on user-defined functions (1 week)
+
+M25 wired named-argument dispatch into the L1/L2 builtin and method
+tables but **not** into the closure-invocation path. A call like
+`greet(greeting: "ciao", name: "Alice")` against
+`fn greet(name, greeting)` parses, the labels survive in the AST,
+and then `eval_call` drops them and binds positionally — so the
+argument order at the call site silently *matters*. M29 closes that
+gap.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M29.T1 | In `eval_call`'s user-fn branch, before `invoke_value`: if any `CallArg.name` is `Some`, reorder against the closure's `params` list. Positional args fill leading slots, kwargs fill by name, duplicates raise `EvalError::Type("duplicate kwarg `<name>`")`, unknown names raise `EvalError::Type("unknown kwarg `<name>` for `<fn_name>`")`, missing slots raise the existing arity error | 5 positive fixtures (pure positional / pure kwargs / mixed / reverse order / single-arg name) + 3 negative (unknown name, duplicate, missing) | § 7.6 | done |
+| M29.T2 | Same reorder path applied to closures invoked as record fields (`x.f(name: …)`) and to lambdas (anonymous `fn(…) { … }`) — both already hit `invoke_value` through different code paths, so the helper is hoisted into a single `resolve_call_args` function used by every caller | 2 fixtures: record-field closure called with kwargs; lambda assigned to a `let` and called with kwargs | § 5.4, § 7.3 | done |
+| M29.T3 | `language.md § 7.6` extended with the mixed-positional+kwargs rule already promised by the existing text ("mixing is allowed for trailing parameters only") and with the three new error messages so users can recognise them | docs cross-referenced | § 7.6 | done |
+
 ---
 
 ## 6. Test artifacts
@@ -823,7 +840,28 @@ diff is structurally trivial (only added fields, each with a default).
 In the trivial case the compiler generates the migration; in any
 other case the omitted migration is a compile error.
 
-### 11.11 Acceptance for v0.3 as a whole
+### 11.11 Kwargs on user-defined functions (M29)
+
+**Tension.** `language.md § 7.6` documents kwargs as a uniform call
+form — *"named arguments work identically against user-defined
+functions and closures … and L1 / L2 builtins"*. M25 delivered the
+builtin half: a parameter-name table backs `reorder_kwargs_for_builtin`
+and a matching helper covers methods on `Chat`, `HttpReq`,
+`AiNetwork`. The closure-invocation path was overlooked: it evaluates
+`arg.value` and drops `arg.name`, so a call like
+`greet(greeting: "ciao", name: "Alice")` quietly binds by position.
+The bug is silent because no error fires — the labels are simply
+ignored — which is exactly the failure mode the language tries to
+make impossible (§ 7.4 of `thesis.md`: ambiguous constructs force
+the LLM to infer).
+
+**Resolution.** Reuse the same dispatcher shape M25 uses for
+builtins, but driven by the closure's `params` instead of a static
+table. Positional args fill leading slots; kwargs fill by name;
+positional-after-kwarg is rejected at parse / evaluation; duplicates
+and unknowns raise typed errors so the failure is loud, not silent.
+
+### 11.12 Acceptance for v0.3 as a whole
 
 A v0.3 tag (`v0.3.0`) requires:
 
