@@ -1,100 +1,111 @@
 # Aeris v0.3 — Scaletta delle slide
 
 Riferimento dell'outline usato per generare `presentation.md`. Taglio
-tecnico, audience di sviluppatori interessati al progetto.
+tecnico, audience di sviluppatori interessati al progetto. Struttura
+ispirata a `/Users/alessio/progetti/aeris/slides/presentation.md`
+(versione v0.1.0-m5), adattata alla grammatica di v0.3.
 
-Tema: `theme/aeris.css` (ripreso dal deck v0.1 in `aeris/slides/`).
-Build: `npm install && npm run build` (HTML) o `npm run pdf` / `npm run pptx`.
+## Vincoli
 
----
+- Tema: `theme/aeris.css`
+- Build: `npm install && npm run build` (HTML) o `npm run pdf` / `npm run pptx`.
+- Lingua: English
+- **Densità**: un concetto per slide. Bullet di una riga, parole chiave in **bold**. Tabelle ≤ 5 righe. Code block ≤ 15 righe. Quando un argomento eccede, *spezza la slide* (es. "Pattern matching (1/2)" + "(2/2)").
+- **Font**: override del tema a `section { font-size: 44px; }` (default 36px).
+- **Niente citazioni accademiche**: no SMT, F\*, Liquid Haskell, Pony, Dennis & Van Horn, Garcia-Molina, AMQP, MPMC, GOSUMDB, AST come jargon nudo. Quando serve giustificare una scelta, prosa operativa.
+- **`cap` solo nella sezione Verifiability**. Le slide pratiche (Core language, AI primitives) sono in modalità script — niente `cap` nelle firme.
+- File di accompagnamento alle slide `discorso-presentazione.md` -> spiegazione completa delle slide.
 
-## Struttura — 6 atti, 24 slide di contenuto
+## Scaletta — 8 sezioni, 51 slide
 
-### ATTO I — Inquadramento (3 slide)
+### Apertura (2 slide)
+1. Cover
+2. Agenda — tabella delle 8 sezioni
 
-| # | Titolo | Contenuto |
-|---|---|---|
-| 1 | Cover | Frase-tesi: capabilities-as-values, saga con compensation, supply chain content-addressed, replay bit-identical |
-| 2 | Il problema tecnico | Tre fonti di non-determinismo (modello, semantica, mondo); perché sandboxing/type system/effect system tradizionali coprono solo un sottoinsieme |
-| 3 | Cosa fa Aeris | Linguaggio interpretato in Rust; singolo binario < 8 MB; tree-walking interpreter; trace JSONL + `aeris replay` |
+### Sezione 1 — Aeris at a glance (2 slide)
+3. What it is: runtime, libraries, LLM backend, what it replaces in one file
+4. Hello world — script mode + main form
 
-### ATTO II — Modello di esecuzione (4 slide)
+### Sezione 2 — How an interpreted language works (2 slide)
+5. Lexer · parser · static check · interpreter — le 4 fasi mappate ai file Rust del runtime
+6. AST walk — esempio `fn walk(node, env) -> Value` come la vecchia presentazione
 
-| # | Titolo | Contenuto |
-|---|---|---|
-| 4 | Divider "Modello di esecuzione" | — |
-| 5 | I quattro layer | L1 sintassi → L2 semantica verificabile → L3 saga → L4 agent_net; opt-in by depth |
-| 6 | Pipeline di esecuzione + exit code | Source → lexer → parser → check (M2) → eval; matrice exit code 0/64/65/66/67/68/69/70/71/74 |
-| 7 | Determinismo e trace | Trace JSONL sempre attivo; `cap.clock` / `cap.random` / `cap.ai.*` registrati; replay bit-identical |
-| 8 | Lockset come centro di gravità | `[deps]` blake3, `[caps]` allow-list, `[ai.backend]`, `[policies]`; `main` riceve cap sintetizzato |
+### Sezione 3 — The four layers (2 slide)
+7. Diagramma L1 / L2 / L3 / L4 + bullet "opt-in per profondità"
+8. Why these four layers? — LLM authors + readers, requisiti di non-determinismo e verificabilità
 
-### ATTO III — Sistema di capability (4 slide)
+### Sezione 4 — Core language (15 slide)
+Divider "Core language"
+9. Language at a glance — let/var/const, kwargs, interpolation, closures
+10. Control flow — if/match/loops, ranges, wildcards
+11. Pattern matching — enums e destructuring
+12. Models — record, enum, model@vN, extends, where
+13. Errors & recovery — result, ?, ??, catch, defer
+14. Time control — every, retry, timeout
+15. Saga — flagship construct con do/undo
+16. Idempotency key — blake3(trace_id ‖ step ‖ idx) + tabella iniezione
+17. Concurrency — spawn, channel, cancellation cooperativa
+18. Modules — tre layer, una keyword (use)
+19. Standard library — general-purpose modules
+20. Standard library — native domain handlers
+21. A full HTTP server — net.http(port)
+22. Tests — built into the language (assert, assert_status, assert_semantic)
 
-| # | Titolo | Contenuto |
-|---|---|---|
-| 9 | Divider "Sistema di capability" | — |
-| 10 | Capability come tipo first-class | `cap[op @ ["allow-list"]]`; parser rifiuta `http.post` senza `cap` in scope |
-| 11 | Narrowing e propagazione | `cap.subset[...]`, mai broadening, regole di escape, `cap[*]` vietato nel codice utente |
-| 12 | Body resolution | `http.post(...)` si lega al `cap` in scope; `use http` non abilita niente da solo |
-| 13 | Surface lock (V3) | `.aeris/surface.lock`, diff come primo hunk in review, `aeris fmt --narrow-caps` |
+### Sezione 5 — AI primitives (5 slide)
+Divider "AI primitives"
+23. ai.complete + ai.session (auto-compaction)
+24. ai.decide + ai.usage
+25. ai.chat(system, dir) + overload `port`
+26. Multi-agent — agent_net declarativo vs ai.network programmatico
 
-### ATTO IV — Contracts, intent, model (3 slide)
+### Sezione 6 — Verifiability (5 slide)
+Divider "Verifiability"
+27. cap — a permission carried as a value. **Prima volta che cap viene introdotto.**
+28. Allow-list per family
+29. Narrowing con cap.subset[…] + main(cap) sintetizzato
+30. enforce = off | loose | strict
 
-| # | Titolo | Contenuto |
-|---|---|---|
-| 14 | Divider "Contracts, intent, model" | — |
-| 15 | Contracts runtime | `requires:` / `ensures:` con esempi; violazione → exit 64; nessun SMT |
-| 16 | Intent obbligatorio (V2) | `intent "..."` block; ogni write-effectful deve stare dentro; exit 66 al parse; trace events |
-| 17 | Model versionato `@vN` | Schema con `where`; validazione sui trust boundary; bare `Invoice` → exit 68; migrazione esplicita |
+### Sezione 7 — Governance & reasoning (11 slide)
+Divider "Governance & reasoning"
+31. The thesis — controlled non-determinism + tre sorgenti
+32. Language for humans → language for agents (1/2): WHAT not HOW + high abstraction
+33. Language for humans → language for agents (2/2): why-as-grammar
+34. intent — executable documentation
+35. requires: / ensures: come pre/post-conditions runtime
+36. policy — declarative governance (deny/require/limit/audit/when)
+37. Trace — cosa entra nel nastro JSONL
+38. aeris replay + aeris trace diff
+39. External libraries — content-addressed supply chain (blake3)
+40. aeris.toml + surface.lock
 
-### ATTO V — Saga e agenti (4 slide)
+### Sezione 8 — Putting it together (3 slide)
+Divider "Putting it together"
+41. SRE triage (1/2) — model@vN + agent + agent_net
+42. SRE triage (2/2) — policy + saga + every
 
-| # | Titolo | Contenuto |
-|---|---|---|
-| 18 | Divider "Saga e agenti" | — |
-| 19 | Saga — anatomia | `step` con `do`/`undo`; `undo: noop` solo se `do` puro; esiti ok / rolled_back / PartialFailure (exit 74) |
-| 20 | Idempotency key (N1) | `blake3(trace_id ‖ step_name ‖ idx)`; iniettata in HTTP/K8s/AMQP/Mongo; replay → no-op |
-| 21 | Agent — single LLM unit | `llm`, `intent`, `prompt`, `accept`/`produce`, `retries`, `budget`; routing contract auto-iniettato |
-| 22 | agent_net — dataflow tipato | DAG aciclico; fan-out type-driven; `until:`; net annidate |
+### Wrap up (4 slide)
+43. Error model — layered exit codes
+44. Honest limits
+45. What Aeris refuses on principle
+46. Thanks / Q&A (divider)
 
-### ATTO VI — Policy, refusal, limiti, v0.3 (6 slide)
-
-| # | Titolo | Contenuto |
-|---|---|---|
-| 23 | Divider "Policy, refusal, limiti" | — |
-| 24 | Policy come costrutto | `match`/`deny`/`require`/`limit`/`audit`/`when`; drift in replay → `policy_drift` event |
-| 25 | Cose che il linguaggio rifiuta | No SMT, no tier system, no capability inference, no soft keyword, no import mutabili, no `.so` plugin |
-| 26 | Limiti onesti del modello | Prima chiamata LLM non-deterministica; logica dentro cap legittima non verificata; cascading undo best-effort |
-| 27 | v0.3 — superficie ergonomica | Interpolazione `{x}`, `loop`/`??`, `catch`/`defer`, `every`/`retry`/`timeout`, `ai.session`/`decide`/`usage`, `model extends`, assert helpers |
-| 28 | Rilassamento controllato del non-determinismo | Tre modalità `enforce = off \| loose \| strict`; trace/replay/`model@vN`/`policy` invariati su tutta la superficie |
-| 29 | Stato dell'implementazione | v0.2 done, v0.3 M16–M18/M23 done, M19/M21 partial, M20/M22 deferred; < 8 MB stripped, zero deps |
-
-> **Conteggio reale**: 5 divider + 24 slide di contenuto = 29 slide.
+Totale nel file: 46 slide informative + 5 divider espliciti = **51 slide**.
 
 ---
 
 ## Convenzioni di stile (eredita da `aeris/slides/`)
 
-- **Cover** (`<!-- _class: cover -->`): box scuro top, logo AERIS via CSS,
-  frase-tesi come `h2`.
-- **Divider** (`<!-- _class: divider -->`): sfondo navy, titolo H1 bianco,
-  sottotitolo come blockquote. Uno per atto.
-- **Slide tight** (`<!-- _class: tight -->`): per snippet di codice lunghi
-  (riduce font del code block).
-- **Due colonne**: `<div class="columns"><div class="column">...` —
-  utile per "esempio negativo / esempio positivo" o "codice / spiegazione".
-- **Callout**: `<div class="note">...</div>`, `<div class="tip">...</div>`.
-- **Code blocks**: usare ```aeris come language hint (highlight.js cade
-  in default e il tema applica i colori dei token).
+- **Cover** (`<!-- _class: cover -->`): box scuro top, logo AERIS via CSS, frase-tesi come `h2`.
+- **Divider** (`<!-- _class: divider -->`): sfondo navy, titolo H1 bianco, sottotitolo come blockquote. Uno per ogni grande sezione (4, 5, 6, 7, 8) + chiusura Thanks.
+- **Slide tight** (`<!-- _class: tight -->`): per snippet di codice lunghi (riduce font del code block). Default usato sulle slide con code ≥ 12 righe.
+- **Due colonne**: `<div class="columns"><div class="column">...` — utile per "codice / sintesi" o "lato sinistro narrativo / lato destro tabella".
+- **Compact**: `<div class="column compact">` per bullet list con line-height ridotto, quando la colonna deve restare leggera.
+- **Code blocks**: usare ```rust come language hint (highlight.js cade in default e il tema applica i colori dei token).
 
-## Filo conduttore
+## Regola sulla nomenclatura "layer"
 
-Usare l'esempio **`settle_invoice`** dall'attiI III in poi come ricorrenza:
-- slide 10: la funzione `total` (pura) vs `settle` (con cap)
-- slide 13: la sua surface in `.aeris/surface.lock`
-- slide 15: i contratti di `pay`
-- slide 19: la saga `settle` completa con 3 step
-- slide 22: `invoice_pipeline` come agent_net che la consuma
+"L1 / L2 / L3 / L4" si riferiscono ai **quattro layer architetturali del linguaggio** (sintassi → multi-agent), introdotti nel diagramma e usati nei commenti degli esempi. Le slide della stdlib (sezione 4) si chiamano "Standard library — general-purpose modules" / "...native domain handlers", senza prefisso "Layer 1/2". External libraries (sezione 7) sono pinned per hash, non chiamarle "Layer 3" nelle slide.
 
-Questo riduce il carico cognitivo: il lettore impara *un* dominio e lo vede
-attraversare tutti i livelli del linguaggio.
+## Regola su `cap`
+
+`cap`, `cap.subset[...]`, `cap[http.post @ [...]]` compaiono **per la prima volta** nella sezione 6 (Verifiability, slide 27). Le slide pratiche (sezioni 1-5) mostrano programmi in modalità script — niente `cap` nelle firme. Le saghe pratiche (slide 16 e 41) sono senza `cap`; lo ricevono implicitamente come `cap[*]` di `main` in modalità script.
