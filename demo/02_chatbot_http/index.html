@@ -8,145 +8,236 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-            mono: ['JetBrains Mono', 'Fira Code', 'monospace']
+            sans: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
+            mono: ['Geist Mono', 'JetBrains Mono', 'monospace']
+          },
+          colors: {
+            ink:   { 950: '#08080a', 900: '#0c0c0e', 850: '#111114', 800: '#16161a', 700: '#1c1c22', 600: '#26262d', 500: '#3a3a44' },
+            chalk: { 50:  '#fafafa', 100: '#e8e8ec', 200: '#c8c8cf', 300: '#9a9aa3', 400: '#6b6b75', 500: '#4a4a52' },
+            accent:{ 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' }
           },
           keyframes: {
-            fadeUp:  { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
-            bounce3: { '0%,60%,100%': { transform: 'translateY(0)' }, '30%': { transform: 'translateY(-5px)' } }
+            fadeUp:  { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+            bounce3: { '0%,60%,100%': { transform: 'translateY(0)', opacity: '.45' }, '30%': { transform: 'translateY(-5px)', opacity: '1' } },
+            glow:    { '0%,100%': { boxShadow: '0 0 0 0 rgba(167,139,250,.7)' }, '50%': { boxShadow: '0 0 0 6px rgba(167,139,250,0)' } }
           },
           animation: {
-            fadeUp:  'fadeUp 0.2s ease-out',
-            bounce3: 'bounce3 1.1s ease-in-out infinite'
+            fadeUp:  'fadeUp .25s cubic-bezier(.22,1,.36,1)',
+            bounce3: 'bounce3 1.1s ease-in-out infinite',
+            glow:    'glow 2s ease-in-out infinite'
           }
         }
       }
     }
   </script>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <link rel="preconnect" href="https://fonts.cdnfonts.com">
+  <link rel="stylesheet" href="https://fonts.cdnfonts.com/css/geist-sans">
+  <link rel="stylesheet" href="https://fonts.cdnfonts.com/css/geist-mono">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <style>
-    body { font-family: 'Inter', system-ui, sans-serif; background: #f6f8fa; }
-    code, pre { font-family: 'JetBrains Mono', monospace; }
+    html, body {
+      font-family: 'Geist', 'Inter', system-ui, sans-serif;
+      font-feature-settings: 'cv11', 'ss01', 'ss03';
+      letter-spacing: -0.01em;
+      background: #08080a;
+      color: #e8e8ec;
+    }
+    code, pre, .mono { font-family: 'Geist Mono', 'JetBrains Mono', monospace; }
 
-    ::-webkit-scrollbar       { width: 5px; }
+    /* subtle grid background */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        radial-gradient(circle at 20% 0%, rgba(139,92,246,.08), transparent 40%),
+        radial-gradient(circle at 80% 100%, rgba(59,130,246,.05), transparent 40%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* scrollbars */
+    ::-webkit-scrollbar       { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #d0d7de; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #26262d; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a3a44; }
 
-    /* ── Prose ── */
-    .prose p                  { margin-bottom: .6rem; line-height: 1.7; color: #1f2328; }
-    .prose p:last-child        { margin-bottom: 0; }
-    .prose ul, .prose ol      { padding-left: 1.4rem; margin-bottom: .6rem; color: #1f2328; }
-    .prose ul                 { list-style: disc; }
-    .prose ol                 { list-style: decimal; }
-    .prose li                 { margin-bottom: .25rem; }
-    .prose h1,.prose h2,.prose h3 { font-weight: 600; color: #1f2328; margin: 1rem 0 .4rem; }
-    .prose h1 { font-size: 1.15rem; }
-    .prose h2 { font-size: 1.05rem; }
-    .prose h3 { font-size: .95rem; }
-    .prose strong             { color: #1f2328; font-weight: 600; }
-    .prose a                  { color: #0969da; text-decoration: underline; }
-    .prose blockquote         { border-left: 3px solid #0969da; padding-left: .9rem; color: #57606a; margin: .65rem 0; }
+    /* glass header */
+    .glass {
+      background: rgba(12,12,14,.75);
+      backdrop-filter: saturate(180%) blur(14px);
+      -webkit-backdrop-filter: saturate(180%) blur(14px);
+    }
+
+    /* ── Prose (dark) ── */
+    .prose                       { color: #e8e8ec; line-height: 1.65; }
+    .prose p                     { margin: 0 0 .7rem; }
+    .prose p:last-child          { margin-bottom: 0; }
+    .prose strong                { color: #fafafa; font-weight: 600; }
+    .prose em                    { color: #c8c8cf; }
+    .prose ul, .prose ol         { padding-left: 1.35rem; margin: 0 0 .7rem; }
+    .prose ul                    { list-style: disc; }
+    .prose ol                    { list-style: decimal; }
+    .prose li                    { margin-bottom: .25rem; }
+    .prose h1,.prose h2,.prose h3{ color: #fafafa; font-weight: 600; letter-spacing: -.02em; margin: 1.1rem 0 .45rem; }
+    .prose h1                    { font-size: 1.15rem; }
+    .prose h2                    { font-size: 1.05rem; }
+    .prose h3                    { font-size: .95rem; }
+    .prose a                     { color: #a78bfa; text-decoration: none; border-bottom: 1px solid rgba(167,139,250,.35); }
+    .prose a:hover               { color: #c4b5fd; border-bottom-color: rgba(167,139,250,.8); }
+    .prose blockquote            { border-left: 2px solid #7c3aed; padding-left: .9rem; color: #9a9aa3; margin: .7rem 0; font-style: italic; }
+    .prose hr                    { border-color: #1c1c22; margin: 1rem 0; }
 
     /* inline code */
-    .prose :not(pre) > code   { background: #eaeef2; color: #cf222e; padding: .1em .4em; border-radius: 4px; font-size: .82em; }
+    .prose :not(pre) > code {
+      background: rgba(167,139,250,.12);
+      color: #c4b5fd;
+      padding: .12em .42em;
+      border-radius: 5px;
+      font-size: .82em;
+      border: 1px solid rgba(167,139,250,.18);
+    }
 
     /* code blocks */
-    .prose pre                { margin: .8rem 0; border-radius: 8px; border: 1px solid #d0d7de; overflow: hidden; position: relative; background: #f6f8fa; }
-    .prose pre code           { font-size: .79rem; background: transparent; color: inherit; padding: 1rem 1rem 1rem 1rem; display: block; }
-    .hljs                     { background: #f6f8fa !important; }
-    .code-header              { display: flex; align-items: center; justify-content: space-between; background: #eaeef2; border-bottom: 1px solid #d0d7de; padding: 5px 12px; }
-    .code-label               { font-size: .64rem; font-family: 'JetBrains Mono', monospace; color: #57606a; text-transform: uppercase; letter-spacing: .06em; }
-    .copy-btn                 { font-size: .68rem; padding: 2px 8px; border-radius: 4px; background: #ffffff; color: #57606a; border: 1px solid #d0d7de; cursor: pointer; opacity: 0; transition: opacity .15s, background .15s; }
-    .prose pre:hover .copy-btn{ opacity: 1; }
-    .copy-btn:hover           { background: #f3f4f6; color: #1f2328; }
+    .prose pre {
+      margin: .85rem 0;
+      border-radius: 10px;
+      border: 1px solid #1c1c22;
+      overflow: hidden;
+      background: #0c0c0e;
+    }
+    .prose pre code {
+      font-size: .79rem;
+      background: transparent;
+      color: #e8e8ec;
+      padding: .95rem 1rem;
+      display: block;
+      overflow-x: auto;
+      line-height: 1.55;
+    }
+    .hljs { background: transparent !important; color: #e8e8ec !important; }
+    .code-header {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #111114;
+      border-bottom: 1px solid #1c1c22;
+      padding: 6px 12px;
+    }
+    .code-label {
+      font-size: .64rem;
+      font-family: 'Geist Mono', monospace;
+      color: #6b6b75;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .copy-btn {
+      font-size: .68rem;
+      padding: 3px 9px;
+      border-radius: 5px;
+      background: #1c1c22;
+      color: #9a9aa3;
+      border: 1px solid #26262d;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity .15s, background .15s, color .15s;
+    }
+    .prose pre:hover .copy-btn { opacity: 1; }
+    .copy-btn:hover            { background: #26262d; color: #fafafa; }
 
     /* tables */
-    .prose table              { width: 100%; border-collapse: collapse; font-size: .83rem; margin-bottom: .75rem; }
-    .prose th                 { background: #f0f2f5; padding: .45rem .75rem; text-align: left; font-weight: 600; border: 1px solid #d0d7de; color: #1f2328; }
-    .prose td                 { padding: .4rem .75rem; border: 1px solid #d0d7de; color: #1f2328; }
-    .prose tr:nth-child(even) { background: #f8fafc; }
+    .prose table { width: 100%; border-collapse: collapse; font-size: .83rem; margin: .8rem 0; }
+    .prose th    { background: #111114; padding: .5rem .8rem; text-align: left; font-weight: 600; border: 1px solid #1c1c22; color: #fafafa; }
+    .prose td    { padding: .45rem .8rem; border: 1px solid #1c1c22; color: #c8c8cf; }
+    .prose tr:nth-child(even) td { background: rgba(28,28,34,.4); }
+
+    /* selection */
+    ::selection { background: rgba(139,92,246,.35); color: #fafafa; }
   </style>
 </head>
 
-<body class="h-full flex flex-col text-gray-800 antialiased">
+<body class="h-full flex flex-col antialiased">
 
   <!-- ── Header ── -->
-  <header class="shrink-0 flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white shadow-sm">
+  <header class="relative z-10 shrink-0 flex items-center justify-between px-6 py-3.5 border-b border-ink-700 glass">
     <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white text-sm select-none">Ae</div>
+      <div class="relative w-9 h-9 rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center font-semibold text-white text-[13px] select-none shadow-lg shadow-accent-600/20">
+        Ae
+        <span class="absolute inset-0 rounded-xl ring-1 ring-white/10"></span>
+      </div>
       <div>
-        <p class="text-sm font-semibold text-gray-900 leading-none">Aeris Docs Assistant</p>
-        <p class="text-xs text-gray-400 mt-0.5">Powered by your local documentation</p>
+        <p class="text-[13.5px] font-semibold text-chalk-50 leading-none tracking-tight">Aeris Docs Assistant</p>
+        <p class="text-[11px] text-chalk-400 mt-1 tracking-tight">Powered by your local documentation</p>
       </div>
     </div>
-    <div class="flex items-center gap-3">
-      <div class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200">
-        <span id="status-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-        <span id="status-text" class="text-gray-500">Ready</span>
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full bg-ink-800 border border-ink-700">
+        <span id="status-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.6)]"></span>
+        <span id="status-text" class="text-chalk-300 mono text-[10.5px] tracking-wider uppercase">Ready</span>
       </div>
       <button onclick="clearChat()"
-        class="text-xs text-gray-400 hover:text-gray-700 px-2.5 py-1 rounded-md hover:bg-gray-100 transition-colors">
+        class="text-[11.5px] text-chalk-400 hover:text-chalk-50 px-2.5 py-1 rounded-md hover:bg-ink-800 transition-colors">
         Clear
       </button>
     </div>
   </header>
 
   <!-- ── Messages ── -->
-  <main id="messages" class="flex-1 overflow-y-auto py-6 space-y-0">
+  <main id="messages" class="relative z-10 flex-1 overflow-y-auto py-6">
 
     <!-- Welcome -->
-    <div class="animate-fadeUp px-6 md:px-10 pb-6 border-b border-gray-100">
+    <div class="animate-fadeUp px-6 md:px-12 pb-8 border-b border-ink-700/60">
       <div class="flex gap-3">
-        <div class="w-7 h-7 shrink-0 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs mt-0.5">Ae</div>
-        <div class="text-sm prose max-w-none flex-1">
-          <p>Hi! I'm your <strong>Aeris documentation assistant</strong>. I have access to the full language reference, standard library docs, and native module documentation.</p>
+        <div class="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-[11px] mt-0.5 shadow-md shadow-accent-600/20">Ae</div>
+        <div class="text-[13.5px] prose max-w-none flex-1">
+          <p>Hi — I'm your <strong>Aeris documentation assistant</strong>. I have access to the full language reference, standard library docs, and native module documentation.</p>
           <p>Ask me anything — syntax, constructs, AI integration, pipelines, testing, or how to accomplish a specific task in Aeris.</p>
         </div>
       </div>
 
       <!-- Suggestion chips -->
-      <div id="suggestions" class="flex flex-wrap gap-2 mt-4 pl-10">
-        <button onclick="useSuggestion(this)" class="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">How do pipelines work?</button>
-        <button onclick="useSuggestion(this)" class="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Explain ai.network routing</button>
-        <button onclick="useSuggestion(this)" class="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">How does error handling work?</button>
-        <button onclick="useSuggestion(this)" class="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Show me model and impl</button>
-        <button onclick="useSuggestion(this)" class="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">What stdlib modules exist?</button>
-        <button onclick="useSuggestion(this)" class="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Explain spawn and concurrency</button>
+      <div id="suggestions" class="flex flex-wrap gap-2 mt-5 pl-10">
+        <button onclick="useSuggestion(this)" class="text-[11.5px] px-3 py-1.5 rounded-full border border-ink-600 text-chalk-300 bg-ink-850/60 hover:border-accent-500/60 hover:text-chalk-50 hover:bg-ink-800 transition-all">How do pipelines work?</button>
+        <button onclick="useSuggestion(this)" class="text-[11.5px] px-3 py-1.5 rounded-full border border-ink-600 text-chalk-300 bg-ink-850/60 hover:border-accent-500/60 hover:text-chalk-50 hover:bg-ink-800 transition-all">Explain ai.network routing</button>
+        <button onclick="useSuggestion(this)" class="text-[11.5px] px-3 py-1.5 rounded-full border border-ink-600 text-chalk-300 bg-ink-850/60 hover:border-accent-500/60 hover:text-chalk-50 hover:bg-ink-800 transition-all">How does error handling work?</button>
+        <button onclick="useSuggestion(this)" class="text-[11.5px] px-3 py-1.5 rounded-full border border-ink-600 text-chalk-300 bg-ink-850/60 hover:border-accent-500/60 hover:text-chalk-50 hover:bg-ink-800 transition-all">Show me model and impl</button>
+        <button onclick="useSuggestion(this)" class="text-[11.5px] px-3 py-1.5 rounded-full border border-ink-600 text-chalk-300 bg-ink-850/60 hover:border-accent-500/60 hover:text-chalk-50 hover:bg-ink-800 transition-all">What stdlib modules exist?</button>
+        <button onclick="useSuggestion(this)" class="text-[11.5px] px-3 py-1.5 rounded-full border border-ink-600 text-chalk-300 bg-ink-850/60 hover:border-accent-500/60 hover:text-chalk-50 hover:bg-ink-800 transition-all">Explain spawn and concurrency</button>
       </div>
     </div>
 
   </main>
 
   <!-- ── Input ── -->
-  <footer class="shrink-0 border-t border-gray-200 bg-white px-6 md:px-10 pt-3 pb-4">
+  <footer class="relative z-10 shrink-0 border-t border-ink-700 bg-ink-900/80 backdrop-blur-md px-6 md:px-12 pt-3.5 pb-4">
     <div class="flex items-end gap-3">
-      <div class="flex-1 rounded-2xl border border-gray-300 bg-white focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+      <div class="flex-1 rounded-2xl border border-ink-600 bg-ink-850 focus-within:border-accent-500/70 focus-within:bg-ink-800 focus-within:shadow-[0_0_0_3px_rgba(139,92,246,.12)] transition-all">
         <textarea
           id="input"
           rows="1"
           placeholder="Ask about Aeris…"
           onkeydown="handleKey(event)"
-          class="w-full bg-transparent px-4 py-3 text-sm text-gray-800 placeholder-gray-400 resize-none outline-none max-h-36 leading-relaxed"
+          class="w-full bg-transparent px-4 py-3 text-[13.5px] text-chalk-50 placeholder-chalk-400 resize-none outline-none max-h-36 leading-relaxed"
           style="overflow-y: auto;"
         ></textarea>
       </div>
       <button id="send-btn" onclick="sendMessage()"
-        class="shrink-0 w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shadow-sm">
-        <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        class="shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 hover:from-accent-400 hover:to-accent-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-lg shadow-accent-600/25 active:scale-95">
+        <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
         </svg>
       </button>
     </div>
-    <p class="text-center text-[10px] text-gray-400 mt-2">Enter to send &nbsp;·&nbsp; Shift+Enter for new line</p>
+    <p class="text-center text-[10px] text-chalk-400 mt-2.5 mono tracking-wider">
+      <span class="text-chalk-300">↵</span> send
+      <span class="text-chalk-500 mx-1.5">·</span>
+      <span class="text-chalk-300">⇧↵</span> new line
+    </p>
   </footer>
 
 <script>
@@ -183,8 +274,8 @@ function escHtml(s) {
 function copyCode(btn) {
   const code = btn.nextElementSibling?.textContent ?? '';
   navigator.clipboard.writeText(code).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 2000);
+    btn.textContent = 'Copied';
+    setTimeout(() => btn.textContent = 'Copy', 1800);
   });
 }
 
@@ -192,10 +283,10 @@ function scrollBottom() {
   messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' });
 }
 
-function setStatus(text, dotClass, pulse = false) {
+function setStatus(text, dotClass, glow = '') {
   document.getElementById('status-text').textContent = text;
   const dot = document.getElementById('status-dot');
-  dot.className = `w-1.5 h-1.5 rounded-full ${dotClass}${pulse ? ' animate-pulse' : ''}`;
+  dot.className = `w-1.5 h-1.5 rounded-full ${dotClass} ${glow}`;
 }
 
 function handleKey(e) {
@@ -210,11 +301,11 @@ function useSuggestion(btn) {
 /* ── message rows ── */
 function appendUser(text) {
   const div = document.createElement('div');
-  div.className = 'animate-fadeUp px-6 md:px-10 py-5 border-b border-gray-100 bg-white';
+  div.className = 'animate-fadeUp px-6 md:px-12 py-5 border-b border-ink-700/60';
   div.innerHTML = `
     <div class="flex gap-3 justify-end">
-      <div class="text-sm text-white bg-indigo-600 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-2xl whitespace-pre-wrap leading-relaxed">${escHtml(text)}</div>
-      <div class="w-7 h-7 shrink-0 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-semibold text-xs mt-0.5">You</div>
+      <div class="text-[13.5px] text-white bg-gradient-to-br from-accent-500 to-accent-600 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-2xl whitespace-pre-wrap leading-relaxed shadow-md shadow-accent-600/15">${escHtml(text)}</div>
+      <div class="w-7 h-7 shrink-0 rounded-full bg-ink-700 border border-ink-600 flex items-center justify-center text-chalk-100 font-semibold text-[11px] mt-0.5">You</div>
     </div>`;
   messagesEl.appendChild(div);
   scrollBottom();
@@ -222,11 +313,11 @@ function appendUser(text) {
 
 function appendAssistant(markdown) {
   const div = document.createElement('div');
-  div.className = 'animate-fadeUp px-6 md:px-10 py-5 border-b border-gray-100';
+  div.className = 'animate-fadeUp px-6 md:px-12 py-5 border-b border-ink-700/60';
   div.innerHTML = `
     <div class="flex gap-3">
-      <div class="w-7 h-7 shrink-0 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs mt-0.5">Ae</div>
-      <div class="text-sm prose max-w-none flex-1 min-w-0">${marked.parse(markdown)}</div>
+      <div class="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-[11px] mt-0.5 shadow-md shadow-accent-600/20">Ae</div>
+      <div class="text-[13.5px] prose max-w-none flex-1 min-w-0">${marked.parse(markdown)}</div>
     </div>`;
   messagesEl.appendChild(div);
   scrollBottom();
@@ -235,14 +326,14 @@ function appendAssistant(markdown) {
 function showTyping() {
   const div = document.createElement('div');
   div.id = 'typing-indicator';
-  div.className = 'px-6 md:px-10 py-5 border-b border-gray-100';
+  div.className = 'px-6 md:px-12 py-5 border-b border-ink-700/60';
   div.innerHTML = `
     <div class="flex gap-3">
-      <div class="w-7 h-7 shrink-0 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs mt-0.5">Ae</div>
-      <div class="flex items-center gap-1.5 py-1">
-        <span class="w-2 h-2 rounded-full bg-gray-400 animate-bounce3" style="animation-delay:0s"></span>
-        <span class="w-2 h-2 rounded-full bg-gray-400 animate-bounce3" style="animation-delay:.18s"></span>
-        <span class="w-2 h-2 rounded-full bg-gray-400 animate-bounce3" style="animation-delay:.36s"></span>
+      <div class="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-[11px] mt-0.5 shadow-md shadow-accent-600/20">Ae</div>
+      <div class="flex items-center gap-1.5 py-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-chalk-300 animate-bounce3" style="animation-delay:0s"></span>
+        <span class="w-1.5 h-1.5 rounded-full bg-chalk-300 animate-bounce3" style="animation-delay:.18s"></span>
+        <span class="w-1.5 h-1.5 rounded-full bg-chalk-300 animate-bounce3" style="animation-delay:.36s"></span>
       </div>
     </div>`;
   messagesEl.appendChild(div);
@@ -260,13 +351,13 @@ async function sendMessage() {
   inputEl.value = '';
   busy = true;
   sendBtn.disabled = true;
-  setStatus('Thinking…', 'bg-amber-400', true);
+  setStatus('Thinking', 'bg-amber-400', 'animate-glow');
 
   appendUser(text);
   showTyping();
 
   try {
-    const res = await fetch('/api/chat', {
+    const res = await fetch('http://localhost:8080/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text })
@@ -274,11 +365,11 @@ async function sendMessage() {
     const data = await res.json();
     hideTyping();
     appendAssistant(data.error ? `**Error:** ${data.error}` : data.response);
-    setStatus('Ready', 'bg-emerald-500');
+    setStatus('Ready', 'bg-emerald-400', 'shadow-[0_0_8px_rgba(52,211,153,.6)]');
   } catch {
     hideTyping();
     appendAssistant('**Connection error.** Make sure the Aeris chatbot server is running.');
-    setStatus('Disconnected', 'bg-red-400');
+    setStatus('Disconnected', 'bg-red-400', '');
   }
 
   busy = false;
@@ -297,11 +388,11 @@ function clearChat() {
 /* ── health check on load ── */
 (async () => {
   try {
-    const r = await fetch('/api/health');
+    const r = await fetch('http://localhost:8080/api/health');
     const d = await r.json();
-    setStatus(`${d.docs} docs loaded`, 'bg-emerald-500');
+    setStatus(`${d.docs} docs loaded`, 'bg-emerald-400', 'shadow-[0_0_8px_rgba(52,211,153,.6)]');
   } catch {
-    setStatus('Disconnected', 'bg-red-400');
+    setStatus('Disconnected', 'bg-red-400', '');
   }
 })();
 

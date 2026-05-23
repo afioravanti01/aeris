@@ -157,6 +157,12 @@ Module-level `var` does not exist — only `const` and immutable `let`.
 a `cap` parameter cannot call any capability operation; module-level
 `var` does not exist, so there is no ambient mutable state.
 
+**`main` signatures (M34.T2, § 25.5).** `fn main()` ignores CLI argv;
+`fn main(cap)` receives the synthesised cap (legacy); any other
+`fn main(args)` receives the trailing argv as `list<string>` (empty,
+never `null`); `fn main(cap, args)` receives both, in that order;
+3+ params raise the standard arity error.
+
 ---
 
 ## 5. Expressions and control flow
@@ -185,7 +191,18 @@ a `cap` parameter cannot call any capability operation; module-level
 | `"{f(g(1,2))}"` | braces nest: the inner expression may contain calls | 2.4 |
 | `"\{ \}"` | literal braces (no `{{`/`}}` doubling rule) | 2.4 |
 | `"{}"` | **lex error** — use `"\{\}"` for the literal `{}` | 2.4 |
+| `"""multi\nline {x}"""` (M34.T1) | triple-quoted: spans newlines, `"` and `""` are literal, same escapes / interpolation as `"..."` | 2.4 |
 | Migration | `aeris fmt --migrate-strings` rewrites legacy `\(...)` | 2.4 |
+
+### 5.2.1 Subscript — `x[k]` (M34.T3)
+
+| Receiver | Key | Result | § |
+|---|---|---|---|
+| `list<T>` / `tuple<...>` | `int` | element (or `IndexOutOfBounds`) | 5.5 |
+| `string` | `int` | `char` at code-point index | 5.5 |
+| `map<K, V>` | any `K` | `option<V>` — `Some(v)` or `None` | 5.5 |
+| `record` | `string` | `option<V>` — same shape as `.get(k)` | 5.5 |
+| `record[int]` | — | `Type` error: records have no positional fields | 5.5 |
 
 ### 5.3 Time-control sugar (M18, v0.3)
 
@@ -566,6 +583,7 @@ surface. `aeris lock surface` records it in `.aeris/surface.lock`.
 | `ai.usage()` | `() -> { total_tokens: int, cost_usd: f64, calls: int }` | in-memory diagnostic |
 | `ai.chat(messages)` | `(list<message>) -> string` | v0.2 message-list API |
 | `ai.chat(system, dir)` | `(string, string) -> Chat` | v0.3 KB-loaded REPL handle |
+| `ai.chat(system, dir, port)` (M35) | `(string, string, int) -> never` | KB + blocking HTTP server on `port` (`/`, `/api/chat`, `/api/health`); every response carries permissive CORS headers (M35.T5) |
 | `ai.network(max_rounds)` | `(int) -> AiNetwork` | programmatic multi-agent builder |
 
 ### 13.3 `audit.event` (always available)
@@ -618,7 +636,7 @@ Always on. `--full-record` enables byte-level body capture.
 
 | Command | What it does |
 |---|---|
-| `aeris run <file>` | compile-and-run |
+| `aeris run <file> [args...]` | compile-and-run; trailing args are forwarded to `main` as `list<string>` (M34.T2) |
 | `aeris test <file_or_glob>` | run tests |
 | `aeris fmt [--narrow-caps] [--migrate-strings] <file>` | total formatter |
 | `aeris check <file>` | type + cap-graph check, no run |
@@ -694,6 +712,8 @@ diff appears as the first hunk in review).
 | `ai.network(max_rounds)` programmatic | M28 | 23 |
 | Kwargs on user-defined functions and closures | M29 | 7.6 |
 | Modes `enforce = off \| loose \| strict` | M15B | 8.4.1 |
+| `"""..."""` at top-level, `main(args)` argv, subscript `x[k]` on map/record | M34 | 2.4 / 5.5 / 25.5 |
+| `ai.chat(system, dir, port)` integrated HTTP server | M35 | 23 |
 
 ---
 

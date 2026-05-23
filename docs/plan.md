@@ -135,10 +135,12 @@ Module responsibilities (one-liners):
 | M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | partial (assert_status / assert_json / assert_semantic done; @example and suite-level setup parser sugar deferred) |
 | M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | deferred (every sub-op is shell-out or external SDK plumbing — out of scope for this batch; current minimal handlers from M11 still ship) |
 | M23 | v0.3 — `model X@vN extends X@v(N-1)` | Sugar over the explicit migration function; parser checks fields-of-prev and `where:` clauses are still satisfied; auto-generates a default migration when the diff is structurally trivial | 1 | M8 | done |
+| M34 | v0.3 — Chatbot-port carryover (`"""` at top-level, `main(args)`, `x[k]` on map/record) | Top-level parser delegates to the expression parser when a statement starts with `"""`; `aeris run <FILE> <args...>` forwards trailing argv to `main` as `list<string>`; subscript `x[k]` lowers to `x.get(k)` on map and to a string-keyed field lookup on record (list/string subscript unchanged) | 1 | M1, M3, M26 | done |
+| M35 | v0.3 — `ai.chat(port:)` integrated HTTP server | An optional `port: int` kwarg on `ai.chat(system, dir)` turns the call into a blocking chatbot server: the same Chat KB is built, then an HTTP listener on `port` is bound and the standard endpoints (`GET /`, `POST /api/chat`, `GET /api/health`, `OPTIONS *`, 404) are served in a single-threaded accept loop. Without `port:`, behaviour is unchanged | 1 | M19 (T6), M20 | done |
 
 **v0.2 total**: 48 engineering-weeks (M0–M15). Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
 
-**v0.3 total**: 17 engineering-weeks (M16–M23) on top of v0.2. M16 lands first because it is a lexer change that ripples through every other milestone's fixtures.
+**v0.3 total**: 19 engineering-weeks (M16–M23 + M34 + M35) on top of v0.2. M16 lands first because it is a lexer change that ripples through every other milestone's fixtures.
 
 ---
 
@@ -563,6 +565,45 @@ gap.
 | M29.T1 | In `eval_call`'s user-fn branch, before `invoke_value`: if any `CallArg.name` is `Some`, reorder against the closure's `params` list. Positional args fill leading slots, kwargs fill by name, duplicates raise `EvalError::Type("duplicate kwarg `<name>`")`, unknown names raise `EvalError::Type("unknown kwarg `<name>` for `<fn_name>`")`, missing slots raise the existing arity error | 5 positive fixtures (pure positional / pure kwargs / mixed / reverse order / single-arg name) + 3 negative (unknown name, duplicate, missing) | § 7.6 | done |
 | M29.T2 | Same reorder path applied to closures invoked as record fields (`x.f(name: …)`) and to lambdas (anonymous `fn(…) { … }`) — both already hit `invoke_value` through different code paths, so the helper is hoisted into a single `resolve_call_args` function used by every caller | 2 fixtures: record-field closure called with kwargs; lambda assigned to a `let` and called with kwargs | § 5.4, § 7.3 | done |
 | M29.T3 | `language.md § 7.6` extended with the mixed-positional+kwargs rule already promised by the existing text ("mixing is allowed for trailing parameters only") and with the three new error messages so users can recognise them | docs cross-referenced | § 7.6 | done |
+
+---
+
+### 5.28 M34 — Chatbot-port carryover (1 week)
+
+Porting the v0.1 chatbot scenario to `demo/02_chatbot_http` surfaced
+three small gaps between the surface promised by `language.md` /
+`cheatsheet.md` and the v0.3 runtime. None of the three introduces
+new semantics; each restores an ergonomic affordance that v0.1 had
+and that the cheatsheet already documents (or implies). Without
+them, the port has to fall back to eight-string concatenation for
+the system prompt, a hard-coded port, and `.get("k")` everywhere
+instead of `body["k"]`.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M34.T1 | Top-level statements (§ 3.4 / M26) accept `"""..."""` literals. The root cause was in the lexer, not the top-level parser: `"""` was tokenised as three empty `Str("")` tokens, which the top-level parser then rejected. New `lex_triple_string` recognises `"""` as the delimiter, treats single `"` and `""` as literal content, and shares escape + interpolation rules with the single-quoted lexer | Lexer tests `m34_triple_quoted_{is_one_str_token,spans_newlines,supports_interpolation}` passing; end-to-end probe with `let txt = """multi\n{1+1}\n"""` at module top-level runs and prints | § 2.4 / § 3.4 | done |
+| M34.T2 | `aeris run <FILE>` accepts trailing arguments (clap `trailing_var_arg = true`) and forwards them to `main` as `list<string>`. Binding rules in `bind_main_args`: 0 params → none; 1 param literally named `cap` → cap (legacy); any other 1 param → argv list (empty when no trailing args, never `null`); 2 params → `(cap, argv)`; 3+ params → arity error at evaluation entry. Three new `_argv`-suffixed entry points wrap the existing `run_main_*` variants so test call sites stay untouched | Lexer tests `runtime::eval::tests::m34_main_{no_params_ignores_argv,args_receives_list,args_empty_when_no_argv,cap_param_receives_cap_not_argv,three_params_arity_error}` passing; end-to-end `aeris run main.aer alpha beta gamma` prints `len=3` then each arg | § 25.1 | done |
+| M34.T3 | Subscript `x[k]` lowers to `x.get(k)` when `x` is a `map<K, V>` (string or integer key) and to a string-keyed field lookup when `x` is a `record`. Returns `option<V>` (Some/None) so `??` composes naturally. `list[i]` (integer index) and `string[i]` slicing are unchanged. Behaviour change on `Map[k]` for missing keys: was `Err(NonExhaustiveMatch)`, now `Ok(None)` — symmetric with `.get(k)` | Unit tests `m34_{map_subscript_returns_some,map_subscript_missing_returns_none,map_subscript_composes_with_null_coalesce,record_subscript_with_int_key_still_errors}` passing; end-to-end probe with `body["k"]`, `body[k]` (let-binding key), `body["nested"]` + match unwrap, `m["a"]` on map literal | § 5.4 | done |
+
+---
+
+### 5.29 M35 — `ai.chat(port:)` integrated HTTP server (1 week)
+
+The `02_chatbot_http` demo is fifty lines of HTTP plumbing wrapped
+around a single `ai.chat(system, dir)` call: `net.http(port)` +
+`server.accept()` + `spawn { … }` + `req.body` JSON-parse +
+`chat.ask(message)` + `req.reply_json(...)`. Every Aeris docs
+chatbot will look the same. M35 folds that into the builtin: an
+optional `port: int` kwarg turns `ai.chat` into a one-liner that
+owns the whole conversation surface.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M35.T1 | Extend `builtin_param_names[("ai", "chat")]` from `["system", "dir"]` to `["system", "dir", "port"]` so kwargs (`ai.chat(system:, dir:, port:)`) and positional calls both work. When `args.len() == 3` and the third value is `Int`, dispatch to the new server mode; the existing two-string and single-list shapes are unchanged | Negative fixture: `ai.chat(system: "...", dir: "./d", oops: 1)` raises `Type("ai.chat: unknown parameter `oops` ...")`; positive fixture: `ai.chat(system: "s", dir: "./d")` still returns a Chat record | § 23 (M19.T6) / § 7.6 | done |
+| M35.T2 | New `run_ai_chat_server` helper: build the Chat record via `build_chat_from_dir`, bind a TCP listener via the existing `net_server::http_serve(port)`, log a startup banner, and enter a blocking `loop { http_accept; ai_chat_handle_request }`. Single-threaded (one LLM call blocks the loop — same constraint as M31's `spawn` fallback); documented in the doc-comment | `net_listen` trace event emitted with `source = "ai.chat"`; rebuild succeeds; full test suite stays green | § 22 (M20) / § 19.1 | done |
+| M35.T3 | `ai_chat_handle_request` covers four routes: `GET /` (read `index.html` from cwd, 500 with JSON error if absent), `POST /api/chat` (`decode_natural_object` the body, look up `message`, call `run_ai_backend("complete", model, "system: ... \nuser: ...")`, reply with `encode_natural({response: ...})`), `GET /api/health` (`{status:"ok", docs:N}`), `OPTIONS *` (204), default 404. Each error path replies with a JSON error object built via `encode_natural`, not a hand-written string | End-to-end probe: start the server in the background, `curl /api/health` returns `{"status":"ok","docs":N}`; `POST /api/chat -d '{"message":"hi"}'` returns `{"response":"..."}` with mock backend; missing `index.html` on `GET /` returns 500 with `{"error":"index.html not found in cwd"}` | § 22 (M20) | done |
+| M35.T4 | The `02_chatbot_http` demo collapses to a single `ai.chat(system:, dir:, port:)` call. `main(args)` still parses the optional port from argv | `demo/02_chatbot_http/main.aer` is under 20 source lines (was 82); `aeris check` exits 0; README updated | § 22 | done |
+| M35.T5 | Every response from the `ai.chat(port:)` server carries permissive CORS headers (`Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`, `Access-Control-Allow-Headers: Content-Type`, `Access-Control-Max-Age: 600`). OPTIONS preflight is now matched before path dispatch and replies 204 with the same headers for any path. New helper `net_server::http_reply_with_headers(conn, status, body, ct, extra)` shared with the existing `http_reply` (which delegates with an empty extra slice, so user-space `req.reply(...)` is unaffected). Rationale: a frontend served from a different origin (`localhost:8000` → `localhost:8080/api/chat`) was being blocked by the browser | `curl -i -X OPTIONS .../api/chat -H 'Origin: http://localhost:8000'` returns 204 with all four headers; `GET /api/health` and `POST /api/chat` with `Origin` header surface the same four headers; full test suite stays green | § 22 / § 23 | done |
 
 ---
 

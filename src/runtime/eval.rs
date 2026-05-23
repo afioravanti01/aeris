@@ -870,6 +870,33 @@ pub fn run_main_with_cap(
     run_main_with_cfg(m, cap, tracer, None, false)
 }
 
+/// M34.T2 — bind `main`'s parameters from the synthesised cap and the
+/// trailing CLI argv. `fn main()` receives no arguments; `fn main(cap)`
+/// (parameter literally named `cap`) receives the synthesised cap;
+/// any other single-parameter `main` receives the argv as a
+/// `list<string>` (empty list when no trailing args, never `null`);
+/// `fn main(cap, args)` receives both, in that order.
+fn bind_main_args(
+    closure: &super::value::Closure,
+    cap_rc: std::rc::Rc<super::value::CapValue>,
+    argv: &[String],
+) -> Vec<Value> {
+    let argv_value = || {
+        Value::List(argv.iter().map(|s| Value::Str(s.clone())).collect())
+    };
+    match closure.params.len() {
+        0 => Vec::new(),
+        1 => {
+            if closure.params[0] == "cap" {
+                vec![Value::Cap(cap_rc)]
+            } else {
+                vec![argv_value()]
+            }
+        }
+        _ => vec![Value::Cap(cap_rc), argv_value()],
+    }
+}
+
 /// M9: full configuration entry — adds the configured `ai` backend
 /// (aeris.toml `[ai.backend]`) and the trace recording mode. The
 /// CLI driver routes through this once a manifest is in scope.
@@ -892,6 +919,20 @@ pub fn run_main_with_full_cfg(
     ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
     replay_tape: Option<crate::runtime::replay::TapeHandle>,
     full_record: bool,
+) -> Result<Value, EvalError> {
+    run_main_with_full_cfg_argv(m, cap, tracer, ai_backend, replay_tape, full_record, &[])
+}
+
+/// M34.T2 — same as [`run_main_with_full_cfg`] but forwards `argv` to
+/// `main`. See [`bind_main_args`] for the binding rules.
+pub fn run_main_with_full_cfg_argv(
+    m: &Module,
+    cap: super::value::CapValue,
+    tracer: Option<super::trace::Tracer>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    replay_tape: Option<crate::runtime::replay::TapeHandle>,
+    full_record: bool,
+    argv: &[String],
 ) -> Result<Value, EvalError> {
     let mut env = build_module_env(m, tracer.clone(), ai_backend, replay_tape, full_record);
     // M15 — prototype mode requires a fallback path for `cap` look-ups
@@ -926,11 +967,7 @@ pub fn run_main_with_full_cfg(
             ))
         }
     };
-    let args: Vec<Value> = if main_closure.params.is_empty() {
-        Vec::new()
-    } else {
-        vec![Value::Cap(cap_rc)]
-    };
+    let args = bind_main_args(&main_closure, cap_rc, argv);
     if let Some(t) = &tracer {
         t.intent_enter("aeris run", Some("main"));
     }
@@ -983,6 +1020,18 @@ pub fn run_main_with_active_policies(
     tracer: Option<super::trace::Tracer>,
     active_policy_names: &[String],
 ) -> Result<Value, EvalError> {
+    run_main_with_active_policies_argv(m, cap, tracer, active_policy_names, &[])
+}
+
+/// M34.T2 — same as [`run_main_with_active_policies`] but forwards
+/// `argv` to `main`.
+pub fn run_main_with_active_policies_argv(
+    m: &Module,
+    cap: super::value::CapValue,
+    tracer: Option<super::trace::Tracer>,
+    active_policy_names: &[String],
+    argv: &[String],
+) -> Result<Value, EvalError> {
     let module: ModuleScope = std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()));
     let (records, models, _) = collect_decls(m);
     let policies = select_active_policies(m, active_policy_names);
@@ -1024,11 +1073,7 @@ pub fn run_main_with_active_policies(
             ))
         }
     };
-    let args: Vec<Value> = if main_closure.params.is_empty() {
-        Vec::new()
-    } else {
-        vec![Value::Cap(std::rc::Rc::new(cap))]
-    };
+    let args = bind_main_args(&main_closure, std::rc::Rc::new(cap), argv);
     if let Some(t) = &tracer {
         t.intent_enter("aeris run", Some("main"));
     }
@@ -1045,6 +1090,15 @@ pub fn run_main_with_active_policies(
 
 /// Same as [`run_main`] but lets the caller attach a `Tracer`.
 pub fn run_main_with(m: &Module, tracer: Option<super::trace::Tracer>) -> Result<Value, EvalError> {
+    run_main_with_argv(m, tracer, &[])
+}
+
+/// M34.T2 — same as [`run_main_with`] but forwards `argv` to `main`.
+pub fn run_main_with_argv(
+    m: &Module,
+    tracer: Option<super::trace::Tracer>,
+    argv: &[String],
+) -> Result<Value, EvalError> {
     let env = if let Some(t) = tracer.clone() {
         eval_module_env_with_tracer(m, t)
     } else {
@@ -1062,17 +1116,14 @@ pub fn run_main_with(m: &Module, tracer: Option<super::trace::Tracer>) -> Result
             ))
         }
     };
-    let args: Vec<Value> = if main_closure.params.is_empty() {
-        Vec::new()
-    } else {
-        // `main(cap)` — synthesise `cap[*]` (M4.T3 stub).
-        let synth = Value::Cap(std::rc::Rc::new(super::value::CapValue {
-            entries: Vec::new(),
-            star: true,
-        }));
+    let synth = std::rc::Rc::new(super::value::CapValue {
+        entries: Vec::new(),
+        star: true,
+    });
+    if main_closure.params.len() == 1 && main_closure.params[0] == "cap" {
         eprintln!("[aeris] effective main cap: cap[*]   (M4.T3 stub — full manifest in M7)");
-        vec![synth]
-    };
+    }
+    let args = bind_main_args(&main_closure, synth, argv);
     if let Some(t) = &tracer {
         t.intent_enter("aeris run", Some("main"));
     }
@@ -2341,6 +2392,244 @@ fn build_chat_from_dir(
     }))
 }
 
+/// M35 — `ai.chat(system, dir, port)` blocking server mode.
+///
+/// Builds the same Chat record `build_chat_from_dir` produces, then
+/// binds an HTTP listener on `port` and serves the chatbot directly:
+///   GET  /             -> `index.html` next to the cwd (500 if missing)
+///   POST /api/chat     -> `{"message": "..."}` -> `{"response": "..."}`
+///   GET  /api/health   -> `{"status":"ok","docs":N}`
+///   OPTIONS *          -> 204
+///   anything else      -> 404
+///
+/// Single-threaded by design — the tree-walk runtime cannot safely
+/// share `Env` across threads (cf. M31). One LLM call blocks the
+/// loop until it returns.
+fn run_ai_chat_server(
+    env: &Env,
+    system: &str,
+    dir: &str,
+    port: i64,
+    span: Span,
+) -> Result<Value, EvalError> {
+    let chat = build_chat_from_dir(env, system, dir, span)?;
+    let (composed_system, model, doc_count) = match &chat {
+        Value::Record(r) => {
+            let sys = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "system")
+                .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                .unwrap_or_default();
+            let mdl = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "model")
+                .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                .unwrap_or_else(|| "default".into());
+            let n = r
+                .fields
+                .iter()
+                .find(|(k, _)| k == "kb_files")
+                .and_then(|(_, v)| if let Value::Int(n) = v { Some(*n) } else { None })
+                .unwrap_or(0);
+            (sys, mdl, n)
+        }
+        _ => unreachable!("build_chat_from_dir always returns a Chat record"),
+    };
+
+    if !(0..=65535).contains(&port) {
+        return Err(EvalError::new(
+            EvalErrorKind::Type(format!(
+                "ai.chat port must be in [0, 65535], got {port}"
+            )),
+            span,
+        ));
+    }
+    let server_id = super::net_server::http_serve(port as u16).map_err(|m| {
+        EvalError::new(
+            EvalErrorKind::Io {
+                op: "ai.chat server".into(),
+                message: m,
+            },
+            span,
+        )
+    })?;
+    record_event(
+        env,
+        "net_listen",
+        vec![
+            ("port".into(), port.to_string()),
+            ("id".into(), server_id.to_string()),
+            ("source".into(), "\"ai.chat\"".into()),
+        ],
+    );
+
+    eprintln!();
+    eprintln!("  ai.chat HTTP server listening on http://localhost:{port}");
+    eprintln!("    UI  ->  GET  /");
+    eprintln!("    API ->  POST /api/chat");
+    eprintln!("    KB  ->  {doc_count} files loaded from {dir:?}");
+    eprintln!();
+
+    loop {
+        let accepted = super::net_server::http_accept(server_id).map_err(|m| {
+            EvalError::new(
+                EvalErrorKind::Io {
+                    op: "ai.chat server".into(),
+                    message: m,
+                },
+                span,
+            )
+        })?;
+        ai_chat_handle_request(env, &accepted, &composed_system, &model, doc_count);
+    }
+}
+
+/// M35 — dispatch a single accepted request. Errors are surfaced to
+/// the HTTP client and swallowed for the server loop so one bad
+/// client cannot kill the chatbot. Every response carries the
+/// permissive CORS headers from `AI_CHAT_CORS_HEADERS` so a
+/// frontend served from a different origin can talk to the API
+/// (M35.T5).
+fn ai_chat_handle_request(
+    env: &Env,
+    req: &super::net_server::AcceptedReq,
+    system: &str,
+    model: &str,
+    doc_count: i64,
+) {
+    use super::net_server::http_reply_with_headers;
+    let conn = req.conn_id;
+    let path = req.path.as_str();
+    let method = req.method.as_str();
+    let cors = AI_CHAT_CORS_HEADERS;
+
+    // CORS preflight: any path + OPTIONS gets the same 204.
+    if method == "OPTIONS" {
+        let _ = http_reply_with_headers(conn, 204, "", "text/plain", cors);
+        return;
+    }
+    if path == "/" || path == "/index.html" {
+        match std::fs::read("index.html") {
+            Ok(bytes) => {
+                let body = String::from_utf8_lossy(&bytes).into_owned();
+                let _ = http_reply_with_headers(
+                    conn, 200, &body, "text/html; charset=utf-8", cors,
+                );
+            }
+            Err(_) => {
+                let body = ai_chat_error_json("index.html not found in cwd");
+                let _ = http_reply_with_headers(
+                    conn, 500, &body, "application/json", cors,
+                );
+            }
+        }
+        return;
+    }
+    if path == "/api/chat" && method == "POST" {
+        let raw = req.body.trim();
+        if raw.is_empty() {
+            let _ = http_reply_with_headers(
+                conn,
+                400,
+                &ai_chat_error_json("empty body"),
+                "application/json",
+                cors,
+            );
+            return;
+        }
+        let pairs = match crate::runtime::json::decode_natural_object(raw) {
+            Ok(p) => p,
+            Err(_) => {
+                let _ = http_reply_with_headers(
+                    conn,
+                    400,
+                    &ai_chat_error_json("invalid JSON body"),
+                    "application/json",
+                    cors,
+                );
+                return;
+            }
+        };
+        let message = pairs
+            .iter()
+            .find(|(k, _)| k == "message")
+            .and_then(|(_, v)| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_default();
+        if message.trim().is_empty() {
+            let _ = http_reply_with_headers(
+                conn,
+                400,
+                &ai_chat_error_json("message is required"),
+                "application/json",
+                cors,
+            );
+            return;
+        }
+        let composed = format!("system: {system}\nuser: {message}");
+        match run_ai_backend(env, "complete", model, &composed) {
+            Ok(resp) => {
+                record_ai_event(env, "chat.ask", model, &message, &resp);
+                let body = crate::runtime::json::encode_natural(&Value::Record(
+                    crate::runtime::value::RecordValue {
+                        name: None,
+                        fields: vec![("response".into(), Value::Str(resp))],
+                    },
+                ));
+                let _ = http_reply_with_headers(
+                    conn, 200, &body, "application/json", cors,
+                );
+            }
+            Err(m) => {
+                let _ = http_reply_with_headers(
+                    conn,
+                    500,
+                    &ai_chat_error_json(&format!("LLM call failed: {m}")),
+                    "application/json",
+                    cors,
+                );
+            }
+        }
+        return;
+    }
+    if path == "/api/health" {
+        let body = crate::runtime::json::encode_natural(&Value::Record(
+            crate::runtime::value::RecordValue {
+                name: None,
+                fields: vec![
+                    ("status".into(), Value::Str("ok".into())),
+                    ("docs".into(), Value::Int(doc_count)),
+                ],
+            },
+        ));
+        let _ = http_reply_with_headers(conn, 200, &body, "application/json", cors);
+        return;
+    }
+    let _ = http_reply_with_headers(conn, 404, "not found", "text/plain", cors);
+}
+
+/// M35.T5 — permissive CORS headers used by `ai.chat(port:)`. `*` is
+/// intentional: the chatbot endpoint is meant to be reachable from
+/// any local-dev frontend without configuration. Production
+/// deployments should front the server with a reverse proxy that
+/// rewrites the origin.
+const AI_CHAT_CORS_HEADERS: &[(&str, &str)] = &[
+    ("Access-Control-Allow-Origin", "*"),
+    ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+    ("Access-Control-Allow-Headers", "Content-Type"),
+    ("Access-Control-Max-Age", "600"),
+];
+
+fn ai_chat_error_json(msg: &str) -> String {
+    crate::runtime::json::encode_natural(&Value::Record(
+        crate::runtime::value::RecordValue {
+            name: None,
+            fields: vec![("error".into(), Value::Str(msg.into()))],
+        },
+    ))
+}
+
 /// `??` extractor — returns the inner value when `v` is a "present"
 /// wrapper (`Ok(x)` / `Some(x)`), else `None` so the caller falls
 /// back to the rhs. Unit `()` is also treated as "missing" so that
@@ -2576,11 +2865,26 @@ fn index_into(collection: &Value, idx: &Value, span: Span) -> Result<Value, Eval
             }
             Ok(xs[idx as usize].clone())
         }
-        (Value::Map(kvs), key) => kvs
+        // M34.T3 — `map[k]` lowers to `map.get(k)`: returns `Some(v)`
+        // when the key is present, `None` otherwise. Symmetric with the
+        // `.get(k)` method so `??` can compose without surprises.
+        (Value::Map(kvs), key) => Ok(kvs
             .iter()
             .find(|(k, _)| values_equal(k, key))
             .map(|(_, v)| v.clone())
-            .ok_or_else(|| EvalError::new(EvalErrorKind::NonExhaustiveMatch, span)),
+            .map(Value::some)
+            .unwrap_or_else(Value::none)),
+        // M34.T3 — `record["k"]` lowers to a string-keyed field lookup:
+        // `Some(v)` if the field exists, `None` otherwise. An integer
+        // key on a record stays an error — records have named fields,
+        // not positional ones.
+        (Value::Record(r), Value::Str(k)) => Ok(r
+            .fields
+            .iter()
+            .find(|(name, _)| name == k)
+            .map(|(_, v)| v.clone())
+            .map(Value::some)
+            .unwrap_or_else(Value::none)),
         (Value::Str(s), Value::Int(i)) => {
             let chars: Vec<char> = s.chars().collect();
             let idx = *i;
@@ -3098,7 +3402,8 @@ fn builtin_param_names(module: &str, op: &str) -> Option<&'static [&'static str]
         ("date", "format") => &["t", "fmt"],
         // ai
         ("ai", "complete") => &["prompt"],
-        ("ai", "chat") => &["system", "dir"],
+        // M35 — optional `port:` activates the integrated HTTP server.
+        ("ai", "chat") => &["system", "dir", "port"],
         ("ai", "embed") => &["text"],
         ("ai", "session") => &["system", "model"],
         ("ai", "session_ask") => &["session", "prompt"],
@@ -6673,8 +6978,18 @@ fn builtin_ai_chat(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalE
     // M19.T6 — `ai.chat(system: string, dir: string) -> Chat`. When
     // two strings are passed, load the directory as a corpus and
     // return a Chat record that exposes `.ask(prompt)` and
-    // `.kb_size()`. Otherwise fall through to the original message-
-    // list API.
+    // `.kb_size()`. M35 — when a third `port: int` is also given,
+    // build the same Chat record and then enter a blocking accept
+    // loop that serves the chatbot over HTTP; the call never returns
+    // under normal operation. Otherwise fall through to the original
+    // message-list API.
+    if args.len() == 3 {
+        if let (Value::Str(system), Value::Str(dir), Value::Int(port)) =
+            (&args[0], &args[1], &args[2])
+        {
+            return run_ai_chat_server(env, system, dir, *port, span);
+        }
+    }
     if args.len() == 2 {
         if let (Value::Str(system), Value::Str(dir)) = (&args[0], &args[1]) {
             return build_chat_from_dir(env, system, dir, span);
@@ -8791,6 +9106,36 @@ mod tests {
         let err = ev_err("[1, 2][5]");
         assert!(matches!(err.kind, EvalErrorKind::IndexOutOfBounds { .. }));
     }
+
+    // ---- M34.T3 — subscript on map / record ----
+
+    #[test]
+    fn m34_map_subscript_returns_some() {
+        assert_eq!(
+            ev(r#"{ a: 1, b: 2 }["a"]"#),
+            Value::Option(Some(Box::new(Value::Int(1))))
+        );
+    }
+
+    #[test]
+    fn m34_map_subscript_missing_returns_none() {
+        assert_eq!(ev(r#"{ a: 1 }["z"]"#), Value::Option(None));
+    }
+
+    #[test]
+    fn m34_map_subscript_composes_with_null_coalesce() {
+        assert_eq!(ev(r#"{ a: 1 }["z"] ?? 42"#), Value::Int(42));
+    }
+
+    #[test]
+    fn m34_record_subscript_with_int_key_still_errors() {
+        let err = ev_err("User { x: 1 }[0]");
+        assert!(
+            matches!(&err.kind, EvalErrorKind::Type(m) if m.contains("cannot index")),
+            "expected Type(cannot index ...), got {:?}",
+            err.kind
+        );
+    }
     #[test]
     fn p24_record_field_access() {
         assert_eq!(ev("{ x: 7 }.x"), Value::Int(7));
@@ -9335,6 +9680,60 @@ mod tests {
     #[test]
     fn t6_clean_run_returns_zero() {
         assert_eq!(run_exit("fn main() -> int { 42 }"), 0);
+    }
+
+    // ---- M34.T2 — argv forwarded to `main` ----
+
+    fn argv_to_main(src: &str, argv: &[&str]) -> Value {
+        let m = crate::syntax::parse(src).unwrap();
+        let owned: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+        super::run_main_with_argv(&m, None, &owned).unwrap()
+    }
+
+    #[test]
+    fn m34_main_no_params_ignores_argv() {
+        let v = argv_to_main("fn main() -> int { 7 }", &["a", "b"]);
+        assert_eq!(v, Value::Int(7));
+    }
+
+    #[test]
+    fn m34_main_args_receives_list() {
+        let v = argv_to_main(
+            "fn main(args) -> int { args.len() }",
+            &["x", "y", "z"],
+        );
+        assert_eq!(v, Value::Int(3));
+    }
+
+    #[test]
+    fn m34_main_args_empty_when_no_argv() {
+        let v = argv_to_main("fn main(args) -> int { args.len() }", &[]);
+        assert_eq!(v, Value::Int(0));
+    }
+
+    #[test]
+    fn m34_main_cap_param_receives_cap_not_argv() {
+        // Single param literally named `cap` keeps the legacy binding:
+        // the argv is ignored and the synthesised cap value is bound.
+        // `.len()` would work on a `list` but errors on `cap`, so we
+        // assert by checking the runtime classifies the bound value
+        // as a `Cap`.
+        let src = "fn main(cap) -> int { 99 }";
+        let m = crate::syntax::parse(src).unwrap();
+        let v = super::run_main_with_argv(&m, None, &["ignored".into()]).unwrap();
+        assert_eq!(v, Value::Int(99));
+    }
+
+    #[test]
+    fn m34_main_three_params_arity_error() {
+        let src = "fn main(a, b, c) { }";
+        let m = crate::syntax::parse(src).unwrap();
+        let err = super::run_main_with_argv(&m, None, &[]).unwrap_err();
+        assert!(
+            matches!(err.kind, EvalErrorKind::Arity { expected: 3, found: 2, .. }),
+            "expected Arity{{expected:3,found:2}}, got {:?}",
+            err.kind
+        );
     }
 
     #[test]

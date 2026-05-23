@@ -30,8 +30,14 @@ enum Command {
     Version,
     /// Scaffold a new Aeris project in the current directory
     Init,
-    /// Compile and run an .aer file
-    Run { file: String },
+    /// Compile and run an .aer file. Trailing arguments after the
+    /// file path are forwarded to `main` as a `list<string>` when
+    /// `main` declares a non-`cap` parameter (M34.T2).
+    Run {
+        file: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Type & capability check, no run
     Check {
         file: Option<String>,
@@ -112,7 +118,7 @@ pub fn run() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Command::Run { file } => cmd_run(&file),
+        Command::Run { file, args } => cmd_run(&file, &args),
         Command::Lock { check, file } => cmd_lock(&file, check),
         Command::Replay {
             trace,
@@ -562,7 +568,7 @@ fn cmd_init() -> ExitCode {
 ///   0  → `main()` returned cleanly (any value, typically `Ok(())`)
 ///   64 → parse / type / check error
 ///   1  → uncaught `Err(...)` or `raise <value>`
-fn cmd_run(path: &str) -> ExitCode {
+fn cmd_run(path: &str, argv: &[String]) -> ExitCode {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -616,12 +622,16 @@ fn cmd_run(path: &str) -> ExitCode {
         // declared policies attach. Empty list keeps every declared
         // policy active (Mode 1 default).
         if !policies.is_empty() {
-            crate::runtime::eval::run_main_with_active_policies(&module, cap, None, &policies)
+            crate::runtime::eval::run_main_with_active_policies_argv(
+                &module, cap, None, &policies, argv,
+            )
         } else {
-            crate::runtime::eval::run_main_with_cfg(&module, cap, None, backend, false)
+            crate::runtime::eval::run_main_with_full_cfg_argv(
+                &module, cap, None, backend, None, false, argv,
+            )
         }
     } else {
-        crate::runtime::run_main(&module)
+        crate::runtime::eval::run_main_with_argv(&module, None, argv)
     };
     match outcome {
         Ok(v) => {

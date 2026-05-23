@@ -17,7 +17,7 @@ An LLM doesn't have a mental model — it has a probability distribution over th
 
 - Runtime 
     - Single static binary `aeris`. No runtime requirements.
-    - File extension `.aer` · execution via `aeris run <file>` / `aeris test <file>` 
+    - File extension `.aer` · execution via `aeris run <file> [args...]` / `aeris test <file>` 
 - Libraries
     - Builtin · Native modules · External libraries
 - LLM Integration

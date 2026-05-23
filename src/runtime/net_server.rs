@@ -79,16 +79,38 @@ pub fn http_accept(server_id: i64) -> Result<AcceptedReq, String> {
 /// it from the registry. Idempotent — a second call on the same id
 /// is a no-op.
 pub fn http_reply(conn_id: i64, status: u16, body: &str, content_type: &str) -> Result<(), String> {
+    http_reply_with_headers(conn_id, status, body, content_type, &[])
+}
+
+/// Same as [`http_reply`] but appends `extra` as additional response
+/// headers after the mandatory `Content-Type` / `Content-Length` /
+/// `Connection`. Used by the `ai.chat(port:)` server (M35.T5) to
+/// emit permissive CORS headers so a frontend served from a
+/// different origin can reach the chat API.
+pub fn http_reply_with_headers(
+    conn_id: i64,
+    status: u16,
+    body: &str,
+    content_type: &str,
+    extra: &[(&str, &str)],
+) -> Result<(), String> {
     let mut stream = STREAMS.with(|m| m.borrow_mut().remove(&conn_id));
     let Some(s) = stream.as_mut() else {
         return Ok(());
     };
     let reason = http_reason(status);
-    let response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+    let mut response = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n",
         body.as_bytes().len(),
-        body,
     );
+    for (k, v) in extra {
+        response.push_str(k);
+        response.push_str(": ");
+        response.push_str(v);
+        response.push_str("\r\n");
+    }
+    response.push_str("\r\n");
+    response.push_str(body);
     s.write_all(response.as_bytes())
         .map_err(|e| format!("net.http reply: {e}"))?;
     s.flush().ok();

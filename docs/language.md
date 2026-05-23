@@ -167,6 +167,8 @@ parsing, not the position-dependent lexing § 9.4 prohibits.
 3.14       1.5e-3                                // float
 true       false                                 // bool
 "hello"    "with {name}"     "x = {f(g(1, 2))}"  // string, interpolation
+"""multi                                          // triple-quoted string
+   line {x}"""                                    // (newlines + interp. inside)
 b"raw"     b"\xff\x00"                           // bytes
 '\n'                                             // char
 [1, 2, 3]                                        // list
@@ -191,6 +193,17 @@ as `\{` or `\}`; there is no `{{`/`}}` doubling rule. An empty segment
 `"{}"` is a lex error — escape it as `"\{\}"` when you need the empty
 JSON object. The legacy `\(...)` form from v0.2.0-dev is removed in
 v0.3; `aeris fmt --migrate-strings` does the one-shot rewrite.
+
+**Triple-quoted strings (M34.T1).** A `"""` delimiter opens a
+multi-line string literal that spans newlines and treats single `"`
+(and `""`) characters as literal content; only `"""` closes the
+literal. Escape rules and interpolation are the same as the
+single-quoted form (`\n`, `\t`, `\{`, `\}`, `{ expr }`). Triple-quoted
+literals are admissible everywhere a single-quoted string is — at
+module top-level (§ 3.4), inside `fn` bodies, as kwarg values to
+builtins, and as agent prompts (§ 13.2). Nested string literals
+inside an interpolation segment are still rejected (the lexer is
+deliberately simple).
 
 ### 2.5 Comments
 
@@ -539,6 +552,24 @@ brace syntax.
 
 There is no general method dispatch table for user-defined types;
 the four rules above are total.
+
+### 5.5 Subscript — `x[k]`
+
+The bracket-subscript form `x[k]` is total over the built-in
+container types:
+
+| Receiver | Key | Result | Failure |
+|---|---|---|---|
+| `list<T>` | `int` | `T` (element at index) | `IndexOutOfBounds` on negative / out-of-range |
+| `tuple<...>` | `int` | element at position | `IndexOutOfBounds` |
+| `string` | `int` | `char` at code-point index | `IndexOutOfBounds` |
+| `map<K, V>` | any `K` | `option<V>` — `Some(v)` if present, `None` otherwise | — |
+| `record` | `string` | `option<V>` — `Some(field)` if a field with that name exists, `None` otherwise | `Type` error on `int` key |
+
+`map[k]` and `record["k"]` are sugar for `.get(k)`: they always
+succeed with an option-wrapped result so `??` composes naturally
+(`body["message"] ?? ""`). Integer subscript on a record is a type
+error — records have named fields, not positional ones (M34.T3).
 
 ---
 
@@ -2183,6 +2214,48 @@ list-of-messages API: when `args = (string, string)` the directory
 loader fires; otherwise the message-list path runs. Both go
 through the same backend (`[ai.backend]`).
 
+**`ai.chat(system, dir, port)` — integrated HTTP server (v0.3, M35).**
+When a third `port: int` is supplied (positional or kwarg), the
+same Chat KB is built and then the call enters a blocking accept
+loop that serves the standard chatbot surface on `port`:
+
+| Route | Behaviour |
+|---|---|
+| `GET /` (and `GET /index.html`) | reads `index.html` from the cwd; 500 with `{"error":"index.html not found in cwd"}` if absent |
+| `POST /api/chat` | expects `{"message": "..."}`; calls the backend with the composed system + user prompt; replies `{"response": "..."}`. Empty body → 400; malformed JSON → 400; empty message → 400; backend failure → 500 |
+| `GET /api/health` | `{"status":"ok","docs":N}` |
+| `OPTIONS *` | 204 |
+| anything else | 404 |
+
+```aeris
+ai.chat(
+  system: """
+    You are Aeris Assistant. Be concise.
+  """,
+  dir:  "./docs",
+  port: 8080,
+)
+```
+
+The call never returns under normal operation. The server is
+single-threaded by design — the tree-walk runtime cannot share
+`Env` across threads (cf. M31), so one LLM call blocks the loop
+until it returns. Every error path replies with a JSON body
+built via `json.encode`, never a hand-written string. A
+`net_listen` trace event is emitted with `source = "ai.chat"`.
+
+**CORS (M35.T5).** Every response (including the 204 preflight on
+`OPTIONS`) carries the permissive headers
+`Access-Control-Allow-Origin: *`,
+`Access-Control-Allow-Methods: GET, POST, OPTIONS`,
+`Access-Control-Allow-Headers: Content-Type`,
+`Access-Control-Max-Age: 600`. This lets a frontend served from a
+different origin (typical local-dev setup: static frontend on
+`:8000`, chat API on `:8080`) talk to the API without proxying.
+The `*` policy is for development convenience; production
+deployments should front the server with a reverse proxy that
+rewrites the origin.
+
 The `ai` module is **pluggable on configuration**, not on linkage:
 the LLM backend (HTTP API endpoint, CLI process, mock) is selected
 through `aeris.toml [ai.backend]` and resolved by `aeris-core` at
@@ -2320,6 +2393,24 @@ let the formatter derive the narrow form.
 - A non-zero exit code flushes the trace before exiting.
 - Signals `SIGINT` and `SIGTERM` trigger cooperative cancellation
   (§ 19.3) and an `exit_signal` trace event.
+
+### 25.5 `main` signatures and CLI argv (M34.T2)
+
+`aeris run <file.aer> [args...]` accepts trailing arguments after
+the file path and forwards them to `main` as a `list<string>`. The
+binding rule is driven by `main`'s parameter list:
+
+| Parameters | Binding |
+|---|---|
+| `fn main()` | trailing args ignored |
+| `fn main(cap)` | parameter literally named `cap` receives the synthesised cap; trailing args ignored (legacy form) |
+| `fn main(args)` | any other single parameter receives the argv list (empty when no trailing args, never `null`) |
+| `fn main(cap, args)` | both — first slot is the cap, second is the argv list |
+| 3+ parameters | arity error at evaluation entry (`Arity{expected:N, found:2}`) |
+
+The CLI is permissive on the trailing slice — no schema, no flag
+parsing. `aeris run ./serve.aer 3000 --verbose` passes `["3000",
+"--verbose"]` to `main`'s `args`.
 
 ---
 

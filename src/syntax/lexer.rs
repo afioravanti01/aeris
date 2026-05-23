@@ -186,7 +186,14 @@ impl<'a> Lexer<'a> {
 
         // Strings / chars / labels
         match b {
-            b'"' => return self.lex_string(start),
+            b'"' => {
+                // Triple-quoted strings `"""..."""` span multiple lines
+                // and treat single `"` characters as literal content.
+                if self.peek_at(1) == b'"' && self.peek_at(2) == b'"' {
+                    return self.lex_triple_string(start);
+                }
+                return self.lex_string(start);
+            }
             b'\'' => return self.lex_quote(start),
             _ => {}
         }
@@ -843,6 +850,137 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn lex_triple_string(&mut self, start: usize) -> Result<TokenKind, LexError> {
+        // Consume the three opening quotes.
+        self.advance();
+        self.advance();
+        self.advance();
+        let mut text = String::new();
+        let mut segments: Vec<crate::syntax::token::StrSegment> = Vec::new();
+        let mut has_interp = false;
+        loop {
+            if self.eof() {
+                return Err(self.err(LexErrorKind::UnterminatedString, start));
+            }
+            // Closing `"""` — must check before the general `b'"'` branch
+            // so that a single `"` or `""` is treated as literal content.
+            if self.peek() == b'"' && self.peek_at(1) == b'"' && self.peek_at(2) == b'"' {
+                self.advance();
+                self.advance();
+                self.advance();
+                if has_interp {
+                    if !text.is_empty() {
+                        segments.push(crate::syntax::token::StrSegment::Text(text));
+                    }
+                    return Ok(TokenKind::StrInterp(segments));
+                }
+                return Ok(TokenKind::Str(text));
+            }
+            match self.peek() {
+                b'\\' => {
+                    self.advance();
+                    let esc = self.peek();
+                    match esc {
+                        b'n' => {
+                            text.push('\n');
+                            self.advance();
+                        }
+                        b't' => {
+                            text.push('\t');
+                            self.advance();
+                        }
+                        b'r' => {
+                            text.push('\r');
+                            self.advance();
+                        }
+                        b'\\' => {
+                            text.push('\\');
+                            self.advance();
+                        }
+                        b'"' => {
+                            text.push('"');
+                            self.advance();
+                        }
+                        b'\'' => {
+                            text.push('\'');
+                            self.advance();
+                        }
+                        b'0' => {
+                            text.push('\0');
+                            self.advance();
+                        }
+                        b'{' => {
+                            text.push('{');
+                            self.advance();
+                        }
+                        b'}' => {
+                            text.push('}');
+                            self.advance();
+                        }
+                        other => {
+                            return Err(self.err(LexErrorKind::InvalidEscape(other as char), start));
+                        }
+                    }
+                }
+                b'{' => {
+                    // Interpolation — identical handling to single-quoted.
+                    let interp_open = self.pos;
+                    self.advance();
+                    let inner_start = self.pos;
+                    let mut depth: u32 = 1;
+                    while depth > 0 {
+                        if self.eof() {
+                            return Err(self.err(LexErrorKind::UnterminatedString, start));
+                        }
+                        let c = self.peek();
+                        if c == b'"' {
+                            return Err(self.err(LexErrorKind::UnterminatedString, start));
+                        }
+                        if c == b'{' {
+                            depth += 1;
+                        } else if c == b'}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        let len = utf8_char_len(c);
+                        for _ in 0..len {
+                            self.advance();
+                        }
+                        continue;
+                    }
+                    let raw = self.src[inner_start..self.pos].to_string();
+                    if raw.trim().is_empty() {
+                        return Err(self.err(LexErrorKind::InvalidEscape('{'), interp_open));
+                    }
+                    self.advance(); // closing `}`
+                    if !text.is_empty() {
+                        segments.push(crate::syntax::token::StrSegment::Text(std::mem::take(
+                            &mut text,
+                        )));
+                    }
+                    segments.push(crate::syntax::token::StrSegment::Interp {
+                        source: raw,
+                        offset: inner_start,
+                    });
+                    has_interp = true;
+                }
+                b'}' => {
+                    return Err(self.err(LexErrorKind::InvalidEscape('}'), self.pos));
+                }
+                b => {
+                    let len = utf8_char_len(b);
+                    let ch_start = self.pos;
+                    for _ in 0..len {
+                        self.advance();
+                    }
+                    text.push_str(&self.src[ch_start..self.pos]);
+                }
+            }
+        }
+    }
+
     fn lex_bytes(&mut self, start: usize) -> Result<TokenKind, LexError> {
         self.advance(); // 'b'
         self.advance(); // '"'
@@ -1221,6 +1359,44 @@ mod tests {
     fn m16_bare_close_brace_is_lex_error() {
         let res = super::tokenize(r#""oops }""#);
         assert!(res.is_err(), "expected error on bare `}}` outside interp");
+    }
+
+    #[test]
+    fn m34_triple_quoted_is_one_str_token() {
+        // Single `"` inside the body is literal; only `"""` closes.
+        // Source: `"""hello "w" world"""` (21 chars).
+        let src = "\"\"\"hello \"w\" world\"\"\"";
+        assert_eq!(
+            kinds_of(src),
+            vec![TokenKind::Str("hello \"w\" world".to_string())]
+        );
+    }
+
+    #[test]
+    fn m34_triple_quoted_spans_newlines() {
+        let src = "\"\"\"line1\nline2\n\"\"\"";
+        assert_eq!(
+            kinds_of(src),
+            vec![TokenKind::Str("line1\nline2\n".to_string())]
+        );
+    }
+
+    #[test]
+    fn m34_triple_quoted_supports_interpolation() {
+        use crate::syntax::token::StrSegment;
+        let toks = kinds_of(r#""""hi {name}!""""#);
+        match &toks[0] {
+            TokenKind::StrInterp(segs) => {
+                assert_eq!(segs.len(), 3);
+                assert!(matches!(&segs[0], StrSegment::Text(t) if t == "hi "));
+                match &segs[1] {
+                    StrSegment::Interp { source, .. } => assert_eq!(source, "name"),
+                    _ => panic!("expected Interp"),
+                }
+                assert!(matches!(&segs[2], StrSegment::Text(t) if t == "!"));
+            }
+            other => panic!("expected StrInterp, got {other:?}"),
+        }
     }
 
     #[test]

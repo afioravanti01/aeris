@@ -3,7 +3,9 @@
   "private": true,
   "scripts": {
     "prep:html": "mkdir -p dist && ln -sfn ../img dist/img && ln -sfn ../resources dist/resources",
-    "dev":   "npm run prep:html && marp --watch --html --allow-local-files presentation.md --theme-set theme --output dist/index.html",
+    "prep:serve": "mkdir -p .serve && ln -sfn ../presentation.md .serve/index.md && ln -sfn ../img .serve/img && ln -sfn ../resources .serve/resources",
+    "dev":   "npm run prep:serve && marp --server .serve --html --allow-local-files --theme-set theme",
+    "serve": "npm run dev",
     "build": "npm run prep:html && marp presentation.md --html --allow-local-files --theme-set theme --output dist/index.html",
     "pdf":   "marp presentation.md --html --allow-local-files --theme-set theme --pdf --output dist/aeris.pdf",
     "pptx":  "marp presentation.md --html --allow-local-files --theme-set theme --pptx --output dist/aeris.pptx"
