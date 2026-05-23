@@ -9,7 +9,7 @@
 ///   POST /api/chat    -> { "message": "..." } -> { "response": "..." }
 ///   GET  /api/health  -> { "status": "ok", "docs": N }
 
-use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+use io, fs, http, ai, net, json
 
 fn main() {
   let port = 8080

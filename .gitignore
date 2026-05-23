@@ -1,4 +1,5 @@
-/target
+target
+
 **/*.rs.bk
 .aeris/
 .DS_Store
