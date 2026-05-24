@@ -680,7 +680,10 @@ Always on. `--full-record` enables byte-level body capture.
 | `[deps]` | `<alias> = { source = "...", version = "...", hash = "blake3:..." }` or `{ path = "./...", hash = "..." }` |
 | `[caps]` | `enforce = "off" \| "loose" \| "strict"`, `http.allow`, `fs.allow_read`, `fs.allow_write`, `kube.contexts`, `ai.models`, ... |
 | `[ai.backend]` | `kind = "mock" \| "http" \| "cli"`, `url` (when `kind=http`), `auth` (e.g. `env:VAR`), `cmd` (when `kind=cli`) |
+| `[l2.<family>]` | `backend = "real" \| "mock" \| "replay"` (default `real`); per-family connection fields |
+| `[modules.<family>]` | `path`, `hash = "blake3:..."`, `signature` — pin a signed L2 `.so` (M45) |
 | `[policies]` | `active = ["pol1", "pol2"]` |
+| `[runtime]` | `output_dir = ".aeris"`, `trace = true \| false` — where the JSONL trace & audit log land |
 
 ### 16.2 Surface lock — `.aeris/surface.lock`
 

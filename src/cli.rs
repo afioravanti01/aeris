@@ -132,6 +132,23 @@ enum Command {
     /// `aeris doc <file>` — extract `///` doc comments and emit one
     /// JSONL line per documented top-level decl (M13.T2 / § 25.1).
     Doc { file: String },
+    /// `aeris module <subcommand>` — manage the L2 modules pinned in
+    /// `aeris.toml [modules.*]` (M45).
+    Module {
+        #[command(subcommand)]
+        sub: ModuleSub,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModuleSub {
+    /// List the modules declared in `aeris.toml` and whether each
+    /// passes hash + signature verification.
+    List,
+    /// Verify one module by family name (`aeris module verify mongodb`)
+    /// or all of them when no argument is given. Exit 1 on any
+    /// failure (CI-friendly).
+    Verify { family: Option<String> },
 }
 
 #[derive(Subcommand)]
@@ -165,6 +182,10 @@ pub fn run() -> ExitCode {
             TraceSub::Diff { a, b } => cmd_trace_diff(&a, &b),
         },
         Command::Doc { file } => cmd_doc(&file),
+        Command::Module { sub } => match sub {
+            ModuleSub::List => cmd_module_list(),
+            ModuleSub::Verify { family } => cmd_module_verify(family.as_deref()),
+        },
         Command::Fmt {
             path,
             check,
@@ -462,6 +483,92 @@ fn cmd_doc(file: &str) -> ExitCode {
     }
 }
 
+/// `aeris module list` — read `aeris.toml`, print one row per
+/// `[modules.<family>]` entry with its path, hash and verification
+/// status. Returns 0 even when modules fail to verify (use
+/// `aeris module verify` for an exit-code signal).
+fn cmd_module_list() -> ExitCode {
+    let (manifest, project_root) = match load_manifest_from_cwd() {
+        Ok(t) => t,
+        Err(code) => return code,
+    };
+    if manifest.modules.is_empty() {
+        println!("(no modules declared in aeris.toml)");
+        return ExitCode::SUCCESS;
+    }
+    println!("{:<10} {:<14} {}", "FAMILY", "STATUS", "PATH");
+    for (family, entry) in &manifest.modules {
+        let status =
+            match crate::runtime::l2_module::LoadedModule::load(entry, &project_root) {
+                Ok(m) => format!("ok  v={}", m.metadata.version),
+                Err(_) => "FAIL".to_string(),
+            };
+        println!("{family:<10} {status:<14} {}", entry.path);
+    }
+    ExitCode::SUCCESS
+}
+
+/// `aeris module verify [<family>]` — force-load every (or one)
+/// module from `aeris.toml`. Prints one line per attempt; exits 1
+/// if any module fails to verify.
+fn cmd_module_verify(family_filter: Option<&str>) -> ExitCode {
+    let (manifest, project_root) = match load_manifest_from_cwd() {
+        Ok(t) => t,
+        Err(code) => return code,
+    };
+    if manifest.modules.is_empty() {
+        eprintln!("aeris: no modules declared in aeris.toml");
+        return ExitCode::SUCCESS;
+    }
+    let mut any_failed = false;
+    for (family, entry) in &manifest.modules {
+        if let Some(f) = family_filter {
+            if f != family {
+                continue;
+            }
+        }
+        match crate::runtime::l2_module::LoadedModule::load(entry, &project_root) {
+            Ok(m) => {
+                println!(
+                    "ok    {family}  ({}@{}, api={}, caps=[{}])",
+                    m.metadata.name,
+                    m.metadata.version,
+                    m.metadata.api_version,
+                    m.metadata.cap_paths.join(", "),
+                );
+            }
+            Err(e) => {
+                println!("FAIL  {family}  {e}");
+                any_failed = true;
+            }
+        }
+    }
+    if any_failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn load_manifest_from_cwd() -> Result<(crate::manifest::Manifest, std::path::PathBuf), ExitCode> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let manifest_path = cwd.join("aeris.toml");
+    let body = match fs::read_to_string(&manifest_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("aeris: cannot read {}: {e}", manifest_path.display());
+            return Err(ExitCode::from(1));
+        }
+    };
+    match crate::manifest::parse_manifest(&body) {
+        Ok(m) => Ok((m, cwd)),
+        Err(e) => {
+            eprintln!("aeris: {}: {e}", manifest_path.display());
+            Err(ExitCode::from(69))
+        }
+    }
+}
+
 /// `aeris trace diff <a> <b>` (M13.T1 / § 20.4). Loads both JSONL
 /// traces, aligns them by `(scope, ordinal)`, and prints diverging
 /// fields plus missing / extra events. Exits 0 when the traces are
@@ -565,12 +672,23 @@ fn cmd_test(path: Option<&str>) -> ExitCode {
         .as_ref()
         .map(|l| {
             let l2_runtime = crate::runtime::l2_runtime::shared();
-            let l2_backends = std::rc::Rc::new(
-                crate::runtime::l2_backend::L2Backends::from_manifest(
-                    &l.l2_backends,
-                    l2_runtime,
-                ),
-            );
+            // M45 — load modules from the manifest under the test
+            // suite's project root (cwd). A loading failure aborts
+            // the test session: the user needs to see it.
+            let project_root = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let l2_backends = match crate::runtime::l2_backend::L2Backends::from_manifest_with_modules(
+                &l.l2_backends,
+                l2_runtime,
+                &l.modules,
+                &project_root,
+            ) {
+                Ok(b) => std::rc::Rc::new(b),
+                Err(e) => {
+                    eprintln!("aeris: module loading failed: {e}");
+                    std::process::exit(1);
+                }
+            };
             let active = if l.policies.is_empty() {
                 None
             } else {
@@ -684,13 +802,25 @@ fn cmd_run(path: &str, argv: &[String]) -> ExitCode {
         let cap = l.synthesise_main_cap();
         let backend = l.ai_backend.clone().map(std::rc::Rc::new);
         let policies = l.policies.clone();
-        // M22.T4 — build the L2 backend table from `[l2.*]`. Shared
-        // Tokio runtime is created lazily inside `L2Backends::from_manifest`
-        // (the real backends only spin it up on first call).
+        // M22.T4 — build the L2 backend table from `[l2.*]`.
+        // M45 — install dynamically loaded modules from
+        // `[modules.<family>]`; loading verifies blake3 hash and the
+        // ed25519 signature against the Aeris registry public key.
         let l2_runtime = crate::runtime::l2_runtime::shared();
-        let l2_backends = std::rc::Rc::new(
-            crate::runtime::l2_backend::L2Backends::from_manifest(&l.l2_backends, l2_runtime),
-        );
+        let l2_backends_result =
+            crate::runtime::l2_backend::L2Backends::from_manifest_with_modules(
+                &l.l2_backends,
+                l2_runtime,
+                &l.modules,
+                &project_root,
+            );
+        let l2_backends = match l2_backends_result {
+            Ok(b) => std::rc::Rc::new(b),
+            Err(e) => {
+                eprintln!("aeris: module loading failed: {e}");
+                std::process::exit(1);
+            }
+        };
         (cap, backend, policies, l2_backends)
     });
     // M41 — resolve `<output_dir>` against `project_root`, then pin

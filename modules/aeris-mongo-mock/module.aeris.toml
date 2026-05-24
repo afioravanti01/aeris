@@ -1,0 +1,11 @@
+# Author-facing module manifest. The build embeds this file as JSON
+# inside the .so (returned by `aeris_module_metadata`). The Aeris
+# loader parses it back, cross-checks `family` against the
+# `[modules.<family>]` block in the consumer's `aeris.toml`, and
+# adds `cap_paths` to M2's known-cap universe.
+
+name        = "aeris-mongo-mock"
+version     = "0.1.0"
+family      = "mongodb"
+api_version = 1
+cap_paths   = ["mongodb.read", "mongodb.write"]

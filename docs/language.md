@@ -2133,9 +2133,24 @@ diagnostic class).
 
 ## 23. Native cap handlers — Layer 2
 
-L2 modules are native cap handlers compiled into `aeris-core`. They
-**are not** dynamically-loaded `.so` files (thesis § 9.6). Adding an
-L2 module requires a release of `aeris-core`.
+L2 modules are signed native shared libraries (`.so` / `.dylib` /
+`.dll`) loaded dynamically at startup (thesis § 9.6). They extend
+the stdlib without requiring a rebuild of `aeris-core`. Each
+module is pinned in the consumer's `aeris.toml` by `path`, blake3
+`hash`, and detached ed25519 `signature`; the loader verifies all
+three before any of the module's code executes.
+
+```toml
+[modules.mongodb]
+path      = ".aeris/modules/aeris-mongo-mock.dylib"
+hash      = "blake3:763735649a62408d"
+signature = ".aeris/modules/aeris-mongo-mock.dylib.sig"
+```
+
+Every published module carries an embedded `module.aeris.toml`
+that declares the cap paths it implements; the M2 checker reads
+this manifest and adds those cap paths to the project's known-cap
+universe.
 
 | Module      | Capability paths it implements |
 |-------------|--------------------------------|
@@ -2146,6 +2161,12 @@ L2 module requires a release of `aeris-core`.
 | `minio`     | `minio.get`, `minio.put` |
 | `rabbitmq`  | `rabbitmq.publish`, `rabbitmq.subscribe` |
 | `audit`     | `audit.event` |
+
+Only modules signed by the Aeris registry key can be loaded. The
+team publishes each module as part of `aeris-core` releases; a
+project that wants a custom backend either contributes upstream
+or runs an internal fork with its own key. The CLI exposes
+`aeris module list` and `aeris module verify` for inspection.
 
 L2 modules expose pure helpers (manifest builders, query DSLs) that
 take no `cap`. Effectful entry points always require the appropriate

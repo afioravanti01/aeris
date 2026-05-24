@@ -1,0 +1,13 @@
+[package]
+name        = "aeris-mongo-mock"
+version     = "0.1.0"
+edition     = "2021"
+description = "POC L2 module for Aeris — filesystem-backed JSONL `mongodb.{read,write}`."
+license     = "MIT OR Apache-2.0"
+
+# `cdylib` is the type the Aeris loader (`libloading`) consumes.
+# No `rlib`: this module is never linked into other Rust crates.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]

@@ -31,6 +31,14 @@ pub struct Manifest {
     /// written. Default: `.aeris/` next to the project root,
     /// trace on.
     pub runtime: RuntimeConfig,
+    /// M45 — registered L2 modules. Each entry pins one of the
+    /// L2 families (`minio`, `mongodb`, …) to a signed `.so` /
+    /// `.dylib` on disk. The loader (`runtime::l2_module`) reads
+    /// each entry on startup, verifies the blake3 hash and the
+    /// ed25519 signature against the embedded Aeris registry
+    /// key, then proxies that family's cap handlers through the
+    /// loaded module.
+    pub modules: BTreeMap<String, ModuleEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -249,6 +257,25 @@ impl Default for RuntimeConfig {
             trace: true,
         }
     }
+}
+
+// ---- L2 module registry (M45) --------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleEntry {
+    /// The `<family>` part of the TOML table name
+    /// (`[modules.<family>]`). Must match one of the six L2 families.
+    pub name: String,
+    pub family: String,
+    /// `.so` / `.dylib` / `.dll` path on disk, resolved relative to
+    /// the project root when relative.
+    pub path: String,
+    /// `blake3:<hex>` hash of the module's binary bytes. The loader
+    /// refuses to load if the on-disk file's hash does not match.
+    pub hash: String,
+    /// Detached ed25519 signature of the module's binary bytes (64
+    /// raw bytes). Path is resolved like `path`.
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -509,6 +536,7 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
     let policies = parse_policies(&root)?;
     let l2_backends = parse_l2_backends(&root)?;
     let runtime = parse_runtime(&root)?;
+    let modules = parse_modules(&root)?;
     Ok(Manifest {
         project,
         deps,
@@ -517,7 +545,60 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
         policies,
         l2_backends,
         runtime,
+        modules,
     })
+}
+
+const MODULE_KEYS: &[&str] = &["path", "hash", "signature"];
+const KNOWN_FAMILIES: &[&str] =
+    &["minio", "mongodb", "docker", "kube", "rabbitmq", "audit"];
+
+fn parse_modules(
+    root: &BTreeMap<String, TomlValue>,
+) -> Result<BTreeMap<String, ModuleEntry>, ManifestError> {
+    let table = match root.get("modules") {
+        Some(TomlValue::Table(t)) => t,
+        Some(_) => return Err(ManifestError::new("`[modules]` must be a table")),
+        None => return Ok(BTreeMap::new()),
+    };
+    let mut out = BTreeMap::new();
+    for (family, value) in table {
+        if !KNOWN_FAMILIES.contains(&family.as_str()) {
+            return Err(ManifestError::new(format!(
+                "unknown L2 family `[modules.{family}]` — known: {}",
+                KNOWN_FAMILIES.join(", ")
+            )));
+        }
+        let entry_table = match value {
+            TomlValue::Table(t) => t,
+            _ => {
+                return Err(ManifestError::new(format!(
+                    "`[modules.{family}]` must be a table"
+                )))
+            }
+        };
+        reject_unknown_keys(&format!("modules.{family}"), entry_table, MODULE_KEYS)?;
+        let path = required_string(entry_table, &format!("modules.{family}"), "path")?;
+        let hash = required_string(entry_table, &format!("modules.{family}"), "hash")?;
+        let signature =
+            required_string(entry_table, &format!("modules.{family}"), "signature")?;
+        if !hash.starts_with("blake3:") {
+            return Err(ManifestError::new(format!(
+                "modules.{family}.hash: must start with `blake3:`"
+            )));
+        }
+        out.insert(
+            family.clone(),
+            ModuleEntry {
+                name: family.clone(),
+                family: family.clone(),
+                path,
+                hash,
+                signature,
+            },
+        );
+    }
+    Ok(out)
 }
 
 const RUNTIME_KEYS: &[&str] = &["output_dir", "trace"];

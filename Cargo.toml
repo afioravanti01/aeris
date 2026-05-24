@@ -5,6 +5,11 @@ edition      = "2021"
 rust-version = "1.75"
 license      = "MIT OR Apache-2.0"
 description  = "Aeris — a small DSL for ops, governance, pipelines and AI agents"
+default-run  = "aeris"
+# Declaring `[[bin]]` blocks below would otherwise disable cargo's
+# auto-discovery of integration tests. Keep the discovery on.
+autotests    = true
+autobenches  = true
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -13,6 +18,23 @@ clap = { version = "4", features = ["derive"] }
 # `block_on`; `macros` is needed only by the unit tests that spawn
 # fake async futures.
 tokio = { version = "1", default-features = false, features = ["rt", "macros", "time"] }
+# M45 — dynamic L2 module loader. `libloading` is the platform-portable
+# `dlopen`/`LoadLibrary` wrapper; `ed25519-dalek` verifies the registry
+# signature embedded in every official module release.
+libloading = "0.8"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+
+[[bin]]
+name = "aeris"
+path = "src/main.rs"
+
+# M45 — helper used by module authors (and the POC) to sign a
+# compiled `.so` with the development ed25519 key embedded in the
+# crate. In production releases the key comes from a separate
+# ceremony; the binary code is identical.
+[[bin]]
+name = "aeris-module-sign"
+path = "src/bin/aeris-module-sign.rs"
 
 [profile.release]
 strip         = true

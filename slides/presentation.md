@@ -649,8 +649,9 @@ use http as net           // rename at the use site
 <div class="column compact">
 
 - All imports use the same keyword: `use`. The layer is inferred from the form.
-- **Layer 1 & 2 are built into the `aeris` binary** — adding a module requires an Aeris release.
-- **Layer 3 is `.aer` source**, pinned by `blake3` hash in `aeris.toml`. No `.so` / `.dll` at runtime.
+- **Layer 1** is built into the `aeris` binary.
+- **Layer 2** modules are signed native `.so` / `.dylib` extensions of the stdlib, declared in `aeris.toml [modules.<family>]` and pinned by blake3 hash + ed25519 signature.
+- **Layer 3** is `.aer` source, pinned by `blake3` hash in `aeris.toml`.
 - `use` is **mandatory** for every module reference (exit code 72).
 - Cyclic imports are rejected at parse time.
 
@@ -718,7 +719,7 @@ intent "scale the inference pod" {
 }
 ```
 
-> These modules are **compiled into the `aeris` binary**. No runtime plug-ins, no `.so` / `.dll` loading.
+> These modules are **signed `.so` / `.dylib` extensions of the stdlib**, declared in `aeris.toml [modules.<family>]`, loaded at startup, blake3-pinned and ed25519-signed by the Aeris registry key.
 
 </div>
 </div>
@@ -1450,7 +1451,7 @@ deploy = { source  = "github.com/acmecorp/aeris-devops",
 - Each dependency is identified by the **blake3 hash** of its bytes.
 - If the fetched bytes do not match the hash, the run fails **before any code from the dep executes**.
 - No `latest`, no `*`, no movable Git tags — the version answer is always in `aeris.toml`.
-- External libs are always `.aer` source. No `.so` / `.dll` to load.
+- External libs are always `.aer` source, pinned by `blake3` in `aeris.toml`. L2 modules are signed `.so` extensions of the stdlib (M45) — only modules signed by the Aeris registry key are accepted.
 
 > Same content-addressing approach already used by Cargo, npm, Nix.
 
@@ -1625,7 +1626,7 @@ every 30s {
 - **No automatic formal proofs** — verdicts that depend on the machine and on the solver's heuristics.
 - **No automatic inference of capabilities** — the signature must be the truth; hidden changes break PR review.
 - **No mutable dependency references** — no `latest`, no `*`, no movable Git tags.
-- **No native runtime plug-ins** — would add an effect surface the static checker cannot see.
+- **No unsigned third-party native plug-ins** — only L2 modules signed by the Aeris registry key are loaded; their cap surface is declared in an embedded manifest the static checker reads.
 
 > Every refusal pays a **declared cost** — accepted to keep what is in the source the truth.
 

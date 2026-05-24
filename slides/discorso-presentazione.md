@@ -224,7 +224,8 @@ Vai per i tre layer:
 
 - **Layer 1** — stdlib general-purpose: `use io, json, fs, http, shell`. Built-in al binario.
 - **Layer 2** — gestori nativi per dominio: `use ai, kube, mongodb`. Anch'essi built-in.
-- **Layer 3** — librerie `.aer` esterne: `use deploy from "github.com/..." deploy@"1.2.0"`. Pinned per hash blake3 in `aeris.toml`. Niente `.so`, niente `.dll` a runtime.
+- **Layer 2** — moduli nativi (`ai`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`, `audit`): sono librerie dinamiche (`.so` / `.dylib`) firmate dal team Aeris ed estendono la stdlib. Si dichiarano in `aeris.toml [modules.<famiglia>]` con `path`, `hash` blake3 e firma ed25519; il runtime le carica all'avvio dopo averle verificate.
+- **Layer 3** — librerie `.aer` esterne: `use deploy from "github.com/..." deploy@"1.2.0"`. Pinned per hash blake3 in `aeris.toml`.
 
 Sottolinea il bullet "`use` è mandatorio": un body call `http.post(...)` senza `use http` in cima al file è un errore di compile (exit code 72). Niente namespace globale implicito — chi legge il file sa quali moduli vengono toccati. Cyclic imports rifiutati al parse.
 
@@ -481,7 +482,7 @@ Il punto in fondo è importante: *"i trace ID sono propagati attraverso le chiam
 
 Ogni dipendenza è identificata dal **blake3 hash** dei suoi byte. Se quello che scaricate non corrisponde all'hash registrato in `aeris.toml`, il run fallisce **prima** che una sola riga della dipendenza venga eseguita. Niente `latest`, niente `*`, niente Git tag mobili — la risposta a "che versione c'è in questo build?" è sempre nel manifest.
 
-Le librerie esterne sono **sempre `.aer`** — niente `.so` o `.dll` a runtime. È una scelta di sicurezza: un binario su disco aggiungerebbe una superficie di effetti che il controllore statico non può ispezionare.
+Le librerie esterne L3 sono **sempre `.aer`**: codice sorgente pinnato per hash blake3. I moduli L2 sono invece **librerie dinamiche firmate** dal team Aeris (`.so` / `.dylib`), dichiarate in `aeris.toml [modules.<famiglia>]` con `path`, `hash` e `signature`. Il caricatore verifica l'hash, controlla la firma ed25519 contro la chiave del registry incorporata nel runtime, e legge il `module.aeris.toml` interno del modulo per sapere quali `cap` path implementa — così il check statico M2 li vede.
 
 Per orientamento: *"è lo stesso approccio di content-addressing già usato da Cargo, npm, Nix"*.
 

@@ -503,28 +503,48 @@ or a lockfile bump. The gain: "what version is in this build?" is
 a textual question answerable from `aeris.toml` without running
 anything.
 
-### 9.6 No native shared-object plug-ins
+### 9.6 Native L2 modules — signed `.so` extensions to the stdlib
 
-Aeris does not load `.so` / `.dll` modules at runtime. User-land
-libraries fetched through the manifest / registry are pure `.aer`
-source; the bytes are blake3-hashed before they execute. Runtime
-extensions that need native code (HTTP fetcher, `kubectl` /
-`docker` subprocess wrappers, future TLS pinning) live as native
-cap handlers in `aeris-core` and require a project release.
+L2 modules (`ai`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`,
+`audit`) ship as native shared libraries (`.so` / `.dylib` /
+`.dll`) loaded dynamically at startup. They are not third-party
+plug-ins: every published module is signed by the Aeris registry
+key, pinned in the consumer's `aeris.toml` by blake3 hash, and
+declares its cap surface in an embedded `module.aeris.toml` that
+the M2 checker reads. The disciplines that keep §8 honest hold by
+construction:
 
-**The cost we accept**: a vendor that wants a custom `cap.X.Y`
-must fork or PR `aeris-core`. The gain: static-cap-scope (§3.1)
-remains a property the runtime can actually verify. A `.so`
-plug-in mechanism would let any binary on disk introduce a fresh
-effect surface that the M2 checks could not see, which would
-silently break every guarantee in §8.
+- **Static cap-scope (§3.1)** — the module's `cap_paths` are
+  declared in its manifest; M2 unions them with the project's
+  known-cap universe before the source check runs. Cap paths the
+  binary actually implements but does not declare are unreachable
+  from user code: the manifest is the source of truth.
+- **Content-addressing (V3)** — every module entry in `aeris.toml`
+  pins a blake3 hash; the loader recomputes it on startup and
+  refuses to dlopen on mismatch.
+- **Trust** — the loader also verifies a detached ed25519
+  signature against the Aeris registry public key embedded in the
+  runtime. A binary not signed by the registry is rejected before
+  any of its code executes.
+- **Runtime allow-list (V4)** — the cap path narrowing from
+  `[caps]` is enforced *upstream* of the module call. The module
+  is invoked only after `enforce_*_cap` has cleared the request;
+  the module itself never bypasses the gate.
+
+**The cost we accept**: only modules released by the Aeris team
+can be loaded. A vendor that wants a custom `cap.X.Y` either
+contributes upstream (PR against `aeris-core` or a new module in
+the registry) or runs an internal fork with its own signing key.
+**What we gain**: real extensibility for the L2 surface (new
+services, vendor SDKs) without giving up any of the V1–V4
+disciplines — every guarantee remains a property the runtime
+actually verifies.
 
 ADR-0002 (`docs/decisions/0002-ops-integrations-as-stdlib.md`)
 records the corresponding positive commitment: Docker,
 Kubernetes, and an extended shell surface are **Tier-1 stdlib**,
-not deferred — they ship as native cap handlers in
-`aeris-core`, which is exactly the place this refusal allows
-them to live.
+delivered as signed L2 modules rather than as compile-time
+features of `aeris-core`.
 
 ---
 

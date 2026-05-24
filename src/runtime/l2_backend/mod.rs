@@ -13,17 +13,24 @@
 //! backends (`RealMinio`, `RealMongo`, …) without touching the
 //! dispatch site — only the table entry changes.
 
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::rc::Rc;
 
 use super::eval::{self, EvalError, Env};
+use super::l2_module::LoadedModule;
 use super::l2_runtime::L2Runtime;
 use super::value::Value;
-use crate::manifest::{BackendKind, L2BackendsConfig};
+use crate::manifest::{BackendKind, L2BackendsConfig, ModuleEntry};
 use crate::syntax::token::Span;
 
+mod loaded;
 mod real_minio;
 mod real_mongo;
 mod real_rabbit;
+pub use loaded::{
+    LoadedAudit, LoadedDocker, LoadedKube, LoadedMinio, LoadedMongo, LoadedRabbit,
+};
 pub use real_minio::RealMinio;
 pub use real_mongo::RealMongo;
 pub use real_rabbit::RealRabbit;
@@ -318,6 +325,32 @@ impl L2Backends {
     /// shared `Rc<L2Runtime>` is plumbed into every `Real*` so
     /// async SDKs (T4-bis+) can `block_on` without each backend
     /// owning its own reactor.
+    /// M45 — same as [`from_manifest`] but also installs dynamically
+    /// loaded modules from `aeris.toml [modules.<family>]`. Loading
+    /// fails the whole start-up: a bad signature or a hash mismatch
+    /// surfaces as `Err(message)` so the CLI can report it before
+    /// any user code runs.
+    pub fn from_manifest_with_modules(
+        cfg: &L2BackendsConfig,
+        runtime: Rc<L2Runtime>,
+        modules: &BTreeMap<String, ModuleEntry>,
+        project_root: &Path,
+    ) -> Result<Self, String> {
+        let mut backends = Self::from_manifest(cfg, runtime);
+        for (family, entry) in modules {
+            let loaded = Rc::new(LoadedModule::load(entry, project_root)?);
+            match loaded::install_module(family, loaded)? {
+                loaded::InstalledBackend::Audit(b) => backends.audit = b,
+                loaded::InstalledBackend::Kube(b) => backends.kube = b,
+                loaded::InstalledBackend::Docker(b) => backends.docker = b,
+                loaded::InstalledBackend::Mongo(b) => backends.mongodb = b,
+                loaded::InstalledBackend::Minio(b) => backends.minio = b,
+                loaded::InstalledBackend::Rabbit(b) => backends.rabbitmq = b,
+            }
+        }
+        Ok(backends)
+    }
+
     pub fn from_manifest(cfg: &L2BackendsConfig, runtime: Rc<L2Runtime>) -> Self {
         let minio: Rc<dyn MinioBackend> = match cfg.minio.backend {
             BackendKind::Real => Rc::new(RealMinio::new(

@@ -9,6 +9,7 @@ pub mod eval;
 pub mod http;
 pub mod json;
 pub mod l2_backend;
+pub mod l2_module;
 pub mod l2_runtime;
 pub mod net_server;
 pub mod replay;

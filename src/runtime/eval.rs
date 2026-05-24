@@ -5747,6 +5747,12 @@ fn render_type_for_prompt(
     }
 }
 
+/// Public re-export for the M45 module bridge (`l2_backend/loaded.rs`),
+/// which serialises call arguments before handing them over the C ABI.
+pub(crate) fn value_to_natural_json_public(v: &Value) -> String {
+    value_to_natural_json(v)
+}
+
 fn value_to_natural_json(v: &Value) -> String {
     match v {
         Value::Unit => "null".into(),

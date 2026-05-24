@@ -12,7 +12,7 @@ pub mod toml;
 pub use manifest::{
     parse_manifest, verify_local_deps, AiBackend, AuditBackendConfig, BackendKind, CapsCeiling,
     DepEntry, DepSource, DockerBackendConfig, EnforceMode, KubeBackendConfig, L2BackendsConfig,
-    Manifest, ManifestError, MinioBackendConfig, MongoBackendConfig, ProjectInfo,
+    Manifest, ManifestError, MinioBackendConfig, ModuleEntry, MongoBackendConfig, ProjectInfo,
     RabbitBackendConfig, RuntimeConfig, EXIT_MANIFEST_ERROR,
 };
 pub use surface::{
