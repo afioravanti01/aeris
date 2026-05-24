@@ -99,6 +99,10 @@ pub struct AgentNetInstance {
     pub full_record: bool,
     /// M33: see `SagaInstance.imported_modules`.
     pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
+    /// M22.T1: per-family L2 backend table snapshot, propagated
+    /// into every step body so backend selection is stable across
+    /// the agent_net's lifetime.
+    pub l2_backends: std::rc::Rc<crate::runtime::l2_backend::L2Backends>,
 }
 
 impl std::fmt::Debug for AgentNetInstance {
@@ -139,6 +143,8 @@ pub struct AgentInstance {
     pub full_record: bool,
     /// M33: see `SagaInstance.imported_modules`.
     pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
+    /// M22.T1: per-family L2 backend table snapshot.
+    pub l2_backends: std::rc::Rc<crate::runtime::l2_backend::L2Backends>,
 }
 
 impl std::fmt::Debug for AgentInstance {
@@ -184,6 +190,9 @@ pub struct SagaInstance {
     /// bodies so `<module>.<op>(...)` is gated the same way as
     /// inside a regular `fn`.
     pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
+    /// M22.T1: per-family L2 backend table snapshot — every step
+    /// body invokes the same backends as the call site.
+    pub l2_backends: std::rc::Rc<crate::runtime::l2_backend::L2Backends>,
 }
 
 impl std::fmt::Debug for SagaInstance {
@@ -310,6 +319,10 @@ pub struct Closure {
     /// call so a closure invoked in another env keeps its own import
     /// rules.
     pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
+    /// M22.T1: per-family L2 backend table snapshot at definition
+    /// time. Re-entering the closure uses the same backends even if
+    /// the caller swapped its own table.
+    pub l2_backends: std::rc::Rc<crate::runtime::l2_backend::L2Backends>,
     /// `requires:` clauses checked at function entry (M5.T4 / § 9.1).
     /// Lambdas have an empty list — only top-level fns carry contracts.
     pub requires: Vec<crate::syntax::ast::Expr>,

@@ -101,49 +101,45 @@ pub fn run_suites(root: &Path) -> RunReport {
     run_suites_explicit(&suites)
 }
 
+/// M43 — configuration threaded into every test body by the CLI.
+/// `cmd_test` builds this from `aeris.toml`; library callers can
+/// hand it any subset they need.
+#[derive(Clone, Default)]
+pub struct SuiteConfig {
+    pub cap: Option<crate::runtime::value::CapValue>,
+    pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    pub l2_backends: Option<std::rc::Rc<crate::runtime::l2_backend::L2Backends>>,
+    pub active_policy_names: Option<Vec<String>>,
+}
+
 /// Run an explicit list of `(suite_name, path)` pairs. Used by the
 /// CLI when the user passes a single file or glob, and by the unit
 /// tests in this module.
 pub fn run_suites_explicit(suites: &[(String, PathBuf)]) -> RunReport {
+    run_suites_explicit_with_cfg(suites, &SuiteConfig::default())
+}
+
+/// M43 — same as [`run_suites_explicit`] but applies `cfg` to each
+/// test body. Sequential (single thread): `SuiteConfig` holds
+/// `Rc` fields (not `Send`) and the typical demo / project size
+/// is small enough that the parallelism loss is negligible. The
+/// no-cfg `run_suites_explicit` keeps the parallel path.
+pub fn run_suites_explicit_with_cfg(
+    suites: &[(String, PathBuf)],
+    cfg: &SuiteConfig,
+) -> RunReport {
     if suites.is_empty() {
         return RunReport::default();
     }
-    let (tx, rx) = mpsc::channel::<SuiteResult>();
-    // Cap concurrency at the available parallelism so we don't spawn a
-    // thread per file in pathological project sizes.
-    let limit = thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .max(1);
-    let suites_arc: Arc<Vec<(String, PathBuf)>> = Arc::new(suites.to_vec());
-    let mut handles = Vec::new();
-    let chunk_size = suites_arc.len().div_ceil(limit).max(1);
-    for chunk_idx in (0..suites_arc.len()).step_by(chunk_size) {
-        let tx = tx.clone();
-        let suites_arc = suites_arc.clone();
-        let end = (chunk_idx + chunk_size).min(suites_arc.len());
-        handles.push(thread::spawn(move || {
-            for i in chunk_idx..end {
-                let (suite, path) = &suites_arc[i];
-                let res = run_one_suite(suite, path);
-                let _ = tx.send(res);
-            }
-        }));
-    }
-    drop(tx);
     let mut report = RunReport::default();
-    while let Ok(res) = rx.recv() {
-        match res {
+    for (suite, path) in suites {
+        match run_one_suite_with_cfg(suite, path, cfg) {
             SuiteResult::Ok(mut outcomes) => report.outcomes.append(&mut outcomes),
             SuiteResult::ParseError { suite, message } => {
                 report.parse_failures.push((suite, message));
             }
         }
     }
-    for h in handles {
-        let _ = h.join();
-    }
-    // Stable ordering for human-friendly output / golden tests.
     report.outcomes.sort_by(|a, b| {
         a.suite
             .cmp(&b.suite)
@@ -158,6 +154,45 @@ enum SuiteResult {
     ParseError { suite: String, message: String },
 }
 
+fn run_one_suite_with_cfg(
+    suite: &str,
+    path: &Path,
+    cfg: &SuiteConfig,
+) -> SuiteResult {
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            return SuiteResult::ParseError {
+                suite: suite.to_string(),
+                message: format!("cannot read {}: {e}", path.display()),
+            }
+        }
+    };
+    let module = match crate::syntax::parse(&src) {
+        Ok(m) => m,
+        Err(e) => {
+            return SuiteResult::ParseError {
+                suite: suite.to_string(),
+                message: format!(
+                    "{}:{}:{}: {:?}",
+                    path.display(),
+                    e.span.line,
+                    e.span.col,
+                    e.kind
+                ),
+            }
+        }
+    };
+    let fixtures_dir = path.parent().map(|p| p.join("fixtures"));
+    SuiteResult::Ok(run_module_tests_in_dir_with_cfg(
+        suite,
+        &module,
+        fixtures_dir.as_deref(),
+        cfg,
+    ))
+}
+
+#[allow(dead_code)]
 fn run_one_suite(suite: &str, path: &Path) -> SuiteResult {
     let src = match std::fs::read_to_string(path) {
         Ok(s) => s,
@@ -219,12 +254,31 @@ pub fn run_module_tests_in_dir(
     m: &Module,
     fixtures_dir: Option<&Path>,
 ) -> Vec<TestOutcome> {
+    run_module_tests_in_dir_with_cfg(suite, m, fixtures_dir, &SuiteConfig::default())
+}
+
+/// M43 — same as [`run_module_tests_in_dir`] but applies `cfg` to
+/// every test body. Each test gets a fresh `TestConfig` cloned
+/// from `cfg`.
+pub fn run_module_tests_in_dir_with_cfg(
+    suite: &str,
+    m: &Module,
+    fixtures_dir: Option<&Path>,
+    cfg: &SuiteConfig,
+) -> Vec<TestOutcome> {
+    let test_cfg = || crate::runtime::eval::TestConfig {
+        cap: cfg.cap.clone(),
+        tracer: None,
+        ai_backend: cfg.ai_backend.clone(),
+        l2_backends: cfg.l2_backends.clone(),
+        active_policy_names: cfg.active_policy_names.clone(),
+    };
     let mut out: Vec<TestOutcome> = Vec::new();
     for item in &m.items {
         match item {
             Item::Test(t) => {
                 let status = match &t.fixture {
-                    None => match run_test(m, t) {
+                    None => match crate::runtime::eval::run_test_with_cfg(m, t, &test_cfg()) {
                         Ok(()) => TestStatus::Passed,
                         Err(e) => TestStatus::Failed(render_failure(&e)),
                     },

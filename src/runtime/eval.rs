@@ -20,7 +20,7 @@ use super::value::{
 };
 use crate::syntax::ast::{
     AssignOp, BinOp, Block, CallArg, CapEntry, CapNarrowKind, ElseBranch, Expr, Item, ListPatElem,
-    MatchArm, ModelDecl, Module, Pattern, RecordDecl, SagaStep, Stmt, UnOp, UndoForm,
+    MatchArm, ModelDecl, Module, Pattern, RecordDecl, SagaStep, Stmt, Type, UnOp, UndoForm,
 };
 use crate::syntax::parse_expression;
 use crate::syntax::token::Span;
@@ -37,7 +37,7 @@ pub struct EvalError {
 }
 
 impl EvalError {
-    fn new(kind: EvalErrorKind, span: Span) -> Self {
+    pub(crate) fn new(kind: EvalErrorKind, span: Span) -> Self {
         Self { kind, span }
     }
 }
@@ -215,6 +215,15 @@ pub struct Env {
     /// only when `m` is in this set (or is a value in scope — that
     /// path is handled by the dispatcher itself).
     imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
+    /// M22.T1: per-family L2 backend dispatch table. The default
+    /// (`L2Backends::default()`) is the historical all-mock setup;
+    /// `aeris.toml` (T2) and the CLI (T3+) will swap individual
+    /// entries for `Real*` impls once they land.
+    pub(crate) l2_backends: std::rc::Rc<super::l2_backend::L2Backends>,
+    /// M22.T3: shared Tokio current-thread runtime for real L2
+    /// backends. `None` until the first `with_l2_runtime` call —
+    /// a program that never touches a real backend pays nothing.
+    pub(crate) l2_runtime: Option<std::rc::Rc<super::l2_runtime::L2Runtime>>,
 }
 
 #[derive(Debug, Clone)]
@@ -240,7 +249,47 @@ impl Env {
             fixture_trace: None,
             defer_frames: Vec::new(),
             imported_modules: std::rc::Rc::new(std::collections::HashSet::new()),
+            l2_backends: std::rc::Rc::new(super::l2_backend::L2Backends::default()),
+            l2_runtime: None,
         }
+    }
+
+    /// Override the default all-mock L2 backend table. Used by T3+
+    /// to wire real backends per `[l2.<module>]` in `aeris.toml`.
+    pub fn with_l2_backends(
+        mut self,
+        backends: std::rc::Rc<super::l2_backend::L2Backends>,
+    ) -> Self {
+        self.l2_backends = backends;
+        self
+    }
+
+    /// M22.T3: attach a shared Tokio runtime so real L2 backends
+    /// can drive their async SDKs from the sync tree-walk. Callers
+    /// pass `super::l2_runtime::shared()`; the runtime itself is
+    /// built lazily inside `L2Runtime::block_on`.
+    pub fn with_l2_runtime(
+        mut self,
+        runtime: std::rc::Rc<super::l2_runtime::L2Runtime>,
+    ) -> Self {
+        self.l2_runtime = Some(runtime);
+        self
+    }
+
+    /// Borrow the shared Tokio runtime. `None` when no real
+    /// backend has ever been wired — callers must handle the
+    /// absence (the all-mock default never asks for it).
+    pub fn l2_runtime(&self) -> Option<&super::l2_runtime::L2Runtime> {
+        self.l2_runtime.as_deref()
+    }
+
+    /// Borrow the AI backend (test-only inspection). M42 leans on
+    /// this to assert that `[ai.backend]` survives a run with
+    /// `[policies] active = [..]` set — a regression that fed
+    /// real production runs into the mock echo path.
+    #[cfg(test)]
+    pub(crate) fn ai_backend_kind(&self) -> Option<String> {
+        self.ai_backend.as_ref().map(|b| b.kind.clone())
     }
 
     pub fn with_imported_modules(
@@ -413,6 +462,7 @@ impl Env {
         replay_tape: Option<crate::runtime::replay::TapeHandle>,
         full_record: bool,
         imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
+        l2_backends: std::rc::Rc<super::l2_backend::L2Backends>,
     ) -> Self {
         let mut out = Self {
             scopes: Vec::with_capacity(scopes.len() + 1),
@@ -429,6 +479,10 @@ impl Env {
             fixture_trace: None,
             defer_frames: Vec::new(),
             imported_modules,
+            l2_backends,
+            // Real backends carry their own `Rc<L2Runtime>`; the
+            // call_env doesn't need a separate handle.
+            l2_runtime: None,
         };
         for s in scopes {
             let mut frame = HashMap::with_capacity(s.len());
@@ -542,6 +596,8 @@ pub fn eval_module_env(m: &Module) -> Env {
     let models_rc = Rc::new(models);
     let policies_rc = Rc::new(policies);
     let imports = extract_imported_modules(m);
+    let l2_backends: Rc<super::l2_backend::L2Backends> =
+        Rc::new(super::l2_backend::L2Backends::default());
     register_decls(
         m,
         &module,
@@ -554,6 +610,7 @@ pub fn eval_module_env(m: &Module) -> Env {
         None,
         false,
         &imports,
+        &l2_backends,
     );
     Env::new()
         .with_module(module)
@@ -561,6 +618,7 @@ pub fn eval_module_env(m: &Module) -> Env {
         .with_model_decls(models_rc)
         .with_policies(policies_rc)
         .with_imported_modules(imports)
+        .with_l2_backends(l2_backends)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -576,7 +634,28 @@ fn register_decls(
     replay_tape: Option<crate::runtime::replay::TapeHandle>,
     full_record: bool,
     imported_modules: &std::rc::Rc<std::collections::HashSet<String>>,
+    l2_backends: &std::rc::Rc<super::l2_backend::L2Backends>,
 ) {
+    // First pass: evaluate module-level `const` declarations into the
+    // module scope (§ 5.1 — "module-level, constant-folded"). Const
+    // initialisers are evaluated in source order against an env that
+    // sees previously-registered consts. We deliberately run this
+    // before the rest so agent fields like `prompt: LINTER_PROMPT`
+    // (resolved at register-time) can pick up the value.
+    for item in &m.items {
+        if let Item::Const(c) = item {
+            let mut env = Env::new()
+                .with_module(module.clone())
+                .with_record_decls(records.clone())
+                .with_model_decls(models.clone())
+                .with_policies(policies.clone())
+                .with_imported_modules(imported_modules.clone());
+            if let Ok(v) = eval_value(&c.init_expr, &mut env) {
+                module.borrow_mut().insert(c.name.clone(), v);
+            }
+        }
+    }
+
     for item in &m.items {
         match item {
             Item::Fn(f) => {
@@ -594,6 +673,7 @@ fn register_decls(
                     replay_tape: replay_tape.clone(),
                     full_record,
                     imported_modules: imported_modules.clone(),
+                    l2_backends: l2_backends.clone(),
                     requires: f.requires.clone(),
                     ensures: f.ensures.clone(),
                     name: Some(f.name.clone()),
@@ -618,6 +698,7 @@ fn register_decls(
                     replay_tape: replay_tape.clone(),
                     full_record,
                     imported_modules: imported_modules.clone(),
+                    l2_backends: l2_backends.clone(),
                 });
                 module
                     .borrow_mut()
@@ -633,6 +714,7 @@ fn register_decls(
                     replay_tape.clone(),
                     full_record,
                     imported_modules,
+                    l2_backends,
                 ) {
                     module
                         .borrow_mut()
@@ -652,6 +734,7 @@ fn register_decls(
                     replay_tape: replay_tape.clone(),
                     full_record,
                     imported_modules: imported_modules.clone(),
+                    l2_backends: l2_backends.clone(),
                 });
                 module
                     .borrow_mut()
@@ -676,14 +759,15 @@ fn build_agent_instance(
     replay_tape: Option<super::replay::TapeHandle>,
     full_record: bool,
     imported_modules: &std::rc::Rc<std::collections::HashSet<String>>,
+    l2_backends: &std::rc::Rc<super::l2_backend::L2Backends>,
 ) -> Option<super::value::AgentInstance> {
-    let llm = field_string(a, "llm")?;
-    let intent = field_string(a, "intent")?;
-    let prompt = field_string(a, "prompt")?;
+    let llm = field_string(a, "llm", module)?;
+    let intent = field_string(a, "intent", module)?;
+    let prompt = field_string(a, "prompt", module)?;
     let accept = field_model_ref(a, "accept")?;
     let produce = field_model_ref(a, "produce")?;
     let policy_names = field_ident_list(a, "policy");
-    let retries = field_int(a, "retries").unwrap_or(0).max(0) as u32;
+    let retries = field_int(a, "retries", module).unwrap_or(0).max(0) as u32;
     let (budget_tokens, budget_latency_ms) = field_budget(a);
     Some(super::value::AgentInstance {
         name: a.name.clone(),
@@ -703,18 +787,30 @@ fn build_agent_instance(
         replay_tape,
         full_record,
         imported_modules: imported_modules.clone(),
+        l2_backends: l2_backends.clone(),
     })
 }
 
-fn field_string(a: &crate::syntax::ast::AgentDecl, key: &str) -> Option<String> {
-    a.fields
+fn field_string(
+    a: &crate::syntax::ast::AgentDecl,
+    key: &str,
+    module: &ModuleScope,
+) -> Option<String> {
+    let e = a
+        .fields
         .iter()
         .find(|f| f.key == key)
-        .and_then(|f| f.values.first())
-        .and_then(|e| match e {
-            Expr::Str(s, _) => Some(s.clone()),
+        .and_then(|f| f.values.first())?;
+    match e {
+        Expr::Str(s, _) => Some(s.clone()),
+        // Allow `prompt: SOME_CONST` — resolve the identifier against
+        // module-level const bindings registered earlier.
+        Expr::Ident(n, _) => match module.borrow().get(n)? {
+            Value::Str(s) => Some(s.clone()),
             _ => None,
-        })
+        },
+        _ => None,
+    }
 }
 
 fn field_model_ref(a: &crate::syntax::ast::AgentDecl, key: &str) -> Option<(String, u32)> {
@@ -744,15 +840,24 @@ fn field_ident_list(a: &crate::syntax::ast::AgentDecl, key: &str) -> Vec<String>
         .unwrap_or_default()
 }
 
-fn field_int(a: &crate::syntax::ast::AgentDecl, key: &str) -> Option<i64> {
-    a.fields
+fn field_int(
+    a: &crate::syntax::ast::AgentDecl,
+    key: &str,
+    module: &ModuleScope,
+) -> Option<i64> {
+    let e = a
+        .fields
         .iter()
         .find(|f| f.key == key)
-        .and_then(|f| f.values.first())
-        .and_then(|e| match e {
-            Expr::Int(n, _) => Some(*n),
+        .and_then(|f| f.values.first())?;
+    match e {
+        Expr::Int(n, _) => Some(*n),
+        Expr::Ident(n, _) => match module.borrow().get(n)? {
+            Value::Int(i) => Some(*i),
             _ => None,
-        })
+        },
+        _ => None,
+    }
 }
 
 fn field_budget(a: &crate::syntax::ast::AgentDecl) -> (Option<u64>, Option<u64>) {
@@ -934,7 +1039,70 @@ pub fn run_main_with_full_cfg_argv(
     full_record: bool,
     argv: &[String],
 ) -> Result<Value, EvalError> {
-    let mut env = build_module_env(m, tracer.clone(), ai_backend, replay_tape, full_record);
+    run_main_with_full_cfg_argv_l2(
+        m,
+        cap,
+        tracer,
+        ai_backend,
+        replay_tape,
+        full_record,
+        argv,
+        None,
+    )
+}
+
+/// M22.T4 — same as [`run_main_with_full_cfg_argv`] but accepts
+/// an `L2Backends` override built from the manifest's `[l2.*]`
+/// tables. Used by the CLI driver.
+pub fn run_main_with_full_cfg_argv_l2(
+    m: &Module,
+    cap: super::value::CapValue,
+    tracer: Option<super::trace::Tracer>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    replay_tape: Option<crate::runtime::replay::TapeHandle>,
+    full_record: bool,
+    argv: &[String],
+    l2_override: Option<Rc<super::l2_backend::L2Backends>>,
+) -> Result<Value, EvalError> {
+    run_main_with_full_cfg_argv_full(
+        m,
+        cap,
+        tracer,
+        ai_backend,
+        replay_tape,
+        full_record,
+        argv,
+        l2_override,
+        None,
+    )
+}
+
+/// M42 — full-power entry: superset of
+/// [`run_main_with_full_cfg_argv_l2`] that also threads the
+/// manifest's `[policies] active = [..]` filter through.
+/// Single CLI code path so a project with policies *and* a real
+/// `[ai.backend]` / `[l2.*]` config gets all three honoured.
+#[allow(clippy::too_many_arguments)]
+pub fn run_main_with_full_cfg_argv_full(
+    m: &Module,
+    cap: super::value::CapValue,
+    tracer: Option<super::trace::Tracer>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    replay_tape: Option<crate::runtime::replay::TapeHandle>,
+    full_record: bool,
+    argv: &[String],
+    l2_override: Option<Rc<super::l2_backend::L2Backends>>,
+    active_policy_names: Option<&[String]>,
+) -> Result<Value, EvalError> {
+    let mut env = build_module_env_full(
+        m,
+        tracer.clone(),
+        ai_backend,
+        replay_tape,
+        full_record,
+        l2_override,
+        active_policy_names,
+    );
     // M15 — prototype mode requires a fallback path for `cap` look-ups
     // in functions that do not declare the parameter. Register the
     // synthesised cap into the module scope so `env.lookup("cap")`
@@ -1032,60 +1200,19 @@ pub fn run_main_with_active_policies_argv(
     active_policy_names: &[String],
     argv: &[String],
 ) -> Result<Value, EvalError> {
-    let module: ModuleScope = std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()));
-    let (records, models, _) = collect_decls(m);
-    let policies = select_active_policies(m, active_policy_names);
-    let records_rc = Rc::new(records);
-    let models_rc = Rc::new(models);
-    let policies_rc = Rc::new(policies);
-    let imports = extract_imported_modules(m);
-    register_decls(
+    // M42 — collapse this entry into the full-power one; library
+    // callers (the three test fixtures) keep working unchanged.
+    run_main_with_full_cfg_argv_full(
         m,
-        &module,
-        &records_rc,
-        &models_rc,
-        &policies_rc,
-        tracer.clone(),
-        None,
+        cap,
+        tracer,
         None,
         None,
         false,
-        &imports,
-    );
-    let mut env = Env::new()
-        .with_module(module)
-        .with_record_decls(records_rc)
-        .with_model_decls(models_rc)
-        .with_policies(policies_rc)
-        .with_imported_modules(imports);
-    if let Some(t) = tracer.clone() {
-        env = env.with_tracer(t);
-    }
-    let main = env
-        .lookup("main")
-        .ok_or_else(|| EvalError::new(EvalErrorKind::UndefinedVar("main".into()), Span::ZERO))?;
-    let main_closure = match &main {
-        Value::Closure(c) => c.clone(),
-        _ => {
-            return Err(EvalError::new(
-                EvalErrorKind::NotCallable("main".into()),
-                Span::ZERO,
-            ))
-        }
-    };
-    let args = bind_main_args(&main_closure, std::rc::Rc::new(cap), argv);
-    if let Some(t) = &tracer {
-        t.intent_enter("aeris run", Some("main"));
-    }
-    let flow = invoke_value(&main, &args, Span::ZERO);
-    let outcome = match &flow {
-        Ok(_) => "ok",
-        Err(_) => "err",
-    };
-    if let Some(t) = &tracer {
-        t.intent_exit(outcome);
-    }
-    flow?.into_value(Span::ZERO)
+        argv,
+        None,
+        Some(active_policy_names),
+    )
 }
 
 /// Same as [`run_main`] but lets the caller attach a `Tracer`.
@@ -1145,7 +1272,58 @@ pub fn run_main_with_argv(
 /// value returned by the body is treated as success), or the first
 /// `EvalError` raised. `assert` failure surfaces as `Raised(...)`.
 pub fn run_test(m: &Module, test: &crate::syntax::ast::TestDecl) -> Result<(), EvalError> {
-    let mut env = eval_module_env(m);
+    run_test_with_cfg(m, test, &TestConfig::default())
+}
+
+/// M43 — runtime knobs threaded into every test body. Built by the
+/// CLI from the same `aeris.toml` `cmd_run` consumes (`[caps]`,
+/// `[ai.backend]`, `[l2.*]`, `[policies] active = [..]`). The
+/// default carries no cap and no overrides, matching the
+/// historical pre-M43 behaviour for library callers that pass
+/// `&TestConfig::default()`.
+#[derive(Default)]
+pub struct TestConfig {
+    pub cap: Option<super::value::CapValue>,
+    pub tracer: Option<super::trace::Tracer>,
+    pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    pub l2_backends: Option<Rc<super::l2_backend::L2Backends>>,
+    pub active_policy_names: Option<Vec<String>>,
+}
+
+/// M43 — same as [`run_test`] but threads the project's manifest
+/// configuration into the test body. Without this the body has
+/// no `cap` in scope and any cap-gated call (every L1 / L2
+/// builtin, every `assert_semantic`) raises
+/// `PolicyViolation`. The `cmd_test` driver routes through here
+/// after parsing `aeris.toml`.
+pub fn run_test_with_cfg(
+    m: &Module,
+    test: &crate::syntax::ast::TestDecl,
+    cfg: &TestConfig,
+) -> Result<(), EvalError> {
+    let active = cfg.active_policy_names.as_deref();
+    let mut env = build_module_env_full(
+        m,
+        cfg.tracer.clone(),
+        cfg.ai_backend.clone(),
+        None,
+        false,
+        cfg.l2_backends.clone(),
+        active,
+    );
+    // M15 + M43: expose `cap` to the test body just like `cmd_run`
+    // does for `main`. Functions called from the body that
+    // declare their own `cap: cap[..]` parameter still shadow
+    // this binding; the synthesised cap is the fallback.
+    if let Some(cap) = &cfg.cap {
+        let cap_rc = std::rc::Rc::new(cap.clone());
+        if let Some(scope) = &env.module {
+            scope
+                .borrow_mut()
+                .insert("cap".to_string(), Value::Cap(cap_rc.clone()));
+        }
+        env.bind_let("cap", Value::Cap(cap_rc));
+    }
     eval_block(&test.body, &mut env)?;
     Ok(())
 }
@@ -1193,12 +1371,63 @@ pub fn build_module_env(
     replay_tape: Option<crate::runtime::replay::TapeHandle>,
     full_record: bool,
 ) -> Env {
+    build_module_env_with_l2(m, tracer, ai_backend, replay_tape, full_record, None)
+}
+
+/// M22.T4 — same as [`build_module_env`] but accepts an
+/// `L2Backends` override. The CLI uses this once it has parsed
+/// `aeris.toml [l2.*]`; everywhere else (tests, library
+/// callers) `None` keeps the historical all-mock default.
+pub fn build_module_env_with_l2(
+    m: &Module,
+    tracer: Option<super::trace::Tracer>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    replay_tape: Option<crate::runtime::replay::TapeHandle>,
+    full_record: bool,
+    l2_override: Option<Rc<super::l2_backend::L2Backends>>,
+) -> Env {
+    build_module_env_full(
+        m,
+        tracer,
+        ai_backend,
+        replay_tape,
+        full_record,
+        l2_override,
+        None,
+    )
+}
+
+/// M42 — superset of [`build_module_env_with_l2`] that also accepts
+/// `active_policy_names` from the manifest's `[policies] active =
+/// [..]`. When `Some`, only the listed policies survive the
+/// `select_active_policies` filter; when `None`, every declared
+/// policy stays active (Mode 1 default). Centralising the build
+/// here means `[ai.backend]`, `[l2.*]`, replay tape, and trace
+/// settings all reach `register_decls` regardless of whether the
+/// caller also restricted the policy set.
+#[allow(clippy::too_many_arguments)]
+pub fn build_module_env_full(
+    m: &Module,
+    tracer: Option<super::trace::Tracer>,
+    ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    replay_tape: Option<crate::runtime::replay::TapeHandle>,
+    full_record: bool,
+    l2_override: Option<Rc<super::l2_backend::L2Backends>>,
+    active_policy_names: Option<&[String]>,
+) -> Env {
     let module: ModuleScope = std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()));
     let (records, models, policies) = collect_decls(m);
+    let policies = if let Some(names) = active_policy_names {
+        select_active_policies(m, names)
+    } else {
+        policies
+    };
     let records_rc = Rc::new(records);
     let models_rc = Rc::new(models);
     let policies_rc = Rc::new(policies);
     let imports = extract_imported_modules(m);
+    let l2_backends: Rc<super::l2_backend::L2Backends> = l2_override
+        .unwrap_or_else(|| Rc::new(super::l2_backend::L2Backends::default()));
     register_decls(
         m,
         &module,
@@ -1211,6 +1440,7 @@ pub fn build_module_env(
         replay_tape.clone(),
         full_record,
         &imports,
+        &l2_backends,
     );
     let mut env = Env::new()
         .with_module(module)
@@ -1218,7 +1448,8 @@ pub fn build_module_env(
         .with_model_decls(models_rc)
         .with_policies(policies_rc)
         .with_full_record(full_record)
-        .with_imported_modules(imports);
+        .with_imported_modules(imports)
+        .with_l2_backends(l2_backends);
     if let Some(t) = tracer {
         env = env.with_tracer(t);
     }
@@ -1305,6 +1536,8 @@ pub fn eval_module_env_with_tracer(m: &Module, tracer: super::trace::Tracer) -> 
     let models_rc = Rc::new(models);
     let policies_rc = Rc::new(policies);
     let imports = extract_imported_modules(m);
+    let l2_backends: Rc<super::l2_backend::L2Backends> =
+        Rc::new(super::l2_backend::L2Backends::default());
     register_decls(
         m,
         &module,
@@ -1317,6 +1550,7 @@ pub fn eval_module_env_with_tracer(m: &Module, tracer: super::trace::Tracer) -> 
         None,
         false,
         &imports,
+        &l2_backends,
     );
     Env::new()
         .with_module(module)
@@ -1325,6 +1559,7 @@ pub fn eval_module_env_with_tracer(m: &Module, tracer: super::trace::Tracer) -> 
         .with_model_decls(models_rc)
         .with_imported_modules(imports)
         .with_policies(policies_rc)
+        .with_l2_backends(l2_backends)
 }
 
 /// Parse and evaluate a single expression. Convenience entry used by
@@ -1740,6 +1975,7 @@ fn eval_expr(e: &Expr, env: &mut Env) -> Result<Flow, EvalError> {
             replay_tape: env.replay_tape.clone(),
             full_record: env.full_record,
             imported_modules: env.imported_modules.clone(),
+            l2_backends: env.l2_backends.clone(),
             requires: Vec::new(),
             ensures: Vec::new(),
             name: None,
@@ -2713,7 +2949,7 @@ fn expect_bool(v: &Value, span: Span) -> Result<bool, EvalError> {
     }
 }
 
-fn value_kind(v: &Value) -> &'static str {
+pub(crate) fn value_kind(v: &Value) -> &'static str {
     match v {
         Value::Unit => "unit",
         Value::Bool(_) => "bool",
@@ -4952,7 +5188,7 @@ fn epoch_days_to_ymd(days: i64) -> (i32, u32, u32) {
     (y, m, d)
 }
 
-fn record_event(env: &Env, kind: &str, fields: Vec<(String, String)>) {
+pub(crate) fn record_event(env: &Env, kind: &str, fields: Vec<(String, String)>) {
     if let Some(t) = env.tracer() {
         t.record(kind, None, fields);
     }
@@ -5387,12 +5623,27 @@ fn compose_agent_prompt(agent: &super::value::AgentInstance, input: &Value) -> S
     // the prompt, so tests can assert that the contract appendix is
     // present (M10.T3 acceptance).
     let input_json = value_to_natural_json(input);
+    let schema_block = agent
+        .model_decls
+        .as_ref()
+        .map(|decls| {
+            let sketch = render_model_schema(decls, &agent.produce.0, agent.produce.1);
+            format!("\nschema : {produce}@v{produce_v} =\n{sketch}\n",
+                produce = agent.produce.0,
+                produce_v = agent.produce.1)
+        })
+        .unwrap_or_default();
     format!(
         "{user}\n\n--- aeris.routing.contract ---\n\
          input  : {accept}@v{accept_v}\n\
          output : {produce}@v{produce_v}\n\
          intent : {intent}\n\
-         payload: {input_json}\n",
+         payload: {input_json}{schema_block}\n\
+         Respond with one JSON object whose top-level fields match \
+         the {produce}@v{produce_v} schema exactly. Do not wrap it \
+         in any outer key (no \"result\", \"data\", \"draft\", \
+         etc.). Do not wrap it in code fences. Do not add prose \
+         before or after the object.\n",
         user = agent.prompt,
         accept = agent.accept.0,
         accept_v = agent.accept.1,
@@ -5400,7 +5651,100 @@ fn compose_agent_prompt(agent: &super::value::AgentInstance, input: &Value) -> S
         produce_v = agent.produce.1,
         intent = agent.intent,
         input_json = input_json,
+        schema_block = schema_block,
     )
+}
+
+/// Render the structural sketch of a `ModelDecl` for the agent prompt.
+/// Sub-models referenced by field types are expanded inline so the
+/// LLM sees the full shape it must produce. Cycles are broken with a
+/// `<X@vN … recursive>` placeholder.
+fn render_model_schema(
+    decls: &HashMap<(String, u32), ModelDecl>,
+    name: &str,
+    version: u32,
+) -> String {
+    let mut seen = std::collections::HashSet::new();
+    render_model_inline(decls, name, version, &mut seen, 0)
+}
+
+fn render_model_inline(
+    decls: &HashMap<(String, u32), ModelDecl>,
+    name: &str,
+    version: u32,
+    seen: &mut std::collections::HashSet<(String, u32)>,
+    depth: usize,
+) -> String {
+    let key = (name.to_string(), version);
+    if !seen.insert(key.clone()) {
+        return format!("<{name}@v{version} … recursive>");
+    }
+    let decl = match decls.get(&key) {
+        Some(d) => d,
+        None => {
+            seen.remove(&key);
+            return format!("<{name}@v{version} … not declared>");
+        }
+    };
+    let pad = "  ".repeat(depth + 1);
+    let close_pad = "  ".repeat(depth);
+    let mut out = String::from("{\n");
+    for (i, f) in decl.fields.iter().enumerate() {
+        if i > 0 {
+            out.push_str(",\n");
+        }
+        out.push_str(&pad);
+        out.push('"');
+        out.push_str(&f.name);
+        out.push_str("\": ");
+        out.push_str(&render_type_for_prompt(&f.ty, decls, seen, depth + 1));
+    }
+    out.push('\n');
+    out.push_str(&close_pad);
+    out.push('}');
+    seen.remove(&key);
+    out
+}
+
+fn render_type_for_prompt(
+    t: &Type,
+    decls: &HashMap<(String, u32), ModelDecl>,
+    seen: &mut std::collections::HashSet<(String, u32)>,
+    depth: usize,
+) -> String {
+    match t {
+        Type::Named { name, .. } => name.clone(),
+        Type::Generic { name, args, .. } => {
+            let rendered: Vec<String> = args
+                .iter()
+                .map(|a| render_type_for_prompt(a, decls, seen, depth))
+                .collect();
+            match name.as_str() {
+                "list" | "set" => format!("[ {} ]", rendered.join(", ")),
+                "map" => {
+                    let k = rendered.first().cloned().unwrap_or_default();
+                    let v = rendered.get(1).cloned().unwrap_or_default();
+                    format!("{{ {k}: {v}, ... }}")
+                }
+                "option" => format!("({} | null)", rendered.join(", ")),
+                "result" => rendered.into_iter().next().unwrap_or_default(),
+                _ => format!("{name}<{}>", rendered.join(", ")),
+            }
+        }
+        Type::Model { name, version, .. } => {
+            render_model_inline(decls, name, *version, seen, depth)
+        }
+        Type::Tuple { elems, .. } if elems.is_empty() => "null".into(),
+        Type::Tuple { elems, .. } => {
+            let inner: Vec<String> = elems
+                .iter()
+                .map(|e| render_type_for_prompt(e, decls, seen, depth))
+                .collect();
+            format!("[ {} ]", inner.join(", "))
+        }
+        Type::Cap { .. } => "<cap>".into(),
+        Type::Fn { .. } => "<fn>".into(),
+    }
 }
 
 fn value_to_natural_json(v: &Value) -> String {
@@ -5516,7 +5860,58 @@ fn decode_agent_response(
     span: Span,
 ) -> Result<Value, EvalError> {
     let (model_name, version) = &agent.produce;
-    decode_and_validate_model(env, resp, model_name, *version, span)
+    let cleaned = extract_json_object(resp);
+    decode_and_validate_model(env, cleaned, model_name, *version, span)
+}
+
+/// Best-effort recovery for LLM responses that don't arrive as a
+/// bare JSON object: strip a leading ```` ```json ```` (or ```` ``` ````)
+/// code fence, otherwise locate the first balanced `{…}` and return
+/// its slice. Strings inside the object are honoured so a `}` inside
+/// a quoted value doesn't close the scan early. Falls back to the
+/// trimmed input when neither shape is found, letting the JSON parser
+/// surface its own diagnostic.
+fn extract_json_object(s: &str) -> &str {
+    let trimmed = s.trim();
+    if let Some(rest) = trimmed.strip_prefix("```") {
+        let after_tag = match rest.find('\n') {
+            Some(i) => &rest[i + 1..],
+            None => rest,
+        };
+        if let Some(end) = after_tag.rfind("```") {
+            return after_tag[..end].trim();
+        }
+    }
+    let bytes = trimmed.as_bytes();
+    if let Some(start) = bytes.iter().position(|&b| b == b'{') {
+        let mut depth: i32 = 0;
+        let mut in_str = false;
+        let mut esc = false;
+        for (i, &c) in bytes.iter().enumerate().skip(start) {
+            if in_str {
+                if esc {
+                    esc = false;
+                } else if c == b'\\' {
+                    esc = true;
+                } else if c == b'"' {
+                    in_str = false;
+                }
+                continue;
+            }
+            match c {
+                b'"' => in_str = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return trimmed[start..=i].trim();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    trimmed
 }
 
 fn validate_against_model(
@@ -6467,23 +6862,37 @@ fn do_http(
         .map(|t| t.trace_id())
         .unwrap_or_else(|| "00000000000000000000000000".into());
     let idem = env.idempotency_key().map(|s| s.to_string());
-    let resp = super::http::do_request(
+    // Transport-layer failures (DNS lookup, TCP connect refused,
+    // socket timeout, malformed response …) come back from the
+    // tiny HTTP client as `super::http::HttpError`. The spec
+    // (§ 18.1) classifies them as `err.net` — i.e. they belong to
+    // the program's `result<T>` channel, not the fatal `EvalError`
+    // channel. Returning `Ok(Value::err(...))` here lets the
+    // caller recover with `catch err { ... }` or propagate with `?`.
+    let resp = match super::http::do_request(
         method,
         &url,
         &body,
         &trace_id,
         idem.as_deref(),
         content_type.as_deref(),
-    )
-    .map_err(|e| {
-        EvalError::new(
-            EvalErrorKind::Io {
-                op: format!("http.{op}"),
-                message: format!("{e}"),
-            },
-            span,
-        )
-    })?;
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!("{e}");
+            let mut fields = vec![
+                ("url".into(), format!("\"{url}\"")),
+                ("host".into(), format!("\"{host}\"")),
+                ("method".into(), format!("\"{}\"", method)),
+                ("error".into(), format!("\"{}\"", msg.replace('"', "\\\""))),
+            ];
+            if let Some(k) = &idem {
+                fields.push(("idempotency".into(), format!("\"{k}\"")));
+            }
+            record_event(env, "http_call", fields);
+            return Ok(Value::err(Value::Str(msg)));
+        }
+    };
     let resp_hash = hex16(fnv1a_64(&resp.body));
     let mut fields = vec![
         ("url".into(), format!("\"{url}\"")),
@@ -6555,7 +6964,11 @@ fn require_model_arg(
 /// model decl drives the conversion; mismatches surface as schema
 /// problems rather than silent casts (e.g. JSON `42` into a `decimal`
 /// field is rejected, not promoted).
-fn coerce_to_field_type(raw: Value, declared: &crate::syntax::ast::Type) -> Result<Value, String> {
+fn coerce_to_field_type(
+    raw: Value,
+    declared: &crate::syntax::ast::Type,
+    decls: &HashMap<(String, u32), ModelDecl>,
+) -> Result<Value, String> {
     use crate::syntax::ast::Type;
     match (declared, raw) {
         (Type::Named { name, .. }, v) => {
@@ -6577,6 +6990,63 @@ fn coerce_to_field_type(raw: Value, declared: &crate::syntax::ast::Type) -> Resu
                 )),
             }
         }
+        // `list<T>` / `set<T>` — coerce each element against `T`.
+        (Type::Generic { name, args, .. }, Value::List(items))
+            if (name == "list" || name == "set") && !args.is_empty() =>
+        {
+            let elem_ty = &args[0];
+            let mut out = Vec::with_capacity(items.len());
+            for (i, item) in items.into_iter().enumerate() {
+                let coerced = coerce_to_field_type(item, elem_ty, decls)
+                    .map_err(|e| format!("[{i}] {e}"))?;
+                out.push(coerced);
+            }
+            Ok(Value::List(out))
+        }
+        // `option<T>` — JSON `null` (carried as `Value::Unit`) is
+        // `None`; anything else is coerced and wrapped in `Some`.
+        (Type::Generic { name, args, .. }, Value::Unit)
+            if name == "option" && !args.is_empty() =>
+        {
+            Ok(Value::Option(None))
+        }
+        (Type::Generic { name, args, .. }, v) if name == "option" && !args.is_empty() => {
+            let inner = coerce_to_field_type(v, &args[0], decls)?;
+            Ok(Value::Option(Some(Box::new(inner))))
+        }
+        // `Foo@vN` — recurse into the sub-model's declared fields.
+        // Unknown fields stay raw so a parent `check_model` can flag
+        // them; `where` invariants on sub-models are not re-checked
+        // here (decode is structural, the parent path validates the
+        // top-level model only).
+        (Type::Model { name, version, .. }, Value::Record(r)) => {
+            let key = (name.clone(), *version);
+            let decl = decls.get(&key).ok_or_else(|| {
+                format!("model `{name}@v{version}` not declared")
+            })?;
+            let mut typed: Vec<(String, Value)> = Vec::with_capacity(r.fields.len());
+            let mut problems: Vec<String> = Vec::new();
+            for (k, v) in r.fields {
+                match decl.fields.iter().find(|f| f.name == k) {
+                    Some(f) => match coerce_to_field_type(v, &f.ty, decls) {
+                        Ok(coerced) => typed.push((k, coerced)),
+                        Err(msg) => problems.push(format!("field `{k}`: {msg}")),
+                    },
+                    None => typed.push((k, v)),
+                }
+            }
+            if !problems.is_empty() {
+                return Err(problems.join("; "));
+            }
+            Ok(Value::Record(super::value::RecordValue {
+                name: Some(name.clone()),
+                fields: typed,
+            }))
+        }
+        (Type::Model { name, version, .. }, got) => Err(format!(
+            "expected `{name}@v{version}` object, got JSON value of kind `{}`",
+            value_kind(&got)
+        )),
         (other, v) => Err(format!(
             "field type `{other:?}` is not yet supported by `json.decode`; got `{}`",
             value_kind(&v)
@@ -6635,7 +7105,7 @@ fn decode_and_validate_model(
     let mut problems: Vec<String> = Vec::new();
     for (k, v) in raw {
         match decl.fields.iter().find(|f| f.name == k) {
-            Some(f) => match coerce_to_field_type(v, &f.ty) {
+            Some(f) => match coerce_to_field_type(v, &f.ty, &decls) {
                 Ok(coerced) => typed.push((k, coerced)),
                 Err(msg) => problems.push(format!("field `{k}`: {msg}")),
             },
@@ -7377,16 +7847,22 @@ fn builtin_ai_usage(env: &Env, args: &[Value], span: Span) -> Result<Value, Eval
 // ---- audit ---------------------------------------------------------
 
 thread_local! {
-    /// Per-thread override of the audit log destination — set by tests
-    /// to keep parallel runs from racing on a shared file. Production
-    /// callers read `AERIS_AUDIT_LOG_PATH` or fall back to the default.
+    /// Per-thread override of the audit log destination. Two callers:
+    ///
+    /// * **CLI driver (M41)**: `cmd_run` resolves
+    ///   `<project_root>/<runtime.output_dir>/audit.jsonl` once the
+    ///   manifest is parsed and pins it here so `audit.event` writes
+    ///   next to the project — not next to the shell's cwd.
+    /// * **Tests**: pin a per-thread tmp path so parallel runs don't
+    ///   race on a shared file.
     static AUDIT_LOG_OVERRIDE: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// Tests-only: pin the audit log destination for the current thread.
-#[cfg(test)]
-pub(crate) fn set_audit_log_override(p: std::path::PathBuf) {
+/// Pin the audit log destination for the current thread. Used by the
+/// CLI (M41) once the project root is known, and by tests to avoid
+/// shared-file races.
+pub fn set_audit_log_override(p: std::path::PathBuf) {
     AUDIT_LOG_OVERRIDE.with(|c| *c.borrow_mut() = Some(p));
 }
 
@@ -7407,9 +7883,23 @@ fn builtin_audit_event(env: &Env, args: &[Value], span: Span) -> Result<Value, E
     arity_check("audit.event", 2, args, span)?;
     let event = expect_string("audit.event name", &args[0], span)?;
     enforce_simple_cap_or_violation(env, "audit", "event", span)?;
-    let payload = match &args[1] {
+    env.l2_backends.audit.event(env, &event, &args[1], span)
+}
+
+/// Mock backend for `audit.event` (M22.T1). Body lifted verbatim
+/// from the historical `builtin_audit_event`: builds the JSONL
+/// payload and appends it to the per-trace audit log file. Cap
+/// enforcement happens upstream in the dispatch site.
+pub(crate) fn mock_audit_event(
+    env: &Env,
+    event: &str,
+    payload_value: &Value,
+    span: Span,
+) -> Result<Value, EvalError> {
+    let event = event.to_string();
+    let payload = match payload_value {
         Value::Record(r) => value_to_natural_json(&Value::Record(r.clone())),
-        Value::Map(_) | Value::List(_) => value_to_natural_json(&args[1]),
+        Value::Map(_) | Value::List(_) => value_to_natural_json(payload_value),
         Value::Str(s) => format!("\"{}\"", json_escape_for_natural(s)),
         other => format!("\"{}\"", json_escape_for_natural(&value_as_display(other))),
     };
@@ -7581,7 +8071,80 @@ fn builtin_kube_apply(env: &Env, args: &[Value], span: Span) -> Result<Value, Ev
     arity_check("kube.apply", 1, args, span)?;
     enforce_simple_cap_or_violation(env, "kube", "apply", span)?;
     let manifest = expect_string("kube.apply manifest", &args[0], span)?;
-    let manifest = annotate_manifest_with_idem(&manifest, env.idempotency_key());
+    env.l2_backends.kube.apply(env, &manifest, span)
+}
+
+fn builtin_kube_delete(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("kube.delete", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "kube", "delete", span)?;
+    let target = expect_string("kube.delete target", &args[0], span)?;
+    env.l2_backends.kube.delete(env, &target, span)
+}
+
+fn builtin_kube_get(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("kube.get", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "kube", "get", span)?;
+    let target = expect_string("kube.get target", &args[0], span)?;
+    env.l2_backends.kube.get(env, &target, span)
+}
+
+fn builtin_kube_watch(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("kube.watch", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "kube", "watch", span)?;
+    let target = expect_string("kube.watch target", &args[0], span)?;
+    env.l2_backends.kube.watch(env, &target, span)
+}
+
+// ---- kube backend bodies (M22.T7) ----
+//
+// `mock_kube_*` is trace-only: records the event and returns
+// `Ok(())` without shelling out. `real_kube_*` shells out to
+// `kubectl` exactly as M11 did. `[l2.kube] backend = "real"`
+// in `aeris.toml` selects the real path; the default `"mock"`
+// keeps tests and demos offline-friendly.
+
+pub(crate) fn mock_kube_apply(
+    env: &Env,
+    _manifest: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_kube_event(env, "apply", "manifest");
+    Ok(Value::ok(Value::Unit))
+}
+
+pub(crate) fn mock_kube_delete(
+    env: &Env,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_kube_event(env, "delete", target);
+    Ok(Value::ok(Value::Unit))
+}
+
+pub(crate) fn mock_kube_get(
+    env: &Env,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_kube_event(env, "get", target);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_kube_watch(
+    env: &Env,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_kube_event(env, "watch", target);
+    Ok(Value::ok(Value::Unit))
+}
+
+pub(crate) fn real_kube_apply(
+    env: &Env,
+    manifest: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    let manifest = annotate_manifest_with_idem(manifest, env.idempotency_key());
     record_kube_event(env, "apply", "manifest");
     match run_kubectl(env, &["apply", "-f", "-"], Some(manifest.as_bytes())) {
         Ok((0, _, _)) => Ok(Value::ok(Value::Unit)),
@@ -7593,12 +8156,13 @@ fn builtin_kube_apply(env: &Env, args: &[Value], span: Span) -> Result<Value, Ev
     }
 }
 
-fn builtin_kube_delete(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("kube.delete", 1, args, span)?;
-    enforce_simple_cap_or_violation(env, "kube", "delete", span)?;
-    let target = expect_string("kube.delete target", &args[0], span)?;
-    record_kube_event(env, "delete", &target);
-    match run_kubectl(env, &["delete", &target], None) {
+pub(crate) fn real_kube_delete(
+    env: &Env,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_kube_event(env, "delete", target);
+    match run_kubectl(env, &["delete", target], None) {
         Ok((0, _, _)) => Ok(Value::ok(Value::Unit)),
         Ok((code, _, stderr)) => Ok(Value::err(Value::Str(format!(
             "kubectl delete exit {code}: {}",
@@ -7608,12 +8172,13 @@ fn builtin_kube_delete(env: &Env, args: &[Value], span: Span) -> Result<Value, E
     }
 }
 
-fn builtin_kube_get(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("kube.get", 1, args, span)?;
-    enforce_simple_cap_or_violation(env, "kube", "get", span)?;
-    let target = expect_string("kube.get target", &args[0], span)?;
-    record_kube_event(env, "get", &target);
-    match run_kubectl(env, &["get", &target, "-o", "json"], None) {
+pub(crate) fn real_kube_get(
+    env: &Env,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_kube_event(env, "get", target);
+    match run_kubectl(env, &["get", target, "-o", "json"], None) {
         Ok((0, stdout, _)) => Ok(Value::ok(Value::Str(
             String::from_utf8_lossy(&stdout).into_owned(),
         ))),
@@ -7625,14 +8190,15 @@ fn builtin_kube_get(env: &Env, args: &[Value], span: Span) -> Result<Value, Eval
     }
 }
 
-fn builtin_kube_watch(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("kube.watch", 1, args, span)?;
-    enforce_simple_cap_or_violation(env, "kube", "watch", span)?;
-    let target = expect_string("kube.watch target", &args[0], span)?;
-    record_kube_event(env, "watch", &target);
-    // `watch` is a streaming op — for v0.2 we surface a stub that
-    // returns immediately; full streaming arrives with the agent_net /
-    // long-running cap work post-M11.
+pub(crate) fn real_kube_watch(
+    env: &Env,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_kube_event(env, "watch", target);
+    // `watch` is a streaming op — full streaming arrives with the
+    // agent_net / long-running cap work post-M11; the real backend
+    // currently no-ops after recording the trace event, same as Mock.
     Ok(Value::ok(Value::Unit))
 }
 
@@ -7659,8 +8225,10 @@ fn record_docker_event(env: &Env, op: &str, argv: &[&str]) {
     record_event(env, &format!("docker_{op}"), fields);
 }
 
-fn docker_simple(env: &Env, op: &str, argv: &[&str], span: Span) -> Result<Value, EvalError> {
-    enforce_simple_cap_or_violation(env, "docker", op, span)?;
+fn docker_simple(env: &Env, op: &str, argv: &[&str], _span: Span) -> Result<Value, EvalError> {
+    // Cap enforcement happens upstream in `builtin_docker_*`
+    // (M22.T1): the backend is invoked only after cap and arity
+    // checks pass.
     record_docker_event(env, op, argv);
     match run_docker(argv) {
         Ok((0, stdout, _)) => Ok(Value::ok(Value::Str(
@@ -7676,32 +8244,101 @@ fn docker_simple(env: &Env, op: &str, argv: &[&str], span: Span) -> Result<Value
 
 fn builtin_docker_run(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("docker.run", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "run", span)?;
     let image = expect_string("docker.run image", &args[0], span)?;
-    docker_simple(env, "run", &["run", "--rm", &image], span)
+    env.l2_backends.docker.run(env, &image, span)
 }
 
 fn builtin_docker_build(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("docker.build", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "build", span)?;
     let ctx = expect_string("docker.build context", &args[0], span)?;
-    docker_simple(env, "build", &["build", &ctx], span)
+    env.l2_backends.docker.build(env, &ctx, span)
 }
 
 fn builtin_docker_push(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("docker.push", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "push", span)?;
     let image = expect_string("docker.push image", &args[0], span)?;
-    docker_simple(env, "push", &["push", &image], span)
+    env.l2_backends.docker.push(env, &image, span)
 }
 
 fn builtin_docker_pull(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("docker.pull", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "pull", span)?;
     let image = expect_string("docker.pull image", &args[0], span)?;
-    docker_simple(env, "pull", &["pull", &image], span)
+    env.l2_backends.docker.pull(env, &image, span)
 }
 
 fn builtin_docker_inspect(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("docker.inspect", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "inspect", span)?;
     let target = expect_string("docker.inspect target", &args[0], span)?;
-    docker_simple(env, "inspect", &["inspect", &target], span)
+    env.l2_backends.docker.inspect(env, &target, span)
+}
+
+// ---- docker backend bodies (M22.T6) ----
+//
+// `mock_docker_*` is trace-only: records the event and returns
+// `Ok(Value::Str(""))` without spawning a process. `real_docker_*`
+// shells out to `docker` exactly as M11 did. `[l2.docker]
+// backend = "real"` selects the real path.
+
+fn record_docker_trace_only(env: &Env, op: &str, target: &str) {
+    record_docker_event(env, op, &[op, target]);
+}
+
+pub(crate) fn mock_docker_run(env: &Env, image: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_trace_only(env, "run", image);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_docker_build(env: &Env, ctx: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_trace_only(env, "build", ctx);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_docker_push(env: &Env, image: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_trace_only(env, "push", image);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_docker_pull(env: &Env, image: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_trace_only(env, "pull", image);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_docker_inspect(
+    env: &Env,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_docker_trace_only(env, "inspect", target);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn real_docker_run(env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "run", &["run", "--rm", image], span)
+}
+
+pub(crate) fn real_docker_build(env: &Env, ctx: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "build", &["build", ctx], span)
+}
+
+pub(crate) fn real_docker_push(env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "push", &["push", image], span)
+}
+
+pub(crate) fn real_docker_pull(env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "pull", &["pull", image], span)
+}
+
+pub(crate) fn real_docker_inspect(
+    env: &Env,
+    target: &str,
+    span: Span,
+) -> Result<Value, EvalError> {
+    docker_simple(env, "inspect", &["inspect", target], span)
 }
 
 // ---- mongodb / minio / rabbitmq stubs ------------------------------
@@ -7718,9 +8355,17 @@ fn record_l2_stub_event(env: &Env, kind: &str, fields: Vec<(String, String)>) {
 
 fn builtin_mongodb_read(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("mongodb.read", 2, args, span)?;
-    let coll = expect_string("mongodb.read collection", &args[0], span)?;
-    let _query = &args[1];
     enforce_simple_cap_or_violation(env, "mongodb", "read", span)?;
+    let coll = expect_string("mongodb.read collection", &args[0], span)?;
+    env.l2_backends.mongodb.read(env, &coll, &args[1], span)
+}
+
+pub(crate) fn mock_mongodb_read(
+    env: &Env,
+    coll: &str,
+    _query: &Value,
+    _span: Span,
+) -> Result<Value, EvalError> {
     record_l2_stub_event(
         env,
         "mongodb_read",
@@ -7758,15 +8403,24 @@ fn inject_mongodb_idem_sentinel(doc: &Value, idem: &str) -> Value {
 
 fn builtin_mongodb_write(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("mongodb.write", 2, args, span)?;
-    let coll = expect_string("mongodb.write collection", &args[0], span)?;
     enforce_simple_cap_or_violation(env, "mongodb", "write", span)?;
+    let coll = expect_string("mongodb.write collection", &args[0], span)?;
+    env.l2_backends.mongodb.write(env, &coll, &args[1], span)
+}
+
+pub(crate) fn mock_mongodb_write(
+    env: &Env,
+    coll: &str,
+    doc: &Value,
+    _span: Span,
+) -> Result<Value, EvalError> {
     let mut fields = vec![("collection".into(), format!("\"{coll}\""))];
     if let Some(k) = env.idempotency_key() {
         // The mutated document is what `mongodb.write` would push to
         // the driver; in the stub we surface it on the trace event so
         // the M11.T4 acceptance ("idempotency sentinel injected") is
         // observable without a live Mongo instance.
-        let _mutated = inject_mongodb_idem_sentinel(&args[1], k);
+        let _mutated = inject_mongodb_idem_sentinel(doc, k);
         fields.push(("idem".into(), format!("\"{k}\"")));
         fields.push((
             "sentinel".into(),
@@ -7827,6 +8481,51 @@ fn builtin_minio_get(env: &Env, args: &[Value], span: Span) -> Result<Value, Eva
     let bucket = expect_string("minio.get bucket", &args[0], span)?;
     let key = expect_string("minio.get key", &args[1], span)?;
     enforce_minio_bucket(env, "get", &bucket, span)?;
+    env.l2_backends.minio.get(env, &bucket, &key, span)
+}
+
+fn builtin_minio_put(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("minio.put", 3, args, span)?;
+    let bucket = expect_string("minio.put bucket", &args[0], span)?;
+    let key = expect_string("minio.put key", &args[1], span)?;
+    enforce_minio_bucket(env, "put", &bucket, span)?;
+    env.l2_backends
+        .minio
+        .put(env, &bucket, &key, &args[2], span)
+}
+
+fn builtin_minio_mb(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("minio.mb", 1, args, span)?;
+    let bucket = expect_string("minio.mb bucket", &args[0], span)?;
+    enforce_minio_bucket(env, "mb", &bucket, span)?;
+    env.l2_backends.minio.mb(env, &bucket, span)
+}
+
+fn builtin_minio_bucket_exists(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("minio.bucket_exists", 1, args, span)?;
+    let bucket = expect_string("minio.bucket_exists bucket", &args[0], span)?;
+    enforce_minio_bucket(env, "bucket_exists", &bucket, span)?;
+    env.l2_backends.minio.bucket_exists(env, &bucket, span)
+}
+
+fn builtin_minio_list(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("minio.list", 1, args, span)?;
+    let bucket = expect_string("minio.list bucket", &args[0], span)?;
+    enforce_minio_bucket(env, "list", &bucket, span)?;
+    env.l2_backends.minio.list(env, &bucket, span)
+}
+
+// M30.T5 — bucket-level mock backends. The runtime stays
+// mock-friendly: no real S3 call is issued; the trace event
+// records the intent so a later, real-backend implementation can
+// replace the body without changing user code.
+
+pub(crate) fn mock_minio_get(
+    env: &Env,
+    bucket: &str,
+    key: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
     record_l2_stub_event(
         env,
         "minio_get",
@@ -7838,11 +8537,13 @@ fn builtin_minio_get(env: &Env, args: &[Value], span: Span) -> Result<Value, Eva
     Ok(Value::ok(Value::Bytes(Vec::new())))
 }
 
-fn builtin_minio_put(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("minio.put", 3, args, span)?;
-    let bucket = expect_string("minio.put bucket", &args[0], span)?;
-    let key = expect_string("minio.put key", &args[1], span)?;
-    enforce_minio_bucket(env, "put", &bucket, span)?;
+pub(crate) fn mock_minio_put(
+    env: &Env,
+    bucket: &str,
+    key: &str,
+    _content: &Value,
+    _span: Span,
+) -> Result<Value, EvalError> {
     let mut fields = vec![
         ("bucket".into(), format!("\"{bucket}\"")),
         ("key".into(), format!("\"{key}\"")),
@@ -7854,14 +8555,11 @@ fn builtin_minio_put(env: &Env, args: &[Value], span: Span) -> Result<Value, Eva
     Ok(Value::ok(Value::Unit))
 }
 
-// M30.T5 — bucket-level stubs. The runtime stays mock-friendly: no
-// real S3 call is issued; the trace event records the intent so a
-// later, real-backend implementation can replace the body without
-// changing user code.
-fn builtin_minio_mb(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("minio.mb", 1, args, span)?;
-    let bucket = expect_string("minio.mb bucket", &args[0], span)?;
-    enforce_minio_bucket(env, "mb", &bucket, span)?;
+pub(crate) fn mock_minio_mb(
+    env: &Env,
+    bucket: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
     record_l2_stub_event(
         env,
         "minio_mb",
@@ -7870,10 +8568,11 @@ fn builtin_minio_mb(env: &Env, args: &[Value], span: Span) -> Result<Value, Eval
     Ok(Value::ok(Value::Unit))
 }
 
-fn builtin_minio_bucket_exists(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("minio.bucket_exists", 1, args, span)?;
-    let bucket = expect_string("minio.bucket_exists bucket", &args[0], span)?;
-    enforce_minio_bucket(env, "bucket_exists", &bucket, span)?;
+pub(crate) fn mock_minio_bucket_exists(
+    env: &Env,
+    bucket: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
     record_l2_stub_event(
         env,
         "minio_bucket_exists",
@@ -7885,10 +8584,11 @@ fn builtin_minio_bucket_exists(env: &Env, args: &[Value], span: Span) -> Result<
     Ok(Value::Bool(true))
 }
 
-fn builtin_minio_list(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("minio.list", 1, args, span)?;
-    let bucket = expect_string("minio.list bucket", &args[0], span)?;
-    enforce_minio_bucket(env, "list", &bucket, span)?;
+pub(crate) fn mock_minio_list(
+    env: &Env,
+    bucket: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
     record_l2_stub_event(
         env,
         "minio_list",
@@ -7899,8 +8599,26 @@ fn builtin_minio_list(env: &Env, args: &[Value], span: Span) -> Result<Value, Ev
 
 fn builtin_rabbitmq_publish(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("rabbitmq.publish", 2, args, span)?;
-    let queue = expect_string("rabbitmq.publish queue", &args[0], span)?;
     enforce_simple_cap_or_violation(env, "rabbitmq", "publish", span)?;
+    let queue = expect_string("rabbitmq.publish queue", &args[0], span)?;
+    env.l2_backends
+        .rabbitmq
+        .publish(env, &queue, &args[1], span)
+}
+
+fn builtin_rabbitmq_subscribe(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("rabbitmq.subscribe", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "rabbitmq", "subscribe", span)?;
+    let queue = expect_string("rabbitmq.subscribe queue", &args[0], span)?;
+    env.l2_backends.rabbitmq.subscribe(env, &queue, span)
+}
+
+pub(crate) fn mock_rabbitmq_publish(
+    env: &Env,
+    queue: &str,
+    _msg: &Value,
+    _span: Span,
+) -> Result<Value, EvalError> {
     let mut fields = vec![("queue".into(), format!("\"{queue}\""))];
     // Per § 12.3, the saga's idempotency key surfaces as `message-id`
     // so AMQP brokers can dedupe at the consumer side.
@@ -7911,10 +8629,11 @@ fn builtin_rabbitmq_publish(env: &Env, args: &[Value], span: Span) -> Result<Val
     Ok(Value::ok(Value::Unit))
 }
 
-fn builtin_rabbitmq_subscribe(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("rabbitmq.subscribe", 1, args, span)?;
-    let queue = expect_string("rabbitmq.subscribe queue", &args[0], span)?;
-    enforce_simple_cap_or_violation(env, "rabbitmq", "subscribe", span)?;
+pub(crate) fn mock_rabbitmq_subscribe(
+    env: &Env,
+    queue: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
     record_l2_stub_event(
         env,
         "rabbitmq_subscribe",
@@ -8396,6 +9115,7 @@ fn invoke_value(callee: &Value, args: &[Value], span: Span) -> Result<Flow, Eval
         closure.replay_tape.clone(),
         closure.full_record,
         closure.imported_modules.clone(),
+        closure.l2_backends.clone(),
     );
     call_env.push_scope();
     // M17.T3 — open a defer frame for this call. The frame is drained
@@ -9652,6 +10372,30 @@ mod tests {
         "#;
         let m = crate::syntax::parse(src).unwrap();
         assert_eq!(run_main(&m).unwrap(), Value::Int(49));
+    }
+
+    #[test]
+    fn module_level_const_is_visible_from_fn() {
+        // § 5.1 — module-level consts are constant-folded and visible
+        // to every fn in the module.
+        let src = r#"
+            const GREETING = "hello"
+            const N = 21
+            fn main() -> string { "{GREETING} {N * 2}" }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        assert_eq!(run_main(&m).unwrap(), Value::Str("hello 42".into()));
+    }
+
+    #[test]
+    fn module_level_const_can_reference_earlier_const() {
+        let src = r#"
+            const A = 10
+            const B = A + 5
+            fn main() -> int { B * 2 }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        assert_eq!(run_main(&m).unwrap(), Value::Int(30));
     }
 
     // ---- M3.T6 — `aeris run` exit-code matrix ----
@@ -12602,6 +13346,230 @@ mod tests {
         assert!(prompt.contains("aeris.routing.contract"));
         assert!(prompt.contains("Invoice@v1"));
         assert!(prompt.contains("Category@v1"));
+        // M38 — the prompt now also tells the model to emit raw JSON.
+        assert!(
+            prompt.contains("Respond with one JSON object"),
+            "prompt missing format directive: {prompt}"
+        );
+        // M39 — and ships the schema sketch so the model knows the
+        // field names, plus an explicit "no outer key" instruction.
+        assert!(
+            prompt.contains("schema : Category@v1"),
+            "prompt missing schema block: {prompt}"
+        );
+        assert!(
+            prompt.contains("kind"),
+            "prompt missing schema field name: {prompt}"
+        );
+        assert!(
+            prompt.contains(": string"),
+            "prompt missing schema type: {prompt}"
+        );
+        assert!(
+            prompt.contains("Do not wrap it in any outer key"),
+            "prompt missing no-outer-key directive: {prompt}"
+        );
+    }
+
+    #[test]
+    fn render_model_schema_expands_nested_models() {
+        let src = r#"
+            model SourceFile@v1 { path: string, content: string }
+            model Finding@v1 { dimension: string, severity: string, file: string, message: string }
+            model ReviewDraft@v1 {
+                name: string,
+                files: list<SourceFile@v1>,
+                findings: list<Finding@v1>
+            }
+            fn main() -> unit { () }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let mut decls = std::collections::HashMap::new();
+        for it in &m.items {
+            if let Item::Model(md) = it {
+                decls.insert((md.name.clone(), md.version), md.clone());
+            }
+        }
+        let sketch = render_model_schema(&decls, "ReviewDraft", 1);
+        // Top-level: the three required fields appear with their names
+        // and their types are fully expanded — sub-models are inlined.
+        assert!(sketch.contains("\"name\": string"), "{sketch}");
+        assert!(
+            sketch.contains("\"files\": [ {"),
+            "files should be `list<{{...}}>`: {sketch}"
+        );
+        assert!(sketch.contains("\"path\": string"), "{sketch}");
+        assert!(sketch.contains("\"dimension\": string"), "{sketch}");
+        assert!(sketch.contains("\"severity\": string"), "{sketch}");
+    }
+
+    #[test]
+    fn extract_json_object_strips_markdown_fence() {
+        assert_eq!(
+            extract_json_object("```json\n{\"k\":\"v\"}\n```"),
+            "{\"k\":\"v\"}"
+        );
+        assert_eq!(
+            extract_json_object("```\n{\"k\":\"v\"}\n```"),
+            "{\"k\":\"v\"}"
+        );
+    }
+
+    #[test]
+    fn extract_json_object_pulls_out_first_balanced_object() {
+        // Prose before / after the object is stripped; nested braces
+        // and braces inside quoted strings don't fool the scanner.
+        assert_eq!(
+            extract_json_object("Here is the answer:\n{\"k\":\"v\"}\nThanks."),
+            "{\"k\":\"v\"}"
+        );
+        assert_eq!(
+            extract_json_object("{\"a\":{\"b\":1},\"c\":\"}\"}"),
+            "{\"a\":{\"b\":1},\"c\":\"}\"}"
+        );
+    }
+
+    #[test]
+    fn agent_response_with_list_of_submodels_decodes() {
+        // Exercises `coerce_to_field_type` on `list<Finding@v1>` —
+        // each list element is itself a sub-record that must be
+        // coerced through the sub-model's field types.
+        let src = r#"
+            model Finding@v1 {
+                dimension: string,
+                severity: string,
+                file: string,
+                message: string
+            }
+            model ReviewDraft@v1 {
+                name: string,
+                findings: list<Finding@v1>
+            }
+            model Codebase@v1 { name: string }
+            agent reviewer {
+                llm:     "x"
+                intent:  "x"
+                prompt:  "p"
+                accept:  Codebase@v1
+                produce: ReviewDraft@v1
+            }
+            fn main(cap: cap[ai.complete @ ["x"]]) -> result<ReviewDraft@v1> {
+                intent "x" {
+                    let cb = Codebase@v1 { name: "demo" }
+                    reviewer(cb, cap)
+                }
+            }
+        "#;
+        let reply = r#"{
+            "name": "demo",
+            "findings": [
+                {"dimension":"lint","severity":"warning","file":"a.py","message":"shadow"},
+                {"dimension":"security","severity":"error","file":"b.py","message":"sqli"}
+            ]
+        }"#;
+        let tape = ai_tape(&[reply]);
+        let (r, _) = run_module_with_tape(src, tape);
+        match r.unwrap() {
+            Value::Result(Ok(inner)) => match *inner {
+                Value::Record(r) => {
+                    let findings = r.fields.iter().find(|(k, _)| k == "findings").unwrap();
+                    match &findings.1 {
+                        Value::List(items) => assert_eq!(items.len(), 2),
+                        other => panic!("expected List, got {other:?}"),
+                    }
+                }
+                other => panic!("expected Record, got {other:?}"),
+            },
+            other => panic!("expected Ok(Record), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_response_wrapped_in_markdown_fence_decodes() {
+        let src = r#"
+            model Invoice@v1 { id: int }
+            model Category@v1 { kind: string }
+            agent classify {
+                llm:     "x"
+                intent:  "x"
+                prompt:  "p"
+                accept:  Invoice@v1
+                produce: Category@v1
+            }
+            fn main(cap: cap[ai.complete @ ["x"]]) -> result<Category@v1> {
+                intent "x" {
+                    let inv = Invoice@v1 { id: 1 }
+                    classify(inv, cap)
+                }
+            }
+        "#;
+        let tape = ai_tape(&["```json\n{\"kind\":\"hardware\"}\n```"]);
+        let (r, _) = run_module_with_tape(src, tape);
+        let v = r.unwrap();
+        // Result-of-Record — unwrap to the inner record and check.
+        match v {
+            Value::Result(Ok(inner)) => match *inner {
+                Value::Record(r) => {
+                    let kind = r.fields.iter().find(|(k, _)| k == "kind").unwrap();
+                    assert_eq!(kind.1, Value::Str("hardware".into()));
+                }
+                other => panic!("expected Record, got {other:?}"),
+            },
+            other => panic!("expected Ok(Record), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m42_ai_backend_survives_active_policies_filter() {
+        // Regression: before M42, `run_main_with_active_policies_argv`
+        // ignored `ai_backend`, so a project with `[policies]
+        // active = [..]` in its manifest silently fell back to the
+        // mock echo backend even when `[ai.backend] kind = "cli"`
+        // (or http) was configured. `build_module_env_full` must
+        // thread the AI backend through regardless of whether an
+        // active-policy filter is applied.
+        let src = r#"
+            policy budget {
+                match: ai.*
+                limit: tokens_per_run = 1000
+            }
+            fn main(cap) -> int { 42 }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let backend = std::rc::Rc::new(crate::manifest::AiBackend {
+            kind: "cli".into(),
+            url: None,
+            auth: None,
+            cmd: Some("echo hi".into()),
+        });
+
+        // Without active filter — baseline.
+        let env_a = build_module_env_full(
+            &m,
+            None,
+            Some(backend.clone()),
+            None,
+            false,
+            None,
+            None,
+        );
+        assert_eq!(env_a.ai_backend_kind().as_deref(), Some("cli"));
+
+        // With active filter — must still see the backend.
+        let env_b = build_module_env_full(
+            &m,
+            None,
+            Some(backend.clone()),
+            None,
+            false,
+            None,
+            Some(&["budget".to_string()]),
+        );
+        assert_eq!(
+            env_b.ai_backend_kind().as_deref(),
+            Some("cli"),
+            "M42 regression: [ai.backend] dropped when [policies] active is set",
+        );
     }
 
     #[test]
@@ -15187,11 +16155,21 @@ mod tests {
         )
         .unwrap();
         let r = eval_expr(&expr, &mut env).and_then(|f| f.into_value(expr.span()));
+        // Transport-layer failures travel through the `result<T>`
+        // channel (§ 18.1: `err.net`) — `do_http` returns
+        // `Ok(Value::err(Str("io: …")))` so user code can `catch`.
         match r {
-            Err(EvalError { kind: EvalErrorKind::Io { op, .. }, .. }) => {
-                assert_eq!(op, "http.post");
+            Ok(Value::Result(Err(payload))) => {
+                let msg = match *payload {
+                    Value::Str(s) => s,
+                    other => panic!("expected Str payload, got {other:?}"),
+                };
+                assert!(
+                    msg.starts_with("io:") || msg.contains("Connection refused"),
+                    "unexpected transport error: {msg}"
+                );
             }
-            other => panic!("expected http.post Io error (no listener), got {other:?}"),
+            other => panic!("expected Ok(Result(Err(...))) on transport failure, got {other:?}"),
         }
     }
 }

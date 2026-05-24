@@ -1,0 +1,21 @@
+[project]
+name  = "ticket-triage"
+aeris = "0.3.0"
+
+[caps]
+# Loose mode (§ 8.4.1) — the manifest's allow-list is enforced at
+# runtime; functions that opt in to `cap[…]` annotations are
+# checked statically. `intent` blocks are mandatory on writes.
+enforce = "loose"
+
+# The router forwards to a sibling Aeris process listening on
+# localhost:9090, started with `aeris run main.aer upstream`.
+http.allow = ["localhost"]
+ai.models  = ["claude-sonnet-4-6"]
+
+[ai.backend]
+kind = "cli"
+cmd  = "claude --print --dangerously-skip-permissions --no-session-persistence --effort low --output-format text --model claude-sonnet-4-6"
+
+[policies]
+active = ["ticket_ai_budget", "ticket_egress"]

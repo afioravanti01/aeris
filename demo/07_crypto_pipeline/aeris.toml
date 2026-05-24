@@ -1,6 +1,0 @@
-[project]
-name  = "crypto-pipeline"
-aeris = "0.3.0"
-
-[caps]
-enforce = "off"

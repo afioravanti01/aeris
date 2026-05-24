@@ -1,0 +1,91 @@
+/// Three-step deploy saga.
+///
+///   apply_config     → kube.apply(ConfigMap)
+///   apply_deployment → kube.apply(Deployment)   (requires: apply_config.ok)
+///   health_check     → http.get(/healthz)       (requires: apply_deployment.ok)
+///
+/// Every step pairs `do` with `undo`. If `health_check` fails,
+/// the runtime drives reverse-order rollback: `kube.delete` of the
+/// Deployment and the ConfigMap, each followed by an `audit.event`
+/// so downstream systems see the compensation.
+///
+/// `force_health_failure` is the demo switch: it makes the health
+/// step fail unconditionally, so you can watch the rollback path
+/// without contriving a broken manifest.
+
+use "./manifests.aer"
+
+use io, http, kube, audit
+
+// In a real run this is the Kubernetes service URL of the just-
+// applied Deployment, probed with `http.get`. The demo's default
+// happy path simulates a healthy probe so it works offline; use
+// `--fail` to trip the rollback path explicitly.
+const HEALTH_URL = "http://aeris-demo.aeris-demo.svc/healthz"
+
+/// Stage banner for the live console — keeps the saga readable
+/// when many things stream past at once.
+fn say(stage: string, msg: string) {
+  io.println("[deploy/{stage}] {msg}")
+}
+
+saga deploy(version: string, force_health_failure: bool) {
+  intent "deploy aeris-demo with automatic rollback on health failure"
+
+  step apply_config {
+    do {
+      say("apply_config", "→ kube.apply(ConfigMap aeris-demo-config v={version})")
+      kube.apply(config_manifest(version))?
+      say("apply_config", "✓ ConfigMap applied")
+    }
+    undo {
+      say("apply_config", "↩ rolling back ConfigMap")
+      kube.delete("configmap/aeris-demo-config")?
+      audit.event("deploy.configmap_rolled_back", {
+        name:    "aeris-demo-config",
+        version: version,
+      })
+    }
+  }
+
+  step apply_deployment {
+    requires: apply_config.ok
+    do {
+      say("apply_deployment", "→ kube.apply(Deployment aeris-demo v={version}, replicas=2)")
+      kube.apply(deployment_manifest(version))?
+      say("apply_deployment", "✓ Deployment applied")
+    }
+    undo {
+      say("apply_deployment", "↩ rolling back Deployment")
+      kube.delete("deployment/aeris-demo")?
+      audit.event("deploy.deployment_rolled_back", {
+        name:    "aeris-demo",
+        version: version,
+      })
+    }
+  }
+
+  step health_check {
+    requires: apply_deployment.ok
+    do {
+      if force_health_failure {
+        say("health_check", "✗ simulated failure (--fail set)")
+        raise error("health probe failed for aeris-demo {version}")
+      }
+      // Demo mode: we simulate the probe so the happy path works
+      // offline. In production this becomes:
+      //   let resp = http.get(HEALTH_URL)?
+      //   if resp.status != 200 { raise error("...") }
+      say("health_check", "→ GET {HEALTH_URL}  (simulated in demo mode)")
+      say("health_check", "✓ healthy")
+    }
+    undo {
+      // The probe itself has no side effect to revert; we record
+      // the failure so the rollback trail tells the full story.
+      audit.event("deploy.health_check_failed", {
+        version: version,
+        url:     HEALTH_URL,
+      })
+    }
+  }
+}

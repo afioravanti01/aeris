@@ -1,0 +1,50 @@
+/// Two tiny Kubernetes manifests rendered as YAML strings.
+/// `version` is interpolated so two consecutive deploys can be
+/// told apart in the trace. The values are deliberately
+/// realistic-looking but inert: the demo's L2 backend defaults
+/// to mock, so nothing actually reaches a cluster.
+
+const NS = "aeris-demo"
+
+pub fn config_manifest(version: string) -> string {
+  "apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aeris-demo-config
+  namespace: {NS}
+  labels:
+    app: aeris-demo
+    version: \"{version}\"
+data:
+  GREETING: \"hello from aeris saga {version}\"
+"
+}
+
+pub fn deployment_manifest(version: string) -> string {
+  "apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aeris-demo
+  namespace: {NS}
+  labels:
+    app: aeris-demo
+    version: \"{version}\"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aeris-demo
+  template:
+    metadata:
+      labels:
+        app: aeris-demo
+        version: \"{version}\"
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/aeris/demo:{version}
+          envFrom:
+            - configMapRef:
+                name: aeris-demo-config
+"
+}

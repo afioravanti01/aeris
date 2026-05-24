@@ -8,6 +8,11 @@ description  = "Aeris — a small DSL for ops, governance, pipelines and AI agen
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+# M22.T3 — async bridge for real L2 backends. Current-thread runtime
+# keeps the `!Send` `Env` (Rc<RefCell<…>>-based) compatible with
+# `block_on`; `macros` is needed only by the unit tests that spawn
+# fake async futures.
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "time"] }
 
 [profile.release]
 strip         = true

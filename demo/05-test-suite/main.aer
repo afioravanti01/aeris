@@ -1,0 +1,30 @@
+/// Test Suite — three assertion idioms, one demo.
+///
+/// The interesting code lives under `./tests/api.test.aer`.
+/// `main` here exists only so `aeris run` has something to do
+/// when the user prefers to look at the demo end-to-end before
+/// running the actual test suite.
+///
+/// Run the tests with:
+///   aeris test                # discovers ./tests/api.test.aer
+///   aeris test ./tests/api.test.aer
+///
+/// What the tests show:
+///   1. `assert_status` — classic HTTP probe against a public
+///      endpoint (`http://httpbin.org/...`).
+///   2. `assert_json`   — same response, structural check on the
+///      decoded JSON.
+///   3. `assert_semantic` — the headline of M21: the AI backend
+///      acts as a judge, the test passes iff the judge agrees
+///      the text satisfies a natural-language criterion. Both
+///      a pure-text variant and an HTTP-response variant are
+///      included.
+
+use io
+
+fn main() -> result<unit> {
+  io.println("[test-suite] this demo's interesting bits are under ./tests/.")
+  io.println("[test-suite] run:   aeris test")
+  io.println("[test-suite]        aeris test ./tests/api.test.aer")
+  Ok(())
+}

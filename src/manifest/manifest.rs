@@ -22,6 +22,15 @@ pub struct Manifest {
     pub caps: CapsCeiling,
     pub ai_backend: Option<AiBackend>,
     pub policies: Vec<String>,
+    /// M22.T2 — per-family L2 backend selection + connection
+    /// settings. Default per-family is `Mock` so projects that
+    /// don't opt in keep the historical no-network behaviour.
+    pub l2_backends: L2BackendsConfig,
+    /// M41 — runtime output configuration. Controls where the
+    /// JSONL trace, the audit log and the surface lock are
+    /// written. Default: `.aeris/` next to the project root,
+    /// trace on.
+    pub runtime: RuntimeConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -137,6 +146,121 @@ pub struct AiBackend {
     pub cmd: Option<String>,
 }
 
+// ---- L2 backend configuration (M22.T2) -----------------------------
+
+/// Selection of the L2 backend for a given family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackendKind {
+    /// Drive the SDK / subprocess / FS-backed impl that performs
+    /// real I/O. Default when no `[l2.<module>]` table is present
+    /// (M22 + flip-to-real follow-up). Per-family `*BackendConfig`
+    /// fields carry the connection settings the implementation
+    /// needs.
+    #[default]
+    Real,
+    /// Trace-only stub: enforce caps, emit the `<module>_<op>`
+    /// event, return `Ok(())` without contacting anything.
+    /// Demos / tests that don't have the live service at hand can
+    /// opt back into this with `backend = "mock"`.
+    Mock,
+    /// Drain answers from the active replay tape (M9). Useful for
+    /// `aeris replay` against a previously-recorded `Real` run.
+    Replay,
+}
+
+impl BackendKind {
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "mock" => Some(Self::Mock),
+            "real" => Some(Self::Real),
+            "replay" => Some(Self::Replay),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MinioBackendConfig {
+    pub backend: BackendKind,
+    pub endpoint: Option<String>,
+    pub region: Option<String>,
+    pub access_key_env: Option<String>,
+    pub secret_key_env: Option<String>,
+    pub path_style: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MongoBackendConfig {
+    pub backend: BackendKind,
+    pub uri: Option<String>,
+    pub auth_source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DockerBackendConfig {
+    pub backend: BackendKind,
+    /// Defaults to `unix:///var/run/docker.sock` on Unix in the real
+    /// backend; surfaced here so a project can override it (e.g.
+    /// `tcp://docker.internal:2375`).
+    pub host: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct KubeBackendConfig {
+    pub backend: BackendKind,
+    pub kubeconfig: Option<String>,
+    pub context: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RabbitBackendConfig {
+    pub backend: BackendKind,
+    pub uri: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AuditBackendConfig {
+    pub backend: BackendKind,
+    /// Override the mock backend's audit-log path. `None` means
+    /// the runtime's default location (`.aeris/audit.log`).
+    pub path: Option<String>,
+}
+
+// ---- runtime configuration (M41) -----------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeConfig {
+    /// Directory where the runtime writes its outputs (trace JSONL,
+    /// audit log, surface lock). Relative paths are resolved
+    /// against the project root, not the process cwd. Default:
+    /// `.aeris`.
+    pub output_dir: String,
+    /// When `true` (default), every run opens
+    /// `<output_dir>/traces/<trace_id>.jsonl` and the JSONL tracer
+    /// is plumbed through the runtime. `false` disables disk
+    /// tracing (the in-memory channel is still available to tests).
+    pub trace: bool,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: ".aeris".to_string(),
+            trace: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct L2BackendsConfig {
+    pub audit: AuditBackendConfig,
+    pub kube: KubeBackendConfig,
+    pub docker: DockerBackendConfig,
+    pub mongodb: MongoBackendConfig,
+    pub minio: MinioBackendConfig,
+    pub rabbitmq: RabbitBackendConfig,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestError {
     pub message: String,
@@ -230,7 +354,26 @@ impl Manifest {
             }
         }
         if !self.caps.ai_models.is_empty() {
-            for op in ["complete", "chat", "embed", "tools"] {
+            // The four canonical L2 cap leaves (§ 8.1) plus the M19
+            // / M28 higher-level builtins that the static checker
+            // treats as distinct cap paths (`src/check/effects.rs`).
+            // Every alias delegates internally to `ai.complete` for
+            // authority, but the static-check / `cap.subset[..]` view
+            // sees them as separate entries — so the manifest must
+            // synthesise an entry per alias too, otherwise
+            // `cap.subset[ai.decide @ [...]]` cannot find a match in
+            // the parent.
+            for op in [
+                "complete",
+                "chat",
+                "embed",
+                "tools",
+                "session",
+                "session_ask",
+                "decide",
+                "usage",
+                "network",
+            ] {
                 entries.push(CapEntryValue {
                     path: vec!["ai".into(), op.into()],
                     allow: Some(self.caps.ai_models.clone()),
@@ -364,13 +507,43 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
     let caps = parse_caps(&root)?;
     let ai_backend = parse_ai_backend(&root)?;
     let policies = parse_policies(&root)?;
+    let l2_backends = parse_l2_backends(&root)?;
+    let runtime = parse_runtime(&root)?;
     Ok(Manifest {
         project,
         deps,
         caps,
         ai_backend,
         policies,
+        l2_backends,
+        runtime,
     })
+}
+
+const RUNTIME_KEYS: &[&str] = &["output_dir", "trace"];
+
+fn parse_runtime(
+    root: &BTreeMap<String, TomlValue>,
+) -> Result<RuntimeConfig, ManifestError> {
+    let table = match root.get("runtime") {
+        Some(TomlValue::Table(t)) => t,
+        Some(_) => return Err(ManifestError::new("`[runtime]` must be a table")),
+        None => return Ok(RuntimeConfig::default()),
+    };
+    reject_unknown_keys("runtime", table, RUNTIME_KEYS)?;
+    let mut out = RuntimeConfig::default();
+    if let Some(s) = optional_string(table, "output_dir") {
+        if s.is_empty() {
+            return Err(ManifestError::new(
+                "runtime.output_dir: cannot be empty",
+            ));
+        }
+        out.output_dir = s;
+    }
+    if let Some(b) = optional_bool(table, "runtime", "trace")? {
+        out.trace = b;
+    }
+    Ok(out)
 }
 
 fn parse_project(root: &BTreeMap<String, TomlValue>) -> Result<ProjectInfo, ManifestError> {
@@ -508,6 +681,157 @@ fn parse_policies(root: &BTreeMap<String, TomlValue>) -> Result<Vec<String>, Man
         Some(TomlValue::Table(t)) => Ok(optional_string_array(t, "active")),
         Some(_) => Err(ManifestError::new("`[policies]` must be a table")),
         None => Ok(Vec::new()),
+    }
+}
+
+// ---- L2 backend parsing (M22.T2) -----------------------------------
+
+const L2_MINIO_KEYS: &[&str] = &[
+    "backend",
+    "endpoint",
+    "region",
+    "access_key_env",
+    "secret_key_env",
+    "path_style",
+];
+const L2_MONGODB_KEYS: &[&str] = &["backend", "uri", "auth_source"];
+const L2_DOCKER_KEYS: &[&str] = &["backend", "host"];
+const L2_KUBE_KEYS: &[&str] = &["backend", "kubeconfig", "context"];
+const L2_RABBITMQ_KEYS: &[&str] = &["backend", "uri"];
+const L2_AUDIT_KEYS: &[&str] = &["backend", "path"];
+
+fn parse_l2_backends(
+    root: &BTreeMap<String, TomlValue>,
+) -> Result<L2BackendsConfig, ManifestError> {
+    let l2_table = match root.get("l2") {
+        Some(TomlValue::Table(t)) => t,
+        Some(_) => return Err(ManifestError::new("`[l2]` must be a table")),
+        None => return Ok(L2BackendsConfig::default()),
+    };
+    let mut out = L2BackendsConfig::default();
+    if let Some(t) = expect_optional_table(l2_table, "l2.minio")? {
+        reject_unknown_keys("l2.minio", t, L2_MINIO_KEYS)?;
+        out.minio = MinioBackendConfig {
+            backend: parse_backend_kind(t, "l2.minio")?,
+            endpoint: optional_string(t, "endpoint"),
+            region: optional_string(t, "region"),
+            access_key_env: optional_string(t, "access_key_env"),
+            secret_key_env: optional_string(t, "secret_key_env"),
+            path_style: optional_bool(t, "l2.minio", "path_style")?,
+        };
+    }
+    if let Some(t) = expect_optional_table(l2_table, "l2.mongodb")? {
+        reject_unknown_keys("l2.mongodb", t, L2_MONGODB_KEYS)?;
+        out.mongodb = MongoBackendConfig {
+            backend: parse_backend_kind(t, "l2.mongodb")?,
+            uri: optional_string(t, "uri"),
+            auth_source: optional_string(t, "auth_source"),
+        };
+    }
+    if let Some(t) = expect_optional_table(l2_table, "l2.docker")? {
+        reject_unknown_keys("l2.docker", t, L2_DOCKER_KEYS)?;
+        out.docker = DockerBackendConfig {
+            backend: parse_backend_kind(t, "l2.docker")?,
+            host: optional_string(t, "host"),
+        };
+    }
+    if let Some(t) = expect_optional_table(l2_table, "l2.kube")? {
+        reject_unknown_keys("l2.kube", t, L2_KUBE_KEYS)?;
+        out.kube = KubeBackendConfig {
+            backend: parse_backend_kind(t, "l2.kube")?,
+            kubeconfig: optional_string(t, "kubeconfig"),
+            context: optional_string(t, "context"),
+        };
+    }
+    if let Some(t) = expect_optional_table(l2_table, "l2.rabbitmq")? {
+        reject_unknown_keys("l2.rabbitmq", t, L2_RABBITMQ_KEYS)?;
+        out.rabbitmq = RabbitBackendConfig {
+            backend: parse_backend_kind(t, "l2.rabbitmq")?,
+            uri: optional_string(t, "uri"),
+        };
+    }
+    if let Some(t) = expect_optional_table(l2_table, "l2.audit")? {
+        reject_unknown_keys("l2.audit", t, L2_AUDIT_KEYS)?;
+        out.audit = AuditBackendConfig {
+            backend: parse_backend_kind(t, "l2.audit")?,
+            path: optional_string(t, "path"),
+        };
+    }
+    // Reject `[l2.<anything-else>]` so typos don't silently default
+    // to mock. The known set is the six families above.
+    let known: &[&str] = &["minio", "mongodb", "docker", "kube", "rabbitmq", "audit"];
+    for key in l2_table.keys() {
+        if !known.contains(&key.as_str()) {
+            return Err(ManifestError::new(format!(
+                "unknown L2 family `[l2.{key}]` — known families: {}",
+                known.join(", ")
+            )));
+        }
+    }
+    Ok(out)
+}
+
+fn parse_backend_kind(
+    t: &BTreeMap<String, TomlValue>,
+    section: &str,
+) -> Result<BackendKind, ManifestError> {
+    let s = match t.get("backend") {
+        Some(TomlValue::String(s)) => s.as_str(),
+        Some(_) => {
+            return Err(ManifestError::new(format!(
+                "{section}.backend: must be a string"
+            )))
+        }
+        None => return Ok(BackendKind::Mock),
+    };
+    BackendKind::parse(s).ok_or_else(|| {
+        ManifestError::new(format!(
+            "{section}.backend: must be one of \"mock\", \"real\", \"replay\" — got `{s}`"
+        ))
+    })
+}
+
+fn expect_optional_table<'a>(
+    parent: &'a BTreeMap<String, TomlValue>,
+    section: &str,
+) -> Result<Option<&'a BTreeMap<String, TomlValue>>, ManifestError> {
+    let leaf = section.rsplit('.').next().unwrap_or(section);
+    match parent.get(leaf) {
+        Some(TomlValue::Table(t)) => Ok(Some(t)),
+        Some(_) => Err(ManifestError::new(format!(
+            "`[{section}]` must be a table"
+        ))),
+        None => Ok(None),
+    }
+}
+
+fn reject_unknown_keys(
+    section: &str,
+    t: &BTreeMap<String, TomlValue>,
+    allowed: &[&str],
+) -> Result<(), ManifestError> {
+    for key in t.keys() {
+        if !allowed.contains(&key.as_str()) {
+            return Err(ManifestError::new(format!(
+                "{section}: unknown key `{key}` — allowed: {}",
+                allowed.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn optional_bool(
+    t: &BTreeMap<String, TomlValue>,
+    section: &str,
+    key: &str,
+) -> Result<Option<bool>, ManifestError> {
+    match t.get(key) {
+        Some(TomlValue::Bool(b)) => Ok(Some(*b)),
+        Some(_) => Err(ManifestError::new(format!(
+            "{section}.{key}: must be a boolean"
+        ))),
+        None => Ok(None),
     }
 }
 
@@ -1101,5 +1425,184 @@ mod tests {
             url = "x"
         "#);
         assert!(e.message.contains("missing required key `kind`"));
+    }
+
+    // ---- M22.T2 — L2 backend selection ----
+
+    #[test]
+    fn manifest_defaults_l2_backend_to_real() {
+        let l = ok(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+        "#);
+        assert_eq!(l.l2_backends.minio.backend, BackendKind::Real);
+        assert_eq!(l.l2_backends.mongodb.backend, BackendKind::Real);
+        assert_eq!(l.l2_backends.docker.backend, BackendKind::Real);
+        assert_eq!(l.l2_backends.kube.backend, BackendKind::Real);
+        assert_eq!(l.l2_backends.rabbitmq.backend, BackendKind::Real);
+        assert_eq!(l.l2_backends.audit.backend, BackendKind::Real);
+    }
+
+    #[test]
+    fn manifest_parses_explicit_mock_backend() {
+        let l = ok(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [l2.kube]
+            backend = "mock"
+        "#);
+        assert_eq!(l.l2_backends.kube.backend, BackendKind::Mock);
+        // Other families still default to Real.
+        assert_eq!(l.l2_backends.minio.backend, BackendKind::Real);
+    }
+
+    #[test]
+    fn manifest_parses_l2_minio_real_block() {
+        let l = ok(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [l2.minio]
+            backend        = "real"
+            endpoint       = "http://localhost:9000"
+            region         = "us-east-1"
+            access_key_env = "MINIO_AK"
+            secret_key_env = "MINIO_SK"
+            path_style     = true
+        "#);
+        let m = &l.l2_backends.minio;
+        assert_eq!(m.backend, BackendKind::Real);
+        assert_eq!(m.endpoint.as_deref(), Some("http://localhost:9000"));
+        assert_eq!(m.region.as_deref(), Some("us-east-1"));
+        assert_eq!(m.access_key_env.as_deref(), Some("MINIO_AK"));
+        assert_eq!(m.secret_key_env.as_deref(), Some("MINIO_SK"));
+        assert_eq!(m.path_style, Some(true));
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_l2_key() {
+        let e = bad(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [l2.minio]
+            backend = "real"
+            bogus   = "nope"
+        "#);
+        assert!(
+            e.message.contains("l2.minio") && e.message.contains("bogus"),
+            "unexpected error message: {e}"
+        );
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_l2_family() {
+        let e = bad(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [l2.mystery]
+            backend = "real"
+        "#);
+        assert!(
+            e.message.contains("unknown L2 family") && e.message.contains("mystery"),
+            "unexpected error message: {e}"
+        );
+    }
+
+    #[test]
+    fn manifest_rejects_invalid_backend_kind() {
+        let e = bad(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [l2.minio]
+            backend = "weird"
+        "#);
+        assert!(
+            e.message.contains("must be one of") && e.message.contains("weird"),
+            "unexpected error message: {e}"
+        );
+    }
+
+    // ---- M41 — [runtime] section ----
+
+    #[test]
+    fn manifest_defaults_runtime_when_section_absent() {
+        let l = ok(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+        "#);
+        assert_eq!(l.runtime.output_dir, ".aeris");
+        assert!(l.runtime.trace);
+    }
+
+    #[test]
+    fn manifest_parses_runtime_output_dir_and_trace_off() {
+        let l = ok(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [runtime]
+            output_dir = "build/observability"
+            trace      = false
+        "#);
+        assert_eq!(l.runtime.output_dir, "build/observability");
+        assert!(!l.runtime.trace);
+    }
+
+    #[test]
+    fn manifest_rejects_empty_output_dir() {
+        let e = bad(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [runtime]
+            output_dir = ""
+        "#);
+        assert!(e.message.contains("cannot be empty"), "{}", e.message);
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_runtime_key() {
+        let e = bad(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [runtime]
+            output_dir = ".aeris"
+            mystery    = "nope"
+        "#);
+        assert!(
+            e.message.contains("runtime") && e.message.contains("mystery"),
+            "{}",
+            e.message
+        );
+    }
+
+    #[test]
+    fn manifest_parses_replay_backend_for_mongodb() {
+        let l = ok(r#"
+            [project]
+            name  = "x"
+            aeris = "0.3.0"
+
+            [l2.mongodb]
+            backend = "replay"
+            uri     = "mongodb://example/"
+        "#);
+        assert_eq!(l.l2_backends.mongodb.backend, BackendKind::Replay);
+        assert_eq!(l.l2_backends.mongodb.uri.as_deref(), Some("mongodb://example/"));
     }
 }

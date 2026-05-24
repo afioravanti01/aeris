@@ -1,0 +1,39 @@
+/// Versioned schemas the reviewer agents speak in.
+///
+/// Every `where:` clause is checked on construction and on every
+/// agent-boundary crossing (`accept:` / `produce:`, § 16.2).
+
+model SourceFile@v1 {
+  path:    string  where len(path)    > 0
+  content: string  where len(content) > 0
+}
+
+model Codebase@v1 {
+  name:  string
+  files: list<SourceFile@v1>  where len(files) >= 1
+}
+
+/// One review remark scoped to a single file and a single concern.
+/// `dimension` is the agent's specialism: lint | security | performance.
+model Finding@v1 {
+  dimension: string
+  severity:  string   // "info" | "warning" | "error"
+  file:      string
+  message:   string   where len(message) <= 240
+}
+
+/// Rolling state shared across the three reviewer agents. Each
+/// agent passes the files through untouched and appends to
+/// `findings`.
+model ReviewDraft@v1 {
+  name:     string
+  files:    list<SourceFile@v1>
+  findings: list<Finding@v1>
+}
+
+/// Terminal output of the agent_net.
+model Review@v1 {
+  name:     string
+  findings: list<Finding@v1>
+  summary:  string
+}

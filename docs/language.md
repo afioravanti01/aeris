@@ -483,6 +483,12 @@ only `const` is allowed at module scope. This eliminates ambient
 mutable state and makes "no `cap` parameter ⇔ pure" a structural
 property (§ 7.2).
 
+Module-level `const`s are evaluated once at module load, in source
+order. A later `const` may read an earlier one, and every `fn`,
+`saga`, `agent`, and `agent_net` in the module sees the binding —
+so an `agent` may name its system prompt as `prompt: SYSTEM_PROMPT`
+rather than inlining the literal.
+
 Annotation is optional but encouraged at API boundaries:
 
 ```aeris
@@ -512,15 +518,45 @@ is its value.
 
 ```aeris
 let s = "user {u.name} age {u.age}"
-let q = "literal braces \{ \}"      // \{ and \} are the only escapes
+let q = "literal braces {{ }}"      // {{ and }} double to a literal brace
+let r = "also literal \{ \}"        // \{ / \} still work (older spelling)
 let z = "nested {f(g(1, 2))} call"  // braces inside the body nest
 ```
 
 The braces inside a double-quoted string introduce an interpolation
 segment (§ 2.4). The body is any expression; the runtime converts
-the result to a string and concatenates it. `\{` and `\}` produce
-literal braces (no `{{`/`}}` doubling); an empty `{}` is a lex
-error (escape it as `\{\}` to get the empty-object literal).
+the result to a string and concatenates it. There are two ways to
+embed a literal brace: the `{{` / `}}` doubling rule (Python
+f-string / Rust `format!`) or the explicit `\{` / `\}` escapes.
+An empty `{}` is still a lex error.
+
+To interpolate a record literal — whose body itself begins with
+`{` — separate it from the outer interpolation brace with a space,
+so the doubling rule doesn't kick in:
+
+```aeris
+"x = { { a: 1, b: 2 } }"            // interp body is `{ a: 1, b: 2 }`
+```
+
+### 5.3.1 Raw strings
+
+When a string contains so many braces, backslashes, or quotes that
+escaping becomes noisy — typical for LLM prompts, regex sources,
+or JSON templates — prefix it with `r`:
+
+```aeris
+let prompt = r"""
+You are a reviewer. Severity must be in
+{ info, warning, error }.
+"""
+let pattern = r"\d{3}-\d{4}"        // single-line raw form
+```
+
+Inside a raw string nothing is special — no interpolation, no
+escape sequences, every byte is literal. The closing delimiter
+(`"` or `"""`) is the only way to end it; raw single-line strings
+cannot contain a literal `"`, raw triple-quoted strings can contain
+single `"` and `""` but not `"""`.
 
 Format specifiers are **not** part of v0.3 — the legacy
 `"\(amount:.2)"` form is removed. Callers format explicitly:

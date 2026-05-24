@@ -1,0 +1,61 @@
+/// Deploy Rollback — a three-step `saga` that mimics a Kubernetes
+/// deploy and watches the runtime drive the compensation path
+/// when the final health check fails.
+///
+/// Steps:
+///   1. apply_config      — kube.apply(ConfigMap)
+///   2. apply_deployment  — kube.apply(Deployment)
+///   3. health_check      — http.get(/healthz)
+///
+/// If any step's `do` fails (or `raise`s), the runtime walks
+/// every earlier step's `undo` in reverse order. Each `undo`
+/// here issues the corresponding `kube.delete` and emits an
+/// `audit.event` so the rollback is observable in the JSONL
+/// trace and in `.aeris/audit.jsonl`.
+///
+/// Run:
+///   aeris run ./main.aer                  # happy path → success
+///   aeris run ./main.aer --fail           # forces health to fail → rollback
+///   aeris run ./main.aer v=1.2.3 --fail   # custom version label
+///
+/// L2 backends default to mock (no real cluster needed). Flip
+/// `[l2.kube] backend = "real"` in `aeris.toml` to drive a live
+/// `kubectl`.
+
+use "./lib/saga.aer"
+
+use io
+
+fn args_has(args: list<string>, flag: string) -> bool {
+  for a in args { if a == flag { return true } }
+  false
+}
+
+fn parse_version(args: list<string>) -> string {
+  for a in args {
+    if a.starts_with("v=") { return a.replace("v=", "") }
+  }
+  "1.0.0"
+}
+
+fn main(args) -> result<unit> {
+  let version  = parse_version(args)
+  let fail     = args_has(args, "--fail")
+
+  let mode = if fail { "--fail (rollback demo)" } else { "happy path" }
+  io.println("[deploy] target version : {version}")
+  io.println("[deploy] mode           : {mode}")
+  io.println("[deploy] starting saga …")
+  io.println("")
+
+  let outcome = deploy(version, fail) catch err {
+    io.println("")
+    io.println("[deploy] saga rolled back — propagating error to the caller")
+    io.println("[deploy]   reason: {err}")
+    return Ok(())
+  }
+
+  io.println("")
+  io.println("[deploy] saga completed cleanly — aeris-demo {version} is live")
+  Ok(())
+}

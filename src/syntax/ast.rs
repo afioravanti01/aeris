@@ -93,6 +93,16 @@ pub struct UseDecl {
     /// - `use "./x.aer"`            → `[]` (anonymous path import)
     /// - `use { a, b } from utils`  → `[]` (selective re-export)
     pub imported_names: Vec<String>,
+    /// Path string when the clause is a local-file import, in the
+    /// form `"./..."` or `"../..."`. Populated for:
+    /// - `use "./lib/foo.aer"`            (anonymous form)
+    /// - `use alias from "./lib/foo.aer"` (namespaced form)
+    /// `None` for stdlib (`use io`), version-pinned external
+    /// imports (`use deploy from "github.com/..." dep@"1.0.0"`),
+    /// and selective re-exports. The CLI's module-loader follows
+    /// non-None values to inline the referenced file (§ 3.2 /
+    /// § 24.4).
+    pub source_path: Option<String>,
     pub span: Span,
 }
 
@@ -198,6 +208,7 @@ pub struct ConstDecl {
     pub name: String,
     pub ty: Option<Type>,
     pub init: RawSpan,
+    pub init_expr: Expr,
     pub span: Span,
 }
 

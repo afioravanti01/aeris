@@ -133,10 +133,18 @@ Module responsibilities (one-liners):
 | M33 | v0.3 — `use` is mandatory for every module reference | The runtime accepted `io.println(...)` / `ai.complete(...)` / etc. without a matching `use io` / `use ai` at the top of the file. `language.md § 3.2` already says a `use` is what makes the module path resolvable, but the check was missing. M33 makes the parser record every imported name and the runtime reject `<module>.<op>(...)` when `<module>` is not in scope. Applies uniformly to L1 (`io`, `fs`, `http`, `shell`, `env`, `clock`, `random`, `strings`, `date`, `json`, `yaml`, `net`) and L2 (`ai`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`, `audit`) — independent of the `enforce` mode, since `use` is about identifier scope, not about capability authority | 1 | M1, M3 | done (T1, T2, T4, T5 done; T3 `aeris fmt --add-uses` deferred — the migration was done with a one-off Python script) |
 | M20 | v0.3 — Network listeners (`net.http server` minimal) | `net.http(port: int) -> http_server`, `server.accept() -> http_req`, `req.reply(status:, body:, content_type:)`, blocking single-threaded; concurrent handlers via `spawn { … }`; trace events per accept | 2 | M5 | done (HTTP only — TCP/UDP/`net.resolve` deferred to v0.4) |
 | M21 | v0.3 — Test helpers (`assert_status`, `assert_json`, `assert_semantic`, `@example`, `suite { setup }`) | New helpers in `test_harness`; `@example` annotation generates test cases; suite-level `setup { }` shared across tests | 1 | M12 | partial (assert_status / assert_json / assert_semantic done; @example and suite-level setup parser sugar deferred) |
-| M22 | v0.3 — L2 handlers parity with v0.1 | Fill in `docker.{stats,logs,exec,cp,networks,volumes,compose,prune,df,version}`, `kube.{describe,rollout,scale,logs}`, full `mongodb` driver (find / insert / update / delete / aggregate / index), `minio` bucket ops + list + stat, `rabbitmq` channel + exchange + ack/nack | 3 | M11 | deferred (every sub-op is shell-out or external SDK plumbing — out of scope for this batch; current minimal handlers from M11 still ship) |
+| M22 | v0.3 — Real L2 handlers (no more trace-only stubs) | The L2 handlers shipped by M11 (`minio`, `mongodb`, `docker`, `kube`, `rabbitmq`, `audit`) were *trace-only mocks*. M22 splits each family into a real backend (FS-backed for `minio`/`mongodb`/`rabbitmq`; subprocess-backed for `docker`/`kube`; file-write for `audit`) and a Mock stub, selectable via `[l2.<module>] backend = "real" \| "mock" \| "replay"` in `aeris.toml`. The cap allow-list keeps full authority. **Default flipped to `Real`** (post-M22): a project without an `[l2.<module>]` block now opts into the live I/O variant; offline demos / CI must spell `backend = "mock"` explicitly. SDK-backed variants (`rust-s3`, `mongodb` crate, `bollard`, `kube`-rs, `lapin`) are named follow-ups (T*-bis) — the dispatch table is in place so each upgrade is a single-file change | 5 | M11, M9 | done |
 | M23 | v0.3 — `model X@vN extends X@v(N-1)` | Sugar over the explicit migration function; parser checks fields-of-prev and `where:` clauses are still satisfied; auto-generates a default migration when the diff is structurally trivial | 1 | M8 | done |
 | M34 | v0.3 — Chatbot-port carryover (`"""` at top-level, `main(args)`, `x[k]` on map/record) | Top-level parser delegates to the expression parser when a statement starts with `"""`; `aeris run <FILE> <args...>` forwards trailing argv to `main` as `list<string>`; subscript `x[k]` lowers to `x.get(k)` on map and to a string-keyed field lookup on record (list/string subscript unchanged) | 1 | M1, M3, M26 | done |
 | M35 | v0.3 — `ai.chat(port:)` integrated HTTP server | An optional `port: int` kwarg on `ai.chat(system, dir)` turns the call into a blocking chatbot server: the same Chat KB is built, then an HTTP listener on `port` is bound and the standard endpoints (`GET /`, `POST /api/chat`, `GET /api/health`, `OPTIONS *`, 404) are served in a single-threaded accept loop. Without `port:`, behaviour is unchanged | 1 | M19 (T6), M20 | done |
+| M36 | v0.3 — Module-level `const` evaluation | `language.md § 5.1` describes `const` as "module-level, constant-folded", but the parser only captured the initialiser as a `RawSpan` and the runtime never registered it. Consequence: every `const X = …` was a silent no-op; a downstream `fn` or `agent` referencing `X` raised `UndefinedVar` (or, worse for agents, the field was silently dropped and the agent failed to instantiate). M36 parses the initialiser as an `Expr` at parse time and evaluates every `const` against the module scope before the rest of the items are registered, so fns *and* agent fields (`prompt: SOME_CONST`) see the value | 1 | M1, M3 | done |
+| M37 | v0.3 — Raw strings + `{{` / `}}` brace doubling | Once M36 made module-level `const`s reach the parser, the parser revealed how brittle the original "only `\{` / `\}` to escape interpolation braces" rule was for prompt-style text: every set / object literal mentioned in an LLM prompt needed a backslash forest. M37 adds two complementary forms: a raw-string prefix `r"…"` / `r"""…"""` that disables both interpolation and escape so every byte is literal, and a `{{` → `{` / `}}` → `}` doubling rule (Python f-string / Rust `format!` style) inside regular strings. The legacy `\{` / `\}` escape still works for back-compat | 1 | M1, M16 | done |
+| M38 | v0.3 — Tolerant agent response decoding | The agent runtime fed the raw LLM reply straight into `decode_natural_object`, which requires the bytes to start with `{`. Real models routinely answer with a leading "Here's the JSON:" line or wrap the object in a ```` ```json ```` Markdown fence, so the first attempt would always raise `SchemaViolation("invalid JSON: expected `{` while starting object")` and burn a retry — when `retries` was 0 the whole agent_net failed. M38 adds an `extract_json_object` pre-pass to `decode_agent_response` that strips a leading code fence and otherwise lifts the first balanced `{…}` out of the surrounding prose. The composed prompt now also instructs the model explicitly to emit a single JSON object without fences or commentary | 1 | M9, M10 | done |
+| M39 | v0.3 — Schema sketch in agent prompts | With M38 the decoder accepted fenced replies, but the next failure mode appeared immediately: the LLM emitted a single-key wrapper like `{"draft": { … }}` (it had been told the *output type name* — `ReviewDraft@v1` — but never the *field names*). The decoder dutifully reported `unknown field 'draft'` and `missing field 'name' / 'files' / 'findings'`. M39 walks the `produce` model's `ModelDecl` (recursively expanding sub-models referenced by field types) and renders a `{ "field": <type>, ... }` sketch into the prompt right after the `aeris.routing.contract` block. The closing directive also explicitly names "no outer key (no \"result\", \"data\", \"draft\", etc.)" so the model has both the shape and the anti-pattern in front of it | 1 | M10, M38 | done |
+| M40 | v0.3 — `coerce_to_field_type` handles `list<T>`, sub-models, and `option<T>` | `coerce_to_field_type` only knew how to coerce JSON scalars into the eight named primitives. Any non-`Named` declared type fell through to the generic `field type ... is not yet supported by json.decode` arm, so an agent that produced an otherwise well-shaped object with `list<SourceFile@v1>` and `list<Finding@v1>` fields was rejected at decode time. M40 extends the matcher with three new arms: `list<T>` / `set<T>` (recursively coerce each `Value::List` element), `Model@vN` (recursively decode the sub-record against the sub-model's `ModelDecl`), and `option<T>` (JSON `null` → `None`, otherwise wrap the coerced value in `Some`). The function now takes the `&HashMap<(String, u32), ModelDecl>` it needs for sub-model lookup; the single caller (`decode_and_validate_model`) hands it the same map it already had | 1 | M8, M10 | done |
+| M41 | v0.3 — Project-rooted runtime outputs + filesystem tracer | Two pre-existing bugs surfaced together: the M11-promised JSONL tracer was **never instantiated on disk** (`Tracer::new` had only ever been called from tests), and the audit log resolved its `.aeris/audit.jsonl` path against the shell's `cwd`, so `cd ~ && aeris run /path/to/demo/main.aer` planted `.aeris/` under `$HOME`. M41 fixes both: new `[runtime] output_dir = "..."`, `trace = true \| false` section in `aeris.toml` (default `.aeris`, trace on); `cmd_run` computes the project root from `main.aer`'s directory, resolves `output_dir` against it, pins the audit log via `set_audit_log_override`, opens `<output_dir>/traces/<trace_id>.jsonl` for write, and prints a `[aeris] trace_id = … → …` banner on stderr at boot. `trace = false` skips the file altogether | 1 | M4, M11 | done |
+| M42 | v0.3 — Unified `cmd_run` entry — `[ai.backend]` + `[l2.*]` survive `[policies] active = [..]` | The CLI had two parallel code paths for `aeris run`: with or without `[policies] active = [..]`. The active-policies path (`run_main_with_active_policies_argv`) **silently dropped** `ai_backend`, `replay_tape`, `full_record` and `l2_backends`, passing `None`/defaults everywhere. Effect: a project like `demo/05-webhook-router` that declared a real `[ai.backend] kind = "cli"` *and* `[policies] active = [...]` was running the mock echo backend, producing 71-token "responses" in zero milliseconds and a trace whose `ai_call` events all had identical sub-ms timestamps. M42 collapses the two paths: new `run_main_with_full_cfg_argv_full` carries `active_policy_names: Option<&[String]>` alongside every other config; `build_module_env_full` applies `select_active_policies` only when the filter is set, otherwise keeps every declared policy. `cmd_run` always takes that single entry, with `Some(policies)` if non-empty | New unit test `m42_ai_backend_survives_active_policies_filter` asserts `env.ai_backend.kind == "cli"` under both `active_policy_names: None` and `Some(["budget"])`. Existing 3 tests using `run_main_with_active_policies` still pass (the function is now a thin wrapper) | § 8.5 / § 13.2 / § 15.3 | done |
+| M43 | v0.3 — `aeris test` reads the manifest, threads `cap` + `[ai.backend]` + `[l2.*]` + `[policies] active = [..]` into every test body | Mirror of the M42 problem on the `aeris test` side: `run_test` called `eval_module_env(m)` directly, so test bodies had **no `cap` in scope**, no `[ai.backend]`, no `[l2.*]`. Every cap-gated call (`http.*`, `ai.*`, `assert_semantic`, every L2 builtin) inside a `test "..."` raised `PolicyViolation` — the demo test suite under `demo/05-test-suite` was unrunnable. M43 introduces `runtime::eval::TestConfig`, `runtime::eval::run_test_with_cfg`, and `test_harness::SuiteConfig` / `run_suites_explicit_with_cfg`; the CLI's `cmd_test` parses `aeris.toml` from the cwd and threads the synthesised cap, the AI backend, and the L2 backend table into every test body. The cfg path is sequential (`SuiteConfig` holds `Rc`-typed handles that aren't `Send`); the historical parallel `run_suites_explicit` survives for the no-cfg case | `aeris test` against `demo/05-test-suite` returns 4/4 passing (each `test` body sees the synthesised `cap[*]` from `enforce = "off"` and the `[ai.backend] kind = "cli"` from the manifest); `cargo test --lib test_harness` stays at 36/36 | § 8.5 / § 21 | done |
 
 **v0.2 total**: 48 engineering-weeks (M0–M15). Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
 
@@ -604,6 +612,162 @@ owns the whole conversation surface.
 | M35.T3 | `ai_chat_handle_request` covers four routes: `GET /` (read `index.html` from cwd, 500 with JSON error if absent), `POST /api/chat` (`decode_natural_object` the body, look up `message`, call `run_ai_backend("complete", model, "system: ... \nuser: ...")`, reply with `encode_natural({response: ...})`), `GET /api/health` (`{status:"ok", docs:N}`), `OPTIONS *` (204), default 404. Each error path replies with a JSON error object built via `encode_natural`, not a hand-written string | End-to-end probe: start the server in the background, `curl /api/health` returns `{"status":"ok","docs":N}`; `POST /api/chat -d '{"message":"hi"}'` returns `{"response":"..."}` with mock backend; missing `index.html` on `GET /` returns 500 with `{"error":"index.html not found in cwd"}` | § 22 (M20) | done |
 | M35.T4 | The `02_chatbot_http` demo collapses to a single `ai.chat(system:, dir:, port:)` call. `main(args)` still parses the optional port from argv | `demo/02_chatbot_http/main.aer` is under 20 source lines (was 82); `aeris check` exits 0; README updated | § 22 | done |
 | M35.T5 | Every response from the `ai.chat(port:)` server carries permissive CORS headers (`Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`, `Access-Control-Allow-Headers: Content-Type`, `Access-Control-Max-Age: 600`). OPTIONS preflight is now matched before path dispatch and replies 204 with the same headers for any path. New helper `net_server::http_reply_with_headers(conn, status, body, ct, extra)` shared with the existing `http_reply` (which delegates with an empty extra slice, so user-space `req.reply(...)` is unaffected). Rationale: a frontend served from a different origin (`localhost:8000` → `localhost:8080/api/chat`) was being blocked by the browser | `curl -i -X OPTIONS .../api/chat -H 'Origin: http://localhost:8000'` returns 204 with all four headers; `GET /api/health` and `POST /api/chat` with `Origin` header surface the same four headers; full test suite stays green | § 22 / § 23 | done |
+
+### 5.M22 Real L2 handlers (no more trace-only stubs)
+
+The L2 cap handlers shipped by M11 enforce caps, emit a trace
+event, and return success without touching anything. That made
+the demos run without external dependencies but it also lets
+broken cap policy or wrong bucket names pass silently because
+the call never reaches a real server. M22 closes that gap.
+
+The work is split into three phases: shared infrastructure
+(T1–T3), per-handler real backends (T4–T8), and follow-up
+(T9–T11). Each handler keeps three runnable backends: `real`
+(actual I/O), `mock` (the current trace-only stub, used by tests
+and replay-on-fixture), and `replay` (read the answer from the
+loaded tape, used by `aeris replay`). Selection is per-handler
+via `[l2.<module>]` in `aeris.toml`; the default stays `mock` so
+existing demos and the test suite keep passing without changes.
+
+#### Phase 1 — shared infrastructure
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M22.T1 | New module `src/runtime/l2_backend/` exposes one trait per L2 family — `MinioBackend`, `MongoBackend`, `DockerBackend`, `KubeBackend`, `RabbitBackend`, `AuditBackend` — with one method per supported op. Each method takes the already-validated arguments (after cap + arity checks) plus `&Env` so the implementation can emit `record_event`. `L2Backends` holds one `Rc<dyn ...Backend>` per family; `Env::l2_backends: Rc<L2Backends>` is propagated through every Closure/Saga/Agent/AgentNet snapshot (same pattern as `imported_modules`). Default is `L2Backends::default()` — `Mock*` impls that delegate to `eval::mock_*` (the verbatim move of the historical `builtin_*` bodies). Each `builtin_*` is now a four-step dispatch site: arity → cap → typed-arg extract → trait method | Compilation passes (`cargo check`); `cargo test` is 966 lib + 9 integration green with zero changes to any existing test (every family resolves to its Mock impl by default) | § 23 / § 13.2 | done |
+| M22.T2 | `aeris.toml` gains optional `[l2.minio]`, `[l2.mongodb]`, `[l2.docker]`, `[l2.kube]`, `[l2.rabbitmq]`, `[l2.audit]` tables. Each carries `backend = "real" \| "mock" \| "replay"` (default `"mock"`) and the connection settings the real backend needs (`[l2.minio]` → `endpoint`, `region`, `access_key_env`, `secret_key_env`, `path_style`; `[l2.mongodb]` → `uri`, `auth_source`; `[l2.docker]` → `host`; `[l2.kube]` → `kubeconfig`, `context`; `[l2.rabbitmq]` → `uri`; `[l2.audit]` → `path`). New `BackendKind { Mock, Real, Replay }` enum + six `*BackendConfig` structs aggregate into `L2BackendsConfig`, attached to `Manifest`. `parse_manifest` rejects unknown keys per family **and** unknown `[l2.<family>]` table names. `src/templates/aeris.toml` (used by `aeris init`) ships a commented-out block per family | Six manifest tests pass: `manifest_defaults_l2_backend_to_mock`, `manifest_parses_l2_minio_real_block`, `manifest_rejects_unknown_l2_key`, `manifest_rejects_unknown_l2_family`, `manifest_rejects_invalid_backend_kind`, `manifest_parses_replay_backend_for_mongodb` | § 24.2 | done |
+| M22.T3 | New module `src/runtime/l2_runtime.rs` owns a Tokio current-thread runtime via an `RefCell<Option<Runtime>>` that is built lazily inside `L2Runtime::block_on` — programs that never touch a real backend never spin up a reactor or timer thread. `sdk_error_to_raised(family, op, msg, span)` classifies the SDK's textual error into a closed `err.io.*` taxonomy (`err.io.auth`, `err.io.not_found`, `err.io.timeout`, `err.io.network`, generic `err.io`) and wraps it in `Raised(Value::Str(…))` so user code's `?` propagates it. `Env` gains an `Option<Rc<L2Runtime>>` slot with `with_l2_runtime` / `l2_runtime()` accessors; `from_snapshot` defaults it to `None` because real backends already carry their own `Rc<L2Runtime>` in the dispatch table | Seven unit tests in `l2_runtime`: `l2_runtime_block_on_awaits_future` (1ms sleep + return), `l2_runtime_runtime_is_reusable_across_calls` (two consecutive block_on against the same runtime), and one per error kind (`sdk_error_{network,auth,not_found,timeout}_kind`) + the generic fallback (`sdk_error_falls_back_to_generic_io_kind`). `cargo test` stays at 979 + integrations green | § 18 / § 19.1 | done |
+
+#### Phase 2 — per-handler real backends
+
+Each task ships a real backend that satisfies the trait from
+M22.T1, wires it behind `backend = "real"`, and adds two
+integration tests (success path + cap denial). The cap allow-list
+keeps overriding the backend: `cap[minio.put @ ["kb-assets"]]`
+still rejects a put to any other bucket before the SDK is called.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M22.T4 | `minio` real backend — *filesystem-backed*, no SDK dependency. Bucket = sub-directory of `[l2.minio].endpoint`, key = file path inside the bucket dir. Op semantics: `put` → `fs::write`, `get` → `fs::read`, `mb` → `fs::create_dir_all`, `bucket_exists` → `Path::is_dir`, `list` → sorted `read_dir`. `endpoint` accepts a bare path or `file://...`; an HTTP/HTTPS endpoint surfaces `err.config: ... — HTTP backend not wired yet (use file://… for local storage; rust-s3 SDK lands in M22.T4-bis)`. Errors from the filesystem are mapped through `sdk_error_to_raised` so user code sees `err.io.network` / `err.io.auth` / etc. as it would for a remote SDK. New `L2Backends::from_manifest(cfg, runtime)` builder instantiates `RealMinio` when `backend = "real"`; the CLI's `cmd_run` wires the table through a new `run_main_with_full_cfg_argv_l2` entry. **Idempotency**: the saga key is added as an `idem` field on the `minio_put` trace event (FS write is naturally idempotent on identical bytes). **Why FS-first**: a real I/O backend that runs everywhere with zero external deps unblocks the demo and proves the dispatch-table architecture end-to-end. A T4-bis follow-up adds the `rust-s3` SDK variant for live MinIO/S3 | Seven unit tests in `real_minio::tests`: `put_writes_file_to_bucket_dir`, `get_round_trips_bytes_after_put`, `mb_creates_bucket_directory`, `bucket_exists_returns_true_after_mb`, `list_returns_keys_sorted`, `missing_endpoint_raises_err_config`, `http_endpoint_raises_not_yet_wired`. Cap denial is preserved upstream (the dispatch site already enforces `cap[minio.* @ […]]` before reaching the backend) | § 23 / § 12.3 | done |
+| M22.T5 | `mongodb` real backend — *filesystem-backed JSONL*. Collection = `{coll}.jsonl` file under `[l2.mongodb].uri` (`file://path`). `write` appends one natural-JSON line per doc; the saga `__aeris_idem` key is injected when missing and any line already carrying the same idem skips the append (`trace_event.duplicate = true`). `read` scans the file and returns `Value::List` of decoded records (filter / query semantics arrive with the typed `mongodb` crate in M22.T5-bis). A `mongodb://…` URI surfaces `err.config: ... — TCP backend not wired yet` | Four unit tests in `real_mongo::tests`: `write_then_read_round_trips_a_doc`, `read_empty_collection_returns_empty_list`, `missing_uri_raises_err_config`, `mongodb_uri_raises_not_wired` | § 23 / § 12.3 | done |
+| M22.T6 | `docker` real backend — *subprocess via the system `docker` binary*, identical to the M11 shell-out path. `mock_docker_*` is now genuinely trace-only (records the event, returns an empty `Ok(Value::Str(""))` without spawning), while `real_docker_*` keeps the original `docker_simple` body. `[l2.docker] backend = "real"` selects the subprocess variant; the default `Mock` keeps tests and CI offline. The typed `bollard` SDK is the M22.T6-bis follow-up | Existing trace-shape tests stay green (`t11_3_docker_run_records_trace_event_with_argv` continues to assert the `argv` field on the trace event regardless of which backend is mounted) | § 23 | done |
+| M22.T7 | `kube` real backend — *subprocess via `kubectl`*, identical to the M11 shell-out path. `mock_kube_*` is genuinely trace-only (records the event, returns `Ok(())` without invoking `kubectl`); `real_kube_*` keeps the original `run_kubectl` body plus the M6 manifest-idempotency annotation. The typed `kube`/`k8s-openapi` SDK is the M22.T7-bis follow-up | `t11_2_kube_apply_records_trace_event_even_without_cluster` stays green (the trace event is recorded before any subprocess attempt under both Mock and Real); cap-denial test (`t11_2_kube_apply_without_cap_is_policy_violation`) stays green (cap check still runs upstream of dispatch) | § 23 | done |
+| M22.T8 | `rabbitmq` real backend — *filesystem-backed queue*. Queue = `{queue}.jsonl` file under `[l2.rabbitmq].uri` (`file://path`). `publish` appends one JSON-encoded message per line (the saga key surfaces as `message_id` on the trace event); `subscribe` reads and decodes every line into a `list<record>` (or `list<string>` for non-object payloads). An `amqp://…` URI surfaces `err.config: ... — AMQP backend not wired yet` — the typed `lapin` SDK is the M22.T8-bis follow-up | Four unit tests in `real_rabbit::tests`: `publish_then_subscribe_round_trips_records`, `subscribe_empty_queue_returns_empty_list`, `amqp_uri_raises_not_wired`, `missing_uri_raises_err_config` | § 23 | done |
+
+#### Phase 3 — sub-op fill-out, replay, docs
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M22.T9 | Replay path scaffolding. `BackendKind::Replay` is now a recognised manifest value; for every family it falls back to the Mock impl (trace-only). The full tape-driven recall — `aeris replay` re-reading the next `<module>_<op>` event, type-checking it against the call args, and raising `err.replay.divergence` on drift — needs a tape extension that records L2 *return values* (today the tape stores trace events only). That extension is the M22.T9-bis follow-up; for now `Replay` is "configurable but behaves like Mock" so the manifest schema stays stable | `manifest_parses_replay_backend_for_mongodb` continues to assert that `backend = "replay"` parses cleanly; the full divergence test lands with T9-bis | § 14 / § 20 | done |
+| M22.T10 | End-to-end integration test in `tests/l2_integration.rs`. Two ungated tests: `real_minio_fs_put_get_round_trips` (mb → put → get round-trip through the FS-backed real backend) and `from_manifest_wires_real_minio_when_backend_real` (covers the `BackendKind::Real` → `RealMinio` wire-up through `L2Backends::from_manifest`). SDK-backed and subprocess-backed variants stay gated on `AERIS_INT_*=1` env vars; today those gated paths are placeholders pending T4-bis/T5-bis/T6-bis/T7-bis/T8-bis | `cargo test --test l2_integration` is two passes | § 9 | done |
+| M22.T11 | Plan rows T4–T10 reflect the actual shipped behaviour (FS-backed real + subprocess-backed real, with SDK-backed variants as named follow-ups). Cheatsheet § 13 now flags real-fs as the available backend per family; project.md and language.md remain unchanged because the *surface* the user writes (`minio.put`, `mongodb.write`, …) didn't move | docs cross-referenced; `cargo test` and `aeris check` on every demo stay clean | § 23 | done |
+
+#### Notes / constraints
+
+- **Async ↔ tree-walk.** The interpreter is synchronous; SDKs are
+  async. T3's bridge runs one Tokio thread per `Env` and
+  `block_on`s each call. We deliberately don't expose the runtime
+  to user code (no public `async` in `.aer`) — `spawn { … }` stays
+  the inline fallback from M31.
+
+- **`Send` constraint.** Today `Env` is `Rc<RefCell<…>>` and not
+  `Send`. The Tokio current-thread runtime sidesteps this — every
+  await happens on the same OS thread, so the SDK futures don't
+  need `Send`. If a future SDK adds a `Send` bound on its API we
+  fall back to a per-call `LocalSet` or wrap the SDK in a sync
+  shim crate; no thread migration is needed.
+
+- **Capability surface unchanged.** All cap checks (E65/E66/E67/E71)
+  happen before backend dispatch. The cap allow-list is the
+  ground truth — the SDK never sees a request the user didn't
+  authorise. A bucket allow-list `cap[minio.put @ ["a","b"]]`
+  remains effective regardless of how the underlying client is
+  configured.
+
+- **Idempotency surface unchanged.** Each step under a saga still
+  derives the same idempotency key (M6 / § 12.3); each real
+  backend just *uses* it on the wire (S3 metadata, Mongo
+  `$setOnInsert`, K8s server-side-apply field-manager, AMQP
+  `message-id`) so re-runs are no-ops where the protocol allows.
+
+- **Replay parity.** M9's bit-identical replay applies to every
+  L2 op as soon as T9 lands: the tape format is the existing
+  JSONL trace, so a run recorded against `real` replays
+  identically against `replay` with no user-code change.
+
+### 5.M40 `coerce_to_field_type` handles `list<T>`, sub-models, `option<T>`
+
+After M39 the agent finally produced a JSON object with the right
+field *names* and the right *shape*, but the validator threw on the
+list-of-sub-model fields because `coerce_to_field_type` only knew
+about the eight primitive named types. Decode is structural at trust
+boundaries (§ 16.2) so it has to cover the composite types models
+are routinely written with.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M40.T1 | `coerce_to_field_type(raw, declared, decls)` gains three arms: (1) `Type::Generic { name: "list" \| "set", args: [T] }` against a `Value::List` recursively coerces each element through `T`; (2) `Type::Model { name, version }` against a `Value::Record` looks up the named sub-model in `decls` and re-runs the same per-field coercion loop, returning a `Value::Record` tagged with the sub-model name (unknown sub-fields stay raw so the top-level `check_model` can still surface them); (3) `Type::Generic { name: "option", args: [T] }` treats JSON `null` (decoded as `Value::Unit`) as `None`, anything else as `Some(coerce(v, T))`. The function signature grows a `decls: &HashMap<(String, u32), ModelDecl>` parameter; the single caller passes the same map it already resolved | Integration test `agent_response_with_list_of_submodels_decodes` runs an agent whose `produce` is `ReviewDraft@v1 { name, findings: list<Finding@v1> }` and a tape that returns two `Finding` objects inside the array; the assertion walks into the result and checks the list length and the typed sub-records | § 16.2 / § 13.2 | done |
+
+### 5.M39 Schema sketch in agent prompts
+
+M38 fixed the case where the model wrapped its JSON in prose or a
+Markdown fence. The very next iteration of the demo surfaced the
+*next* failure mode: the model knew only the type name on the
+`produce` side (`ReviewDraft@v1`) and chose a top-level key
+matching the type rather than the *fields* — `{"draft": {…}}` —
+which the validator then rejected as four schema violations in one.
+The root cause was that the prompt never told the model the field
+names.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M39.T1 | New `render_model_schema(decls, name, version)` walks the `ModelDecl` for the named produce model and emits a `{ "field": <type>, ... }` sketch. Sub-models referenced by field types are expanded inline (recursive expansion, cycle-safe via a `HashSet<(name, version)>` of in-flight types). Generic types lower to a shape the model can read: `list<T>` / `set<T>` → `[ T ]`, `map<K,V>` → `{ K: V, ... }`, `option<T>` → `(T \| null)`, `result<T>` unwraps to its `T`. `compose_agent_prompt` inserts a `schema : Produce@vN =\n<sketch>` line right after the `payload:` line. The closing directive also names the anti-pattern explicitly: "Do not wrap it in any outer key (no \"result\", \"data\", \"draft\", etc.)" | Unit test `render_model_schema_expands_nested_models` asserts that `ReviewDraft@v1 { name, files: list<SourceFile@v1>, findings: list<Finding@v1> }` produces a sketch containing `"name": string`, `"files": [ { … } ]`, and the leaf fields `"path"`, `"dimension"`, `"severity"` from the sub-models. `t10_3_prompt_includes_routing_protocol_contract` updated to also check for `schema : Category@v1`, the field name `kind`, the type marker `: string`, and the new "no outer key" directive | § 13.2 / § 16 | done |
+
+### 5.M38 Tolerant agent response decoding
+
+LLMs rarely answer with a *bare* JSON object — typical outputs are
+either fenced (```` ```json\n{…}\n``` ````) or surrounded by prose
+("Here is the JSON:\n{…}\nLet me know if …"). The decoder used to
+demand a leading `{`, so every such reply triggered
+`SchemaViolation` and consumed a retry; agents declared with
+`retries: 0` (or `retries: 1` and an LLM that always fenced) would
+fail the whole agent_net. M38 lifts the JSON out before validating
+and tells the model upfront to skip the prose.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M38.T1 | `extract_json_object(s) -> &str` strips a leading Markdown code fence (```` ``` ```` or ```` ```json ````) and otherwise scans for the first `{` and returns the slice up to its balanced `}`. Strings inside the object are honoured so a `}` in a quoted value doesn't end the scan early. `decode_agent_response` runs every reply through it before handing the bytes to `decode_and_validate_model` | Unit tests `extract_json_object_strips_markdown_fence` and `extract_json_object_pulls_out_first_balanced_object` pass; integration test `agent_response_wrapped_in_markdown_fence_decodes` runs an agent with a `ai_tape("```json\\n{...}\\n```")` reply and observes the typed record on the result side | § 13.2 / § 14 | done |
+| M38.T2 | `compose_agent_prompt` appends a final line that tells the model "Respond with one JSON object matching the `Produce@vN` schema. Do not wrap it in code fences, do not add prose before or after the object." Sits after the existing `aeris.routing.contract` block so the original M10.T3 acceptance is still met | Existing test `t10_3_agent_prompt_carries_routing_contract` updated to also assert that the directive line is present; no other agent test regresses | § 13.2 | done |
+
+### 5.M37 Raw strings + `{{` / `}}` brace doubling
+
+The only escape for a literal `{` or `}` inside a string was `\{` /
+`\}`. For LLM prompts (and other text full of literal braces) that
+made every other line a noisy backslash forest. M37 adds two
+ergonomic forms in parallel.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M37.T1 | `lex_raw_string` recognises an `r` prefix on a `"` or `"""` opener and treats every byte until the closing delimiter as literal — no interpolation, no escape. Single-line raw strings cannot embed `"`; triple-quoted raw strings can embed single `"` and `""` but not `"""`. Same precedence-before-ident reasoning as the existing `b"..."` bytes literal | Lexer tests `raw_string_single_quoted_disables_interpolation_and_escape` (round-trips `r"set is {a, b, c} and \n stays \n"` byte-for-byte) and `raw_string_triple_quoted_preserves_braces_verbatim` (multi-line raw with `{...}` and `\n` literal) pass | § 5.3.1 | done |
+| M37.T2 | `lex_string` and `lex_triple_string` recognise `{{` as a literal `{` and `}}` as a literal `}` before the interpolation branch fires. The legacy `\{` / `\}` escape still works (no migration needed); `{ x }` is still interpolation. Updates the M16 nested-braces test to use a leading space (`"{ { a: 1 } }"`) to disambiguate record-literal interpolation from `{{` doubling | Lexer tests `double_brace_escapes_to_literal_brace_in_normal_string`, `double_brace_escapes_to_literal_brace_in_triple_string`, and `double_brace_coexists_with_interpolation` pass; the updated `m16_string_interpolation_balances_nested_braces` still passes | § 5.3 | done |
+| M37.T3 | The four LLM prompts in `demo/02-codereviewer/lib/agents.aer` switch from the noisy `\{ info, warning, error \}` form to a raw-string prefix (`const LINTER_PROMPT = r"""…"""`), and the demo type-checks clean again | `aeris check demo/02-codereviewer/main.aer` exits 0 | — | done |
+| M37.T4 | `language.md § 5.3` documents the `{{` / `}}` doubling rule alongside `\{` / `\}`, and a new § 5.3.1 introduces raw strings with the LLM-prompt and regex examples. `cheatsheet.md § 1.2` lists `r"..."` as a literal form, and `cheatsheet.md § 5.2` updates the literal-brace row | docs cross-referenced | § 5.3 / § 5.3.1 | done |
+
+### 5.M36 Module-level `const` evaluation
+
+The parser used to capture a `const` initialiser as a `RawSpan` and
+the runtime never registered it, so every module-level `const` was
+a silent no-op. A downstream `fn` would crash with `UndefinedVar`
+on first read; an `agent` field like `prompt: LINTER_PROMPT` would
+silently drop to `None` and the whole agent would fail to instantiate.
+M36 closes the loop: the parser now parses the initialiser as an
+`Expr`, and the runtime evaluates every `Item::Const` against the
+module scope *before* the other items are registered, so fns,
+sagas, agents, and agent_nets all see the binding.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M36.T1 | `ConstDecl` carries an `init_expr: Expr` alongside the existing `RawSpan` (kept for the formatter). `parse_const` calls `parse_expr()` instead of `skip_until_top_level()`, and the dead skip helper is removed. The runtime's `register_decls` adds a first pass over `Item::Const` that evaluates each initialiser against an `Env` seeded with the module scope and inserts the resulting `Value` under the const's name; the second pass (fn / saga / agent / agent_net) then sees those bindings. `field_string` and `field_int` on `AgentDecl` resolve `Expr::Ident` against the module scope so `prompt: LINTER_PROMPT` and `retries: MAX_RETRIES` work | Unit tests `module_level_const_is_visible_from_fn` (uses an interpolation reading two consts) and `module_level_const_can_reference_earlier_const` (forward reference between consts) pass; `demo/02-codereviewer/main.aer` parses and type-checks clean (was raising `UndefinedVar("SAMPLE_APP_PY")` at line 193 before this change) | § 5.1 | done |
 
 ---
 

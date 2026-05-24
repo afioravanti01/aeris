@@ -1,0 +1,38 @@
+/// Code Reviewer — multi-agent code review built with `agent_net`.
+///
+/// Materialises a small fake Python project at runtime, then runs
+/// a 4-stage typed dataflow graph:
+///
+///   linter -> security -> performance -> summariser
+///
+/// Run:
+///   aeris run ./main.aer
+///
+/// The bulk of the program lives under `./lib/`:
+///   - `lib/models.aer`  — versioned schemas the agents speak in
+///   - `lib/agents.aer`  — the four agents and the agent_net
+///   - `lib/sample.aer`  — sample project + materialiser
+///   - `lib/report.aer`  — Markdown rendering of the verdict
+
+use "./lib/models.aer"
+use "./lib/agents.aer"
+use "./lib/sample.aer"
+use "./lib/report.aer"
+
+use io, ai
+
+const TMP_DIR     = "./.tmp_sample"
+const REPORT_PATH = "./report.md"
+
+fn main(cap) -> result<unit> {
+  let codebase = materialise_sample_project(TMP_DIR)
+  io.println("[reviewer] materialised {len(codebase.files)} files under {TMP_DIR}")
+  io.println("[reviewer] running agent_net code_review …")
+
+  let review = code_review(codebase, cap)?
+  write_review(review, REPORT_PATH, cap)?
+  io.println("[reviewer] wrote review to {REPORT_PATH} ({len(review.findings)} findings)")
+
+  io.println("[reviewer] usage: {ai.usage()}")
+  Ok(())
+}

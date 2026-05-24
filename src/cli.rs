@@ -8,6 +8,41 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+use crate::loader::{load_with_imports, LoadError};
+use crate::syntax::ast::Module;
+
+/// Resolve the entry file and all transitively reachable
+/// `use "./…"` / `use alias from "./…"` imports into a single
+/// merged `Module`. On any IO / parse / cycle error, the helper
+/// prints the diagnostic and returns the right exit code so the
+/// caller can early-return.
+fn load_module_with_imports(path: &str) -> Result<Module, ExitCode> {
+    match load_with_imports(Path::new(path)) {
+        Ok(m) => Ok(m),
+        Err(LoadError::Io { path, err }) => {
+            eprintln!("aeris: cannot read {}: {}", path.display(), err);
+            Err(ExitCode::from(1))
+        }
+        Err(LoadError::Parse { path, err, .. }) => {
+            eprintln!(
+                "aeris: parse error in {} at line {}, col {}: {:?}",
+                path.display(),
+                err.span.line,
+                err.span.col,
+                err.kind
+            );
+            Err(ExitCode::from(64))
+        }
+        Err(LoadError::Cycle { path }) => {
+            eprintln!(
+                "aeris: import cycle: {} is reached from itself",
+                path.display()
+            );
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
 const VERSION: &str = "0.3.0";
 
 const TEMPLATE_MANIFEST: &str = include_str!("templates/aeris.toml");
@@ -517,7 +552,39 @@ fn cmd_test(path: Option<&str>) -> ExitCode {
             }
         }
     };
-    let report = crate::test_harness::run_suites_explicit(&suites);
+    // M43 — read `aeris.toml` from the cwd just like `cmd_run`,
+    // and thread the synthesised cap + `[ai.backend]` + `[l2.*]`
+    // + `[policies] active = [..]` into every test body. Without
+    // this every cap-gated call (`http.*`, `ai.*`, `assert_semantic`,
+    // L2 builtins) raises `PolicyViolation` because the test body
+    // has no `cap` in scope.
+    let manifest = fs::read_to_string("aeris.toml")
+        .ok()
+        .and_then(|s| crate::manifest::parse_manifest(&s).ok());
+    let cfg = manifest
+        .as_ref()
+        .map(|l| {
+            let l2_runtime = crate::runtime::l2_runtime::shared();
+            let l2_backends = std::rc::Rc::new(
+                crate::runtime::l2_backend::L2Backends::from_manifest(
+                    &l.l2_backends,
+                    l2_runtime,
+                ),
+            );
+            let active = if l.policies.is_empty() {
+                None
+            } else {
+                Some(l.policies.clone())
+            };
+            crate::test_harness::SuiteConfig {
+                cap: Some(l.synthesise_main_cap()),
+                ai_backend: l.ai_backend.clone().map(std::rc::Rc::new),
+                l2_backends: Some(l2_backends),
+                active_policy_names: active,
+            }
+        })
+        .unwrap_or_default();
+    let report = crate::test_harness::run_suites_explicit_with_cfg(&suites, &cfg);
     for (suite, msg) in &report.parse_failures {
         eprintln!("aeris: suite `{suite}` failed to parse: {msg}");
     }
@@ -569,23 +636,15 @@ fn cmd_init() -> ExitCode {
 ///   64 → parse / type / check error
 ///   1  → uncaught `Err(...)` or `raise <value>`
 fn cmd_run(path: &str, argv: &[String]) -> ExitCode {
-    let src = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("aeris: cannot read {path}: {e}");
-            return ExitCode::from(1);
-        }
-    };
-    let module = match crate::syntax::parse(&src) {
+    let module = match load_module_with_imports(path) {
         Ok(m) => m,
-        Err(e) => {
-            eprintln!(
-                "aeris: parse error at line {}, col {}: {:?}",
-                e.span.line, e.span.col, e.kind
-            );
-            return ExitCode::from(64);
-        }
+        Err(code) => return code,
     };
+    // Source string used for diagnostic context rendering. Diagnostics
+    // from inlined sub-modules may show the wrong context lines — the
+    // error `kind` and `(line, col)` still point at the right file in
+    // the loader's message above.
+    let src = fs::read_to_string(path).unwrap_or_default();
     // M7.T4 + M15: when a `aeris.toml` sits next to the source file,
     // use its `[caps]` ceiling as `main`'s synthesised cap, and route
     // the static checker through `check_module_with_manifest` so the
@@ -610,28 +669,107 @@ fn cmd_run(path: &str, argv: &[String]) -> ExitCode {
         }
         return ExitCode::from(max_exit);
     }
+    // M41 — `project_root` is the directory that holds `main.aer`
+    // (or `aeris.toml`, if present); every relative output path
+    // resolves against it. Falls back to the shell cwd only when
+    // the source path has no parent (e.g. `aeris run main.aer`
+    // launched in the same directory).
+    let project_root: std::path::PathBuf = Path::new(path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
     let composed = manifest_for_check.as_ref().map(|l| {
         eprint!("{}", l.describe_main_cap());
         let cap = l.synthesise_main_cap();
         let backend = l.ai_backend.clone().map(std::rc::Rc::new);
         let policies = l.policies.clone();
-        (cap, backend, policies)
+        // M22.T4 — build the L2 backend table from `[l2.*]`. Shared
+        // Tokio runtime is created lazily inside `L2Backends::from_manifest`
+        // (the real backends only spin it up on first call).
+        let l2_runtime = crate::runtime::l2_runtime::shared();
+        let l2_backends = std::rc::Rc::new(
+            crate::runtime::l2_backend::L2Backends::from_manifest(&l.l2_backends, l2_runtime),
+        );
+        (cap, backend, policies, l2_backends)
     });
-    let outcome = if let Some((cap, backend, policies)) = composed {
-        // M8.T5 Mode 3: `[policies] active = [..]` filters which
-        // declared policies attach. Empty list keeps every declared
-        // policy active (Mode 1 default).
-        if !policies.is_empty() {
-            crate::runtime::eval::run_main_with_active_policies_argv(
-                &module, cap, None, &policies, argv,
-            )
+    // M41 — resolve `<output_dir>` against `project_root`, then pin
+    // the audit log under it and (when `runtime.trace`) open a
+    // per-run JSONL trace file. A boot banner on stderr surfaces
+    // the resolved trace path so users can `grep -F trace_id=…`
+    // immediately.
+    let runtime_cfg = manifest_for_check
+        .as_ref()
+        .map(|l| l.runtime.clone())
+        .unwrap_or_default();
+    let output_dir = {
+        let configured = std::path::PathBuf::from(&runtime_cfg.output_dir);
+        if configured.is_absolute() {
+            configured
         } else {
-            crate::runtime::eval::run_main_with_full_cfg_argv(
-                &module, cap, None, backend, None, false, argv,
-            )
+            project_root.join(configured)
+        }
+    };
+    let _ = std::fs::create_dir_all(&output_dir);
+    crate::runtime::eval::set_audit_log_override(output_dir.join("audit.jsonl"));
+    let tracer = if runtime_cfg.trace {
+        let traces_dir = output_dir.join("traces");
+        let _ = std::fs::create_dir_all(&traces_dir);
+        // Build the tracer first so we get its ULID, then point the
+        // writer at `<traces_dir>/<id>.jsonl`. Failure to open the
+        // file is non-fatal: we fall back to in-memory tracing and
+        // warn so the run still completes.
+        let probe = crate::runtime::Tracer::new(Box::new(Vec::<u8>::new()));
+        let trace_id = probe.trace_id();
+        let trace_path = traces_dir.join(format!("{trace_id}.jsonl"));
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&trace_path)
+        {
+            Ok(file) => {
+                eprintln!(
+                    "[aeris] trace_id = {trace_id} → {}",
+                    trace_path.display()
+                );
+                Some(crate::runtime::Tracer::new(Box::new(file)))
+            }
+            Err(e) => {
+                eprintln!(
+                    "[aeris] cannot open trace file {} ({e}); tracing in memory only",
+                    trace_path.display()
+                );
+                Some(probe)
+            }
         }
     } else {
-        crate::runtime::eval::run_main_with_argv(&module, None, argv)
+        None
+    };
+    let outcome = if let Some((cap, backend, policies, l2_backends)) = composed {
+        // M42 — one code path: forward both `[ai.backend]` /
+        // `[l2.*]` overrides and the `[policies] active = [..]`
+        // filter through the same entry. Prior split routed
+        // policy-enabled runs through a stub that dropped
+        // `ai_backend` and `l2_backends`, silently falling back to
+        // mock — see M42 in `docs/plan.md § 5`.
+        let active_policies = if policies.is_empty() {
+            None
+        } else {
+            Some(policies.as_slice())
+        };
+        crate::runtime::eval::run_main_with_full_cfg_argv_full(
+            &module,
+            cap,
+            tracer,
+            backend,
+            None,
+            false,
+            argv,
+            Some(l2_backends),
+            active_policies,
+        )
+    } else {
+        crate::runtime::eval::run_main_with_argv(&module, tracer, argv)
     };
     match outcome {
         Ok(v) => {
@@ -822,12 +960,42 @@ fn cmd_check(path: &str) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // Run `parse_recovering` on the entry file (preserves the
+    // multi-error UX), then layer the multi-file loader on top: a
+    // single `inline_local_imports` call walks every `use "./…"`
+    // clause and inlines the referenced files in place. Sub-module
+    // parse errors are fatal (exit 64).
     let outcome = crate::syntax::parse_recovering(&src);
-    let mut max_exit: u8 = 0;
+    let mut module = outcome.module.clone();
+    let project_root = Path::new(path).parent().unwrap_or(Path::new("."));
+    let mut load_failed = false;
+    if let Err(err) = crate::loader::inline_local_imports(&mut module, project_root) {
+        match err {
+            LoadError::Io { path, err } => {
+                eprintln!("aeris: cannot read {}: {}", path.display(), err);
+            }
+            LoadError::Parse { path, err, .. } => {
+                eprintln!(
+                    "aeris: parse error in {} at line {}, col {}: {:?}",
+                    path.display(),
+                    err.span.line,
+                    err.span.col,
+                    err.kind
+                );
+            }
+            LoadError::Cycle { path } => {
+                eprintln!(
+                    "aeris: import cycle: {} is reached from itself",
+                    path.display()
+                );
+            }
+        }
+        load_failed = true;
+    }
+    let mut max_exit: u8 = if load_failed { 64 } else { 0 };
     // M2.T12: surface drift is the first hunk — printed *before* any
     // parse / type / cap diagnostics so reviewers see authority changes
     // first (`thesis.md` § 13 / `language.md` § 8.6).
-    let project_root = Path::new(path).parent().unwrap_or(Path::new("."));
     let manifest_path = project_root.join("aeris.toml");
     let manifest_loaded = fs::read_to_string(&manifest_path)
         .ok()
@@ -847,8 +1015,8 @@ fn cmd_check(path: &str) -> ExitCode {
     // are surfaced with exit code 71. A missing manifest is not an
     // error here — `aeris check` falls back to the standalone pass.
     let check_errs = match manifest_loaded {
-        Some(l) => crate::check::check_module_with_manifest(&outcome.module, &l.caps),
-        None => crate::check::check_module(&outcome.module),
+        Some(l) => crate::check::check_module_with_manifest(&module, &l.caps),
+        None => crate::check::check_module(&module),
     };
     for err in &check_errs {
         // M13.T3 / M13.T4: human-grade renderer with section reference

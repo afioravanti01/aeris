@@ -10,8 +10,10 @@ pub mod surface;
 pub mod toml;
 
 pub use manifest::{
-    parse_manifest, verify_local_deps, AiBackend, CapsCeiling, DepEntry, DepSource, EnforceMode,
-    Manifest, ManifestError, ProjectInfo, EXIT_MANIFEST_ERROR,
+    parse_manifest, verify_local_deps, AiBackend, AuditBackendConfig, BackendKind, CapsCeiling,
+    DepEntry, DepSource, DockerBackendConfig, EnforceMode, KubeBackendConfig, L2BackendsConfig,
+    Manifest, ManifestError, MinioBackendConfig, MongoBackendConfig, ProjectInfo,
+    RabbitBackendConfig, RuntimeConfig, EXIT_MANIFEST_ERROR,
 };
 pub use surface::{
     compute_dep_surface_hash, compute_surface, diff_surface_bodies, hash_text, write_surface_lock,

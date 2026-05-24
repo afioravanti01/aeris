@@ -5,3 +5,9 @@ target
 .DS_Store
 
 node_modules
+
+# Runtime artefacts produced by demos (regenerated on every run).
+demo/**/.tmp_sample/
+demo/**/kb-out/
+demo/**/postmortems/
+demo/**/report.md

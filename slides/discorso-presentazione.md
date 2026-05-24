@@ -449,9 +449,13 @@ Chiusura: *"le regole vivono nel programma, non nel prompt di sistema. Il modell
 
 ## Slide 41 — Trace — what every run records
 
-Slide-tabella. *"Ogni esecuzione di Aeris scrive un trace JSONL in `.aeris/traces/<id>.jsonl`. Sempre attivo, in tutte le modalità."*
+Slide-tabella. *"Ogni esecuzione di Aeris scrive un trace JSONL in `<progetto>/<output_dir>/traces/<id>.jsonl`. Sempre attivo, in tutte le modalità."*
 
-Vai sulla tabella delle fonti: chiamate `ai.*` con prompt e risposta; `clock.now` e `random.next` con il valore letto; `http.*` con URL, method, status, hash di richiesta e risposta; lettura/scrittura file con path, lunghezza, hash. E gli eventi strutturali — `intent`, `saga`, `agent_net`, `policy` — ognuno con i suoi sotto-eventi.
+Apri sottolineando il banner: *"al boot vedete su `stderr` la riga `[aeris] trace_id = 01JFE… → …/traces/01JFE….jsonl`. Quell'identificativo è la chiave per replay e bisect — copialo e tienilo a portata di mano."*
+
+`output_dir` di default è `.aeris/`, relativo alla directory del progetto (quella che contiene `main.aer` o `aeris.toml`), non alla `cwd` della shell. Configurabile dal manifest nella sezione `[runtime]`: *"se l'osservabilità deve finire altrove — per esempio in `build/obs/` perché abbiamo già un raccoglitore puntato lì — basta una riga nel manifest."* `trace = false` disattiva la scrittura su disco lasciando il canale in memoria per i test.
+
+Vai sulla tabella delle fonti: chiamate `ai.*` con prompt e risposta; `clock.now` e `random.next` con il valore letto; `http.*` con URL, method, status, hash di richiesta e risposta; lettura/scrittura file con path, lunghezza, hash; chiamate L2 (`minio.*`, `mongodb.*`, `rabbitmq.*`) con i campi specifici della famiglia e un marker `backend` che dice quale impl ha gestito la chiamata — mock, real-fs, replay. E gli eventi strutturali — `intent`, `saga`, `agent_net`, `policy` — ognuno con i suoi sotto-eventi.
 
 L'esempio JSON in basso è una riga reale del trace: un `ai_call` con prompt, modello, token, intent attivo.
 

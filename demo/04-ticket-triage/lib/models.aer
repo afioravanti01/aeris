@@ -1,0 +1,9 @@
+/// The router does not require the inbound payload to be a
+/// `Ticket@v1` (the real world sends arbitrary JSON); the
+/// model documents the fields the router actually reads.
+
+model Ticket@v1 {
+  subject: string  where len(subject) > 0
+  body:    string  where len(body)    > 0
+  sender:  string  where len(sender)  > 0
+}

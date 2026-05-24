@@ -1,0 +1,18 @@
+/// Output — write the postmortem to disk and report the path.
+
+use "./models.aer"
+use fs
+
+const OUTPUT_DIR = "./postmortems"
+
+/// Write the postmortem markdown under `./postmortems/<trace_id>.md`.
+pub fn persist_postmortem(p: Postmortem@v1) -> result<string> {
+  fs.mkdir(OUTPUT_DIR)
+  let path = "{OUTPUT_DIR}/{p.trace_id}.md"
+
+  intent "persist postmortem to disk for archival" {
+    fs.write_text(path, p.markdown)?
+  }
+
+  Ok(path)
+}

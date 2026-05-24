@@ -1,0 +1,87 @@
+/// Internal upstream — a tiny HTTP service that pretends to be
+/// the four category-specific backends the router forwards to.
+/// Endpoints:
+///
+///   POST /billing  → 202 Accepted    (queue into the billing tool)
+///   POST /bug      → 201 Created     (file a bug-tracker issue)
+///   POST /feature  → 200 OK          (append to the product roadmap)
+///   POST /spam     → 204 No Content  (shadow-quarantine)
+///   GET  /health   → 200 OK
+///   *              → 404 not found
+///
+/// The point of this file isn't realism — every backend is a few
+/// lines of Aeris that send a JSON ack. The point is that the
+/// router and the upstream are written in the same language, run
+/// in the same way, and share the same trace shape (`http_call`
+/// + `audit_event`).
+
+use io, json, net
+
+pub fn run_upstream(
+  cap: cap[
+    net.http,
+    io.println,
+  ],
+) -> result<unit> {
+  let server = net.http(port: 9090)
+  io.println("[upstream] listening on :9090")
+  io.println("[upstream]   POST /billing  → 202 Accepted")
+  io.println("[upstream]   POST /bug      → 201 Created")
+  io.println("[upstream]   POST /feature  → 200 OK")
+  io.println("[upstream]   POST /spam     → 204 No Content")
+  io.println("[upstream]   GET  /health   → 200 OK")
+
+  loop {
+    let req = server.accept()
+    spawn {
+      handle_upstream(req, cap.subset[io.println])?
+    }
+  }
+}
+
+fn handle_upstream(req, cap: cap[io.println]) -> result<unit> {
+  io.println("[upstream] ← {req.method} {req.path}  ({len(req.body)} B)")
+
+  if req.path == "/health" {
+    req.reply_json(200, json.encode({ status: "ok", role: "upstream" }))
+    io.println("[upstream]   → 200")
+    return Ok(())
+  }
+
+  if req.method != "POST" {
+    req.reply(405, "POST only", "text/plain; charset=utf-8")
+    io.println("[upstream]   → 405  method `{req.method}` not allowed")
+    return Ok(())
+  }
+
+  let category = if req.path == "/billing"      { "billing" }
+                 else if req.path == "/bug"     { "bug" }
+                 else if req.path == "/feature" { "feature" }
+                 else if req.path == "/spam"    { "spam" }
+                 else                           { "" }
+
+  if category == "" {
+    req.reply(404, "unknown category", "text/plain; charset=utf-8")
+    io.println("[upstream]   → 404  unknown category at `{req.path}`")
+    return Ok(())
+  }
+
+  let status = if category == "billing"      { 202 }
+               else if category == "bug"     { 201 }
+               else if category == "feature" { 200 }
+               else                          { 204 }
+
+  let body = json.encode({
+    received_by: category,
+    bytes:       len(req.body),
+    note:        "this is the in-process upstream demo backend",
+  })
+
+  if status == 204 {
+    req.reply(204, "", "application/json")
+  } else {
+    req.reply_json(status, body)
+  }
+  io.println("[upstream]   → {status}  delivered to {category}")
+  Ok(())
+}

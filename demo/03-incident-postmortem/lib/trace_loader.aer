@@ -1,0 +1,39 @@
+/// Trace loading — read the JSONL file, extract `trace_id` from
+/// the first valid event, count non-empty lines.
+
+use "./models.aer"
+use fs, json
+
+/// Parse the JSONL trace and return a `TraceBundle@v1` ready to
+/// hand to the agent net. `json.parse` returns `result<record>`
+/// per § 22; failure on the first line surfaces as a hard error.
+pub fn load_trace(path: string) -> result<TraceBundle@v1> {
+  let text = fs.read_text(path)?
+
+  let raw_lines = text.split("\n")
+  var event_count = 0
+  for ln in raw_lines {
+    if ln.trim() != "" { event_count = event_count + 1 }
+  }
+
+  if event_count == 0 {
+    return Err(error("trace file at '{path}' is empty"))
+  }
+
+  // Extract the trace_id from the first non-empty event. We don't
+  // require strict TraceEvent@v1 conformance — Aeris trace events
+  // are heterogeneous by `kind`, but every event carries `trace_id`.
+  var trace_id = "unknown"
+  for ln in raw_lines {
+    if ln.trim() == "" { continue }
+    let parsed = json.parse(ln)?
+    trace_id = parsed["trace_id"] ?? "unknown"
+    break
+  }
+
+  Ok(TraceBundle@v1 {
+    trace_id:     trace_id,
+    events_jsonl: text,
+    event_count:  event_count,
+  })
+}

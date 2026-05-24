@@ -1,0 +1,47 @@
+/// Incident Postmortem — generate a postmortem from an Aeris JSONL
+/// trace using a 4-stage `agent_net`.
+///
+/// This is a *meta* demo: Aeris reads its own trace format
+/// (`.aeris/traces/<id>.jsonl`) as input data and turns it into a
+/// human-readable Markdown postmortem.
+///
+///   timeline_extractor -> root_cause -> mitigation -> writer
+///
+/// Run:
+///   aeris run ./main.aer                            # uses fixtures/trace.jsonl
+///   aeris run ./main.aer ./fixtures/trace.jsonl     # explicit path
+///   aeris run ./main.aer .aeris/traces/01J….jsonl  # any real trace
+///
+/// The bulk of the program lives under `./lib/`:
+///   - `lib/models.aer`        — TraceBundle@v1, PostmortemDraft@v1,
+///                               Postmortem@v1
+///   - `lib/agents.aer`        — the four agents and the agent_net
+///   - `lib/trace_loader.aer`  — load_trace (JSONL → TraceBundle@v1)
+///   - `lib/persist.aer`       — persist_postmortem (atomic write)
+
+use "./lib/models.aer"
+use "./lib/agents.aer"
+use "./lib/trace_loader.aer"
+use "./lib/persist.aer"
+
+use io
+
+const DEFAULT_TRACE_PATH = "./fixtures/trace.jsonl"
+
+fn main(cap, args) -> result<unit> {
+  let path = if args.len() > 0 { args[0] } else { DEFAULT_TRACE_PATH }
+  io.println("[postmortem] loading trace from {path}")
+
+  let bundle = load_trace(path)?
+  io.println("[postmortem] trace_id={bundle.trace_id} events={bundle.event_count}")
+  io.println("[postmortem] running agent_net postmortem_pipeline …")
+
+  let p = postmortem_pipeline(bundle, cap)?
+
+  let out_path = persist_postmortem(p)?
+  io.println("[postmortem] severity={p.severity}")
+  io.println("[postmortem] wrote {out_path}")
+  io.println("")
+  io.println(p.markdown)
+  Ok(())
+}

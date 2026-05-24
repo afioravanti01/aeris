@@ -1,0 +1,92 @@
+/// HTTP request handler. Runs inside `spawn { … }` from `main`
+/// so multiple inbound requests can interleave. (The v0.3 tree-
+/// walk runtime degrades `spawn` to inline execution per M31;
+/// the program shape is forward-compatible.)
+
+use "./routing.aer"
+
+use io, json, audit
+
+fn reply_json_ok(req, body: string) {
+  req.reply_json(200, body)
+}
+
+fn reply_text(req, status: int, msg: string) {
+  req.reply(status, msg, "text/plain; charset=utf-8")
+}
+
+pub fn handle_request(
+  req,
+  cap: cap[
+    ai.complete @ ["claude-sonnet-4-6"],
+    ai.decide   @ ["claude-sonnet-4-6"],
+    http.post   @ ["localhost"],
+    audit.event,
+    io.println,
+  ],
+) -> result<unit> {
+  io.println("[router] ← {req.method} {req.path}  ({len(req.body)} B)")
+
+  if req.path == "/health" {
+    io.println("[router]   → 200  liveness probe")
+    reply_json_ok(req, json.encode({ status: "ok", role: "router" }))
+    return Ok(())
+  }
+  if req.path != "/ticket" {
+    io.println("[router]   → 404  unknown path")
+    reply_text(req, 404, "not found")
+    return Ok(())
+  }
+  if req.method != "POST" {
+    io.println("[router]   → 405  method `{req.method}` not allowed")
+    reply_text(req, 405, "method not allowed; POST /ticket")
+    return Ok(())
+  }
+  if len(req.body) == 0 {
+    io.println("[router]   → 400  empty body")
+    reply_text(req, 400, "empty body")
+    return Ok(())
+  }
+
+  io.println("[router]   payload: {req.body}")
+  io.println("[router]   asking AI to categorise …")
+  let category = categorise(
+    req.body,
+    cap.subset[
+      ai.complete @ ["claude-sonnet-4-6"],
+      ai.decide   @ ["claude-sonnet-4-6"],
+      io.println,
+    ],
+  )?
+  io.println("[router]   AI categorised → {category}")
+
+  // Spam stays in quarantine — no upstream forward. The decision
+  // is still observable via the audit log so a human can sample
+  // the false-positive rate later.
+  if category == "spam" {
+    intent "quarantine spam ticket without forwarding" {
+      audit.event("ticket.quarantined", { from_len: len(req.body) })
+    }
+    io.println("[router]   → 200  quarantined (no forward)")
+    reply_json_ok(req, json.encode({ category: "spam", delivered_to: "quarantine" }))
+    return Ok(())
+  }
+
+  let status = forward(
+    category,
+    req.body,
+    cap.subset[
+      http.post @ ["localhost"],
+      audit.event,
+      io.println,
+    ],
+  )?
+
+  io.println("[router]   → 200  delivered to {category} (upstream status {status})")
+  reply_json_ok(req, json.encode({
+    category:     category,
+    delivered_to: category,
+    upstream:     status,
+  }))
+  Ok(())
+}

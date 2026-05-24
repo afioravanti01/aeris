@@ -1,0 +1,18 @@
+[project]
+name  = "deploy-rollback"
+aeris = "0.3.0"
+
+[caps]
+enforce = "off"
+
+# L2 backends default to "real" project-wide (M22 + flip). The
+# real `kube.*` backend shells out to `kubectl`, which the demo
+# does not require — pin it to mock so the saga runs offline.
+# Drop this block (or set backend = "real") on a host with a
+# working `$KUBECONFIG` to drive a live cluster.
+
+[l2.kube]
+backend = "mock"
+
+# Audit defaults to "real" too — it already writes to
+# `<output_dir>/audit.jsonl` (M41), so no override is needed.

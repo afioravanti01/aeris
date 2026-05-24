@@ -1,0 +1,23 @@
+/// Render the final `Review@v1` as a Markdown document and
+/// persist it to disk.
+
+use "./models.aer"
+use fs
+
+/// Pure helper: build the Markdown body of a review.
+fn render_review_md(r: Review@v1) -> string {
+  var body = "# Code review — {r.name}\n\n"
+  body = body + "## Summary\n\n{r.summary}\n\n"
+  body = body + "## Findings ({len(r.findings)})\n\n"
+  for f in r.findings {
+    body = body + "- [{f.dimension}/{f.severity}] {f.file} — {f.message}\n"
+  }
+  body
+}
+
+pub fn write_review(r: Review@v1, path: string, cap) -> result<unit> {
+  intent "persist review as Markdown" {
+    fs.write_text(path, render_review_md(r))
+  }
+  Ok(())
+}

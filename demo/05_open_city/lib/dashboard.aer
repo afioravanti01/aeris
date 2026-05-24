@@ -1,9 +1,0 @@
-use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
-
-pub fn build_data(cities_data, comparison_report, generated_at) {
-  return json.stringify({
-    generated_at: generated_at,
-    cities:       cities_data,
-    comparison:   comparison_report,
-  })
-}

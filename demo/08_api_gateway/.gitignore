@@ -1,4 +1,0 @@
-# Python service build artefacts (recreated by `uv sync`).
-**/.venv/
-**/__pycache__/
-*.pyc

@@ -1,104 +1,121 @@
 # Aeris v0.3 — Demo set
 
-Self-contained Aeris projects (`main.aer` + `aeris.toml`) ported from
-the v0.1 scenario gallery. All eight run under `enforce = "off"` and
-pass `aeris check`. Some depend on external services (MinIO,
-Python upstreams, OpenStreetMap Overpass); those are noted in each
-project's own files.
+Self-contained Aeris projects, each split into a small `main.aer`
+plus a `lib/` of focused modules. Every project ships its own
+`aeris.toml`, a `README.md`, and (where relevant) fixtures or
+input data.
 
-| # | Scenario | What it demonstrates |
+| # | Scenario | Headline construct |
 |---|---|---|
-| 01 | `01_chatbot_md` | `enforce = "off"` + `loop` + `??` + `ai.chat(system, dir)` + `chat.ask` + CLI Claude backend |
-| 02 | `02_chatbot_http` | HTTP server + `ai.chat(dir:)` knowledge base + concurrent request handling via `spawn` |
-| 03 | `03_project_template` | `ai.session` / `ai.session_ask` driving file generation from a markdown brief |
-| 04 | `04_seismic_sentinel` | Periodic `every 5m` ingest + 4-agent `ai.network` + MinIO persistence + dashboard HTTP server |
-| 05 | `05_open_city` | Multi-source aggregator (Open-Meteo, OSM Overpass) + 3-agent network + MinIO + dashboard |
-| 06 | `06_reverse_engineering` | 4-agent doc generator + AI chat server (`net.http` + `chat.ask`) + dashboard + MinIO docs |
-| 07 | `07_crypto_pipeline` | Multi-step crypto chain (normalise → hash → sign → verify → encode → emit) + `defer` audit + shell-out |
-| 08 | `08_api_gateway` | YAML-driven reverse proxy + fixed-window rate limiter + Python upstreams + `test` suite |
+| 01 | [`01-chatbot`](./01-chatbot/) | `ai.chat(system, dir, port)` — KB-loaded HTTP chatbot in one call |
+| 02 | [`02-codereviewer`](./02-codereviewer/) | `agent_net` with 4 typed agents over a fake project generated at runtime |
+| 03 | [`03-incident-postmortem`](./03-incident-postmortem/) | `agent_net` reading **Aeris's own JSONL trace** as input |
+| 04 | [`04-ticket-triage`](./04-ticket-triage/) | `net.http(port)` + `ai.decide` + `policy` + explicit `cap.subset[…]`; LLM categorises inbound tickets and forwards to a sibling in-process upstream |
+| 05 | [`05-test-suite`](./05-test-suite/) | `assert_status` + `assert_json` + `assert_semantic` over a live HTTP endpoint |
+| 06 | [`06-deploy-rollback`](./06-deploy-rollback/) | `saga` with paired `do`/`undo` + automatic rollback over `kube.*` |
 
 ## Running
 
-From the repo root:
+From the repo root, after building the runtime:
 
 ```bash
 cargo build --release
 cd demo/<scenario>
-aeris run ./main.aer
+aeris run ./main.aer            # optional CLI args per scenario
 ```
 
-Some scenarios need extra services:
+Each demo's `README.md` lists the exact CLI surface and any
+external requirements.
 
-- `04_seismic_sentinel`, `05_open_city`, `06_reverse_engineering`
-  use the MinIO bucket stubs — they run as mock under the default
-  `aeris-core` and trace every op. Pointing to a real MinIO endpoint
-  is configured via `MINIO_*` env vars.
-- `08_api_gateway` expects three Python uvicorn services on ports
-  8001 / 8002 / 8003. Start them with `aeris run upstreams.aer`
-  (in another terminal) before `aeris run main.aer`.
+## Multi-file projects
 
-## Anatomy — the v0.3 surface in one screen
+The runtime resolves `use "./lib/<file>.aer"` and
+`use alias from "./lib/<file>.aer"` transitively, inlining each
+referenced module's items into the entry module. Diamond
+dependencies (multiple libs each importing `lib/models.aer`) are
+loaded once; true cycles are rejected with exit code 64.
 
-```aeris
-fn main() {
-  let chat = ai.chat(
-    "You are concise. Answer from the knowledge base.",
-    "./docs",
-  )
-  io.println("loaded {chat.kb_size()} files")
+Each demo's `main.aer` is just **the entry point plus glue**:
+declaratives (`model`, `agent`, `agent_net`, `saga`, `policy`)
+and reusable helpers all live under `lib/`, grouped by concern:
 
-  loop {
-    io.print("you> ")
-    let q = io.read_line() ?? ""
-    if q == "" or q == "quit" { break }
-    io.println("bot> " + chat.ask(q))
-  }
-}
+```
+demo/<scenario>/
+├── main.aer
+├── lib/
+│   ├── models.aer       # all `model X@v1` declarations
+│   ├── agents.aer       # agents + agent_net (or saga / policy)
+│   ├── <feature>.aer    # one file per concern
+│   └── …
+├── aeris.toml
+└── README.md
 ```
 
-No `cap`, no `intent`, no manual KB loading — script mode runs the
-v0.3 surface as a high-level interpreted language. Flipping
-`enforce` from `"off"` to `"loose"` or `"strict"` (per
-`docs/language.md` § 8.4.1) tightens the discipline without
-changing the program's meaning.
+## What each demo covers, side by side
 
-## v0.3 features each scenario exercises
+| Feature | 01 | 02 | 03 | 04 | 05 | 06 |
+|---|---|---|---|---|---|---|
+| String interpolation `{x}` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Triple-quoted strings `"""…"""` | ✓ | ✓ | ✓ | ✓ |   | ✓ |
+| `loop`, `??`, `catch`, `defer` | ✓ |   | ✓ | ✓ |   | ✓ |
+| `ai.chat(dir:)` | ✓ |   |   |   |   |   |
+| `ai.decide` |   |   |   | ✓ |   |   |
+| `agent` + `agent_net` |   | ✓ | ✓ |   |   |   |
+| `saga` / `step` / `do` / `undo` |   |   |   |   |   | ✓ |
+| `net.http(port:)` server |   |   |   | ✓ |   |   |
+| `test "…" { … }` |   |   |   |   | ✓ |   |
+| `model X@vN` with `where:` |   | ✓ | ✓ | ✓ |   | ✓ |
+| `policy` |   |   |   | ✓ |   |   |
+| Explicit `cap[…]` + `cap.subset[…]` |   |   |   | ✓ |   |   |
+| `intent "…" { … }` |   | ✓ | ✓ | ✓ |   | ✓ |
+| `assert_status` / `assert_json` |   |   |   |   | ✓ |   |
+| `assert_semantic` |   |   |   |   | ✓ |   |
+| `kube.*` |   |   |   |   |   | ✓ |
+| `http.get` / `http.post` |   |   |   | ✓ | ✓ |   |
+| `spawn { … }` |   |   |   | ✓ |   |   |
+| Multi-file (`use "./lib/…"`) | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-| Feature | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
-|---|---|---|---|---|---|---|---|
-| String interpolation `{x}` | yes | yes | yes | yes | yes | yes | yes |
-| `loop`, `??` | yes |  | yes | yes | yes |  | yes |
-| `catch`, `defer`, `error()` | yes | yes | yes | yes | yes | yes | yes |
-| `every`, `retry`, `timeout` |  |  | yes | yes |  |  |  |
-| `ai.session` / `ai.session_ask` |  | yes |  |  |  |  |  |
-| `ai.chat(dir:)` | yes |  |  |  | yes |  |  |
-| `ai.network` |  |  | yes | yes | yes |  |  |
-| `net.http(port:)` + `HttpServer`/`HttpReq` | yes |  | yes | yes | yes |  | yes |
-| `minio.{get,put,mb,bucket_exists,list}` |  |  | yes | yes | yes |  |  |
-| `shell.exec(["sh","-c", ...])` |  |  |  |  |  | yes | yes |
-| `assert_status` / `assert_json` / `assert_semantic` |  |  |  |  |  |  | yes |
-| `list.map(f)` |  |  | yes |  |  |  |  |
-| `string.index_of` |  |  |  | yes |  |  |  |
-| `http.post(url, body, content_type:)` |  |  |  | yes |  |  |  |
+## Enforcement modes used
 
-## Known v0.3 surface gaps surfaced during the port
+| Demo | `enforce` | Why |
+|---|---|---|
+| 01 chatbot | `off` | script-mode docs assistant |
+| 02 codereviewer | `off` | LLM-driven analysis, no external writes |
+| 03 incident-postmortem | `off` | reads trace fixtures, writes markdown only |
+| 04 ticket-triage | `loose` | runtime allow-list + `intent` mandatory on writes |
+| 05 test-suite | `off` | tests need ad-hoc HTTP + AI access without ceremony |
+| 06 deploy-rollback | `off` | the saga is the story; cap discipline is voluntary here |
 
-These are not blockers — every scenario has a working workaround —
-but they should be tracked as future polish:
+Flipping `enforce` from `off` → `loose` → `strict` is a one-line
+change in `aeris.toml`. The body of each `main.aer` does not
+change.
 
-1. **Triple-quoted strings `"""..."""`** are documented in
-   `docs/language.md` § 2.4 but not implemented by the lexer.
-   Workaround: concatenate single-line strings with `+`.
-2. **Tuple destructuring in `let (a, b) = expr`** is rejected by the
-   parser. Workaround: `let r = expr; let a = r[0]; let b = r[1]`.
-3. **Empty record / map literal `{}`** is always parsed as an empty
-   block expression. There is no syntax for an empty map.
-4. **Auto-semicolon insertion** is missing in some block positions.
-   A bare expression like `[]` on the line after a call is read as a
-   subscript of the previous line. Workaround: insert an explicit `;`.
-5. **Reserved keywords as record-literal field names** (`limit:`,
-   `match:`, `when:`, …) are rejected. Workaround: rename to a
-   non-keyword field.
+## v0.3 surface notes
 
-If you hit any of these in another scenario, please flag them — they
-are candidates for a follow-up milestone.
+These constraints affect demo authoring; the surface is still
+maturing:
+
+1. **No tuple destructuring**: `let (a, b) = expr` is rejected.
+   Workaround: `let r = expr; let a = r[0]; let b = r[1]`.
+2. **No `let var`**: `var x = …` (without leading `let`) is the
+   only form admitted by the parser, despite some doc snippets
+   suggesting otherwise.
+3. **`intent "..."` is a string literal**: interpolation
+   `{var}` inside the intent string is rejected. Keep intent
+   strings as plain text.
+4. **Policy DSL**: only `match:`, `audit:`, and `limit:` parse
+   cleanly in v0.3. The richer `deny:` / `require:` predicates
+   from the spec are not yet implemented — see
+   `04-ticket-triage` for the workaround.
+5. **`spawn` runs inline (M31)**: the tree-walk runtime degrades
+   `spawn { … }` to inline execution; the source shape stays
+   forward-compatible.
+
+## Where the multi-file loader lives
+
+The CLI runs an entry file through `src/loader.rs`, which walks
+every `use "./…"` / `use alias from "./…"` clause depth-first
+and inlines each referenced file's items into the entry module.
+Diamond dependencies are deduplicated; cycles are rejected. The
+helper is exposed as `crate::loader::load_with_imports(entry)`
+and `inline_local_imports(module, base_dir)`.

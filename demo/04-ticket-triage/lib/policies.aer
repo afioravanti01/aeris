@@ -1,0 +1,18 @@
+/// Declarative governance for the router's outbound surface
+/// (§ 15). `match:` references capability paths uniformly across
+/// the language. Activation is via `aeris.toml [policies] active`.
+
+policy ticket_ai_budget {
+  match: ai.complete
+  limit: tokens_per_minute = 60_000
+  audit: ["prompt_len", "model"]
+}
+
+/// Egress allow-list. The host list is duplicated in
+/// `aeris.toml [caps] http.allow` — the runtime allow-list does
+/// the actual gating; this policy just emits an audit event with
+/// every forwarded request.
+policy ticket_egress {
+  match: http.post
+  audit: ["url", "method"]
+}

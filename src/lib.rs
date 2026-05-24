@@ -5,6 +5,7 @@
 
 pub mod check;
 pub mod cli;
+pub mod loader;
 pub mod manifest;
 pub mod runtime;
 pub mod syntax;

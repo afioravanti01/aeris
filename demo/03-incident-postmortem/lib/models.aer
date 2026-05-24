@@ -1,0 +1,31 @@
+/// Models — the rolling state passed through the agent_net.
+
+/// The raw input. Events are kept as JSONL text so the demo
+/// works with any Aeris trace shape, present or future — the
+/// agents read the lines directly.
+model TraceBundle@v1 {
+  trace_id:     string  where len(trace_id) > 0
+  events_jsonl: string  where len(events_jsonl) > 0
+  event_count:  int     where event_count >= 1
+}
+
+/// Rolling state. Each reviewer fills in its own section; the
+/// fields start empty and accumulate as the draft flows through
+/// the net. The writer reads everything and collapses it.
+model PostmortemDraft@v1 {
+  trace_id:     string
+  events_jsonl: string
+  event_count:  int
+  timeline:     string   // filled by `timeline_extractor`
+  root_cause:   string   // filled by `root_cause`
+  mitigation:   string   // filled by `mitigation`
+}
+
+/// Terminal output: a self-contained Markdown document plus
+/// metadata for downstream tooling (incident tracker, search).
+model Postmortem@v1 {
+  trace_id: string
+  title:    string  where len(title) > 0
+  severity: string  // "low" | "medium" | "high" | "critical"
+  markdown: string  where len(markdown) >= 64
+}

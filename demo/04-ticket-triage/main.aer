@@ -1,0 +1,77 @@
+/// Ticket Triage — a two-process demo, both Aeris programs and
+/// both started from the same `main.aer`:
+///
+///   `aeris run ./main.aer`            → triage router on :8080
+///   `aeris run ./main.aer upstream`   → category backends on :9090
+///
+/// The router exposes `POST /ticket`, asks `ai.decide(...)` which
+/// of `billing | bug | feature | spam` the ticket belongs to,
+/// and forwards it to the category-specific upstream backend.
+/// `spam` stays in quarantine — no forward, just an audit event.
+///
+/// The upstream (`./lib/upstream.aer`) pretends to be the four
+/// destination tools (a billing queue, a bug tracker, a product
+/// roadmap board, and an abuse quarantine).
+///
+/// Client:
+///   curl -X POST http://localhost:8080/ticket \
+///     -H 'Content-Type: application/json' \
+///     -d '{"subject":"refund my last invoice","body":"I was double-charged","sender":"alice@acme.io"}'
+///
+/// Layout:
+///   - `lib/models.aer`     — Ticket@v1
+///   - `lib/policies.aer`   — ticket_ai_budget, ticket_egress
+///   - `lib/routing.aer`    — categorise (ai.decide) + forward
+///   - `lib/handler.aer`    — handle_request HTTP entry point
+///   - `lib/upstream.aer`   — the in-process backends server
+
+use "./lib/models.aer"
+use "./lib/policies.aer"
+use "./lib/routing.aer"
+use "./lib/handler.aer"
+use "./lib/upstream.aer"
+
+use io, strings, net
+
+fn parse_port(args: list<string>, fallback: int) -> int {
+  for a in args {
+    let n = strings.parse_int(a) catch err { -1 }
+    if n > 0 { return n }
+  }
+  fallback
+}
+
+fn args_has(args: list<string>, flag: string) -> bool {
+  for a in args { if a == flag { return true } }
+  false
+}
+
+fn main(cap, args) -> result<unit> {
+  if args_has(args, "upstream") {
+    return run_upstream(cap)
+  }
+
+  let port   = parse_port(args, 8080)
+  let server = net.http(port: port)
+  io.println("[router] triage router listening on :{port}")
+  io.println("[router]   POST /ticket     — AI-triaged forward")
+  io.println("[router]   GET  /health     — liveness probe")
+  io.println("[router]   forwards to      — http://localhost:9090/{{billing,bug,feature,spam}}")
+  io.println("[router]   (start the upstream with: aeris run main.aer upstream)")
+
+  loop {
+    let req = server.accept()
+    spawn {
+      handle_request(
+        req,
+        cap.subset[
+          ai.complete @ ["claude-sonnet-4-6"],
+          ai.decide   @ ["claude-sonnet-4-6"],
+          http.post   @ ["localhost"],
+          audit.event,
+          io.println,
+        ],
+      )?
+    }
+  }
+}

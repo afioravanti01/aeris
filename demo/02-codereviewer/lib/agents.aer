@@ -1,0 +1,81 @@
+/// The four reviewer agents and the typed dataflow that wires
+/// them up. Schemas come from `./models.aer`.
+
+use "./models.aer"
+
+const LINTER_PROMPT = r"""
+You are a senior code reviewer. Inspect the supplied Codebase and
+produce a ReviewDraft. Keep all input files unchanged. Add one
+Finding per real issue with dimension="lint" and severity in
+{ info, warning, error }. Look for: dead code, poor naming,
+shadowed builtins, dubious structure. Be concise (<= 25 words per
+message). Do not invent issues; if a file is clean, skip it.
+"""
+
+const SECURITY_PROMPT = r"""
+Continue the review. Keep prior findings and files unchanged;
+append your own Findings with dimension="security". Look for:
+SQL or shell injection, hardcoded credentials, unsafe
+deserialisation, missing input validation, weak crypto. Severity
+in { info, warning, error }.
+"""
+
+const PERFORMANCE_PROMPT = r"""
+Continue the review. Keep prior findings and files unchanged;
+append your own Findings with dimension="performance". Look for:
+quadratic loops on growable inputs, blocking I/O in hot paths,
+redundant allocations or unnecessary work. Severity in
+{ info, warning, error }.
+"""
+
+const SUMMARISER_PROMPT = r"""
+Read the draft and produce a Review. Keep all findings as-is.
+Write `summary` as a 3-5 sentence verdict that groups issues by
+severity and calls out the single most critical finding by its
+message. Do not introduce new findings.
+"""
+
+agent linter {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Identify code-quality issues: dead code, naming, structure."
+  prompt:  LINTER_PROMPT
+  accept:  Codebase@v1
+  produce: ReviewDraft@v1
+  retries: 2
+}
+
+agent security {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Identify security vulnerabilities."
+  prompt:  SECURITY_PROMPT
+  accept:  ReviewDraft@v1
+  produce: ReviewDraft@v1
+  retries: 2
+}
+
+agent performance {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Identify performance issues."
+  prompt:  PERFORMANCE_PROMPT
+  accept:  ReviewDraft@v1
+  produce: ReviewDraft@v1
+  retries: 2
+}
+
+agent summariser {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Collapse findings into a final review with a human verdict."
+  prompt:  SUMMARISER_PROMPT
+  accept:  ReviewDraft@v1
+  produce: Review@v1
+  retries: 1
+}
+
+/// Typed dataflow (§ 14). Cycles are rejected at parse time.
+/// The runtime owns the routing protocol: every agent receives, in
+/// its system prompt, a JSON-fenced contract describing its inbox
+/// and expected output shape.
+agent_net code_review {
+  intent "review codebase across lint / security / performance and summarise"
+  flow linter -> security -> performance -> summariser
+}

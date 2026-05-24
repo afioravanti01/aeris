@@ -1,0 +1,22 @@
+[project]
+name  = "test-suite"
+aeris = "0.3.0"
+
+[caps]
+# Test runner needs network + AI in scope; `enforce = "off"`
+# synthesises `cap[*]` for every test body so we don't have to
+# spell the allow-list per assertion.
+enforce = "off"
+
+# `assert_semantic` calls the configured AI backend as a judge.
+# We use the `claude` CLI in low-effort mode so each judgement
+# runs in ~1s.
+[ai.backend]
+kind = "cli"
+cmd  = "claude --print --dangerously-skip-permissions --no-session-persistence --effort low --output-format text --model claude-sonnet-4-6"
+
+[caps.ai]
+models = ["claude-sonnet-4-6"]
+
+[caps.http]
+allow = ["httpbin.org"]

@@ -1,0 +1,20 @@
+{"ts":"2026-05-24T08:30:00.000Z","trace_id":"01JXR5K4M9","kind":"saga_enter","saga":"deploy_release","intent":"ship v2.4.0 to prod-eu-1","scope":"deploy_release"}
+{"ts":"2026-05-24T08:30:00.120Z","trace_id":"01JXR5K4M9","kind":"step_enter","step":"reserve","idempotency":"3a91…b07c","scope":"deploy_release.reserve"}
+{"ts":"2026-05-24T08:30:00.485Z","trace_id":"01JXR5K4M9","kind":"http_call","url":"https://api.acme.com/release/reserve","method":"POST","status":200,"req_hash":"sha256:e1f0…","resp_hash":"sha256:7c44…","scope":"deploy_release.reserve"}
+{"ts":"2026-05-24T08:30:00.510Z","trace_id":"01JXR5K4M9","kind":"step_exit","step":"reserve","outcome":"ok","scope":"deploy_release.reserve"}
+{"ts":"2026-05-24T08:30:00.530Z","trace_id":"01JXR5K4M9","kind":"step_enter","step":"build_image","idempotency":"4f12…aa90","scope":"deploy_release.build_image"}
+{"ts":"2026-05-24T08:30:08.220Z","trace_id":"01JXR5K4M9","kind":"shell_exec","argv":["docker","build","-t","acme/api:v2.4.0","."],"exit":0,"scope":"deploy_release.build_image"}
+{"ts":"2026-05-24T08:30:12.770Z","trace_id":"01JXR5K4M9","kind":"shell_exec","argv":["docker","push","acme/api:v2.4.0"],"exit":0,"scope":"deploy_release.build_image"}
+{"ts":"2026-05-24T08:30:12.810Z","trace_id":"01JXR5K4M9","kind":"step_exit","step":"build_image","outcome":"ok","scope":"deploy_release.build_image"}
+{"ts":"2026-05-24T08:30:12.840Z","trace_id":"01JXR5K4M9","kind":"step_enter","step":"apply_manifest","idempotency":"7b3e…1ed4","scope":"deploy_release.apply_manifest"}
+{"ts":"2026-05-24T08:30:14.190Z","trace_id":"01JXR5K4M9","kind":"http_call","url":"https://api.k8s.acme.com/apis/apps/v1/namespaces/prod-eu-1/deployments","method":"POST","status":502,"req_hash":"sha256:b21d…","resp_hash":"sha256:0000…","scope":"deploy_release.apply_manifest"}
+{"ts":"2026-05-24T08:30:14.215Z","trace_id":"01JXR5K4M9","kind":"http_call","url":"https://api.k8s.acme.com/apis/apps/v1/namespaces/prod-eu-1/deployments","method":"POST","status":502,"req_hash":"sha256:b21d…","resp_hash":"sha256:0000…","scope":"deploy_release.apply_manifest"}
+{"ts":"2026-05-24T08:30:14.240Z","trace_id":"01JXR5K4M9","kind":"http_call","url":"https://api.k8s.acme.com/apis/apps/v1/namespaces/prod-eu-1/deployments","method":"POST","status":502,"req_hash":"sha256:b21d…","resp_hash":"sha256:0000…","scope":"deploy_release.apply_manifest"}
+{"ts":"2026-05-24T08:30:14.260Z","trace_id":"01JXR5K4M9","kind":"step_exit","step":"apply_manifest","outcome":"err","err":{"kind":"net","host":"api.k8s.acme.com","message":"upstream returned 502 Bad Gateway after 3 attempts"},"scope":"deploy_release.apply_manifest"}
+{"ts":"2026-05-24T08:30:14.300Z","trace_id":"01JXR5K4M9","kind":"undo_enter","step":"build_image","scope":"deploy_release.build_image"}
+{"ts":"2026-05-24T08:30:14.610Z","trace_id":"01JXR5K4M9","kind":"shell_exec","argv":["docker","manifest","rm","acme/api:v2.4.0"],"exit":0,"scope":"deploy_release.build_image"}
+{"ts":"2026-05-24T08:30:14.650Z","trace_id":"01JXR5K4M9","kind":"undo_exit","step":"build_image","outcome":"ok","scope":"deploy_release.build_image"}
+{"ts":"2026-05-24T08:30:14.680Z","trace_id":"01JXR5K4M9","kind":"undo_enter","step":"reserve","scope":"deploy_release.reserve"}
+{"ts":"2026-05-24T08:30:14.880Z","trace_id":"01JXR5K4M9","kind":"http_call","url":"https://api.acme.com/release/release","method":"POST","status":200,"req_hash":"sha256:c552…","resp_hash":"sha256:9911…","scope":"deploy_release.reserve"}
+{"ts":"2026-05-24T08:30:14.910Z","trace_id":"01JXR5K4M9","kind":"undo_exit","step":"reserve","outcome":"ok","scope":"deploy_release.reserve"}
+{"ts":"2026-05-24T08:30:14.940Z","trace_id":"01JXR5K4M9","kind":"saga_exit","saga":"deploy_release","outcome":"rolled_back","scope":"deploy_release"}

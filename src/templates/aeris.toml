@@ -36,3 +36,57 @@ enforce = "off"
 # [ai.backend]
 # kind = "cli"
 # cmd  = "claude --print --model claude-sonnet-4-6"
+
+# ---- runtime outputs (M41) ---------------------------------------
+# Where the runtime writes its outputs (JSONL trace + audit log).
+# Relative paths resolve against the project root (the directory
+# that holds main.aer / aeris.toml), not against the shell cwd —
+# so `cd ~ && aeris run /path/to/demo/main.aer` puts files next
+# to the demo, not in $HOME. Defaults:
+#   output_dir = ".aeris"
+#   trace      = true
+# Uncomment to override:
+# [runtime]
+# output_dir = ".aeris"
+# trace      = true
+
+# ---- L2 backend selection (M22) ----------------------------------
+# Each L2 family (audit, kube, docker, mongodb, minio, rabbitmq)
+# defaults to "real" — actual I/O against the live service, FS,
+# or system binary depending on the family. Override per family
+# with "mock" (trace-only, useful for offline demos / CI) or
+# "replay" (drain answers from the active tape).
+#
+# When a family is "real" the cap allow-list still gates the
+# call; the relevant connection fields below are read by that
+# family's real backend.
+
+# [l2.minio]
+# backend        = "real"
+# endpoint       = "http://localhost:9000"     # or file://./kb-storage
+# region         = "us-east-1"
+# access_key_env = "MINIO_ACCESS_KEY"
+# secret_key_env = "MINIO_SECRET_KEY"
+# path_style     = true
+
+# [l2.mongodb]
+# backend     = "real"
+# uri         = "file://./mongo-store"          # or mongodb://localhost:27017 (when SDK ships)
+# auth_source = "admin"
+
+# [l2.docker]
+# backend = "real"                              # shells out to `docker`
+# host    = "unix:///var/run/docker.sock"
+
+# [l2.kube]
+# backend    = "real"                           # shells out to `kubectl`
+# kubeconfig = "~/.kube/config"
+# context    = "kind-aeris"
+
+# [l2.rabbitmq]
+# backend = "real"
+# uri     = "file://./rabbit-store"             # or amqp://… (when SDK ships)
+
+# [l2.audit]
+# backend = "real"
+# path    = ".aeris/audit.jsonl"

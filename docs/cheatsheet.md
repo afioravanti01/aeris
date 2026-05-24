@@ -40,7 +40,8 @@ case-sensitive, no Unicode. `snake_case` for values/functions/modules,
 | Date | `2026-05-07` | 2.4 |
 | Timestamp | `2026-05-07T08:30:00Z` | 2.4 |
 | Duration | `3s`, `500ms`, `2h`, `7d` | 2.4 |
-| Interpolation | `"x = {expr}"` — `\{` / `\}` for literal braces | 2.4 / 5.3 |
+| Interpolation | `"x = {expr}"` — `{{` / `}}` or `\{` / `\}` for literal braces | 2.4 / 5.3 |
+| Raw string | `r"\d{3}"`, `r"""…"""` — no interp, no escape | 5.3.1 |
 | Comments | `// line`, `/* block */`, `/// doc` | 2.5 |
 
 ### 1.3 Operators (precedence high → low)
@@ -134,6 +135,8 @@ boundary, HTTP ingress. Migration = explicit function
 | Top-level statements (v0.3) | `let` and calls outside any `fn`; run before `main`, or as the program body when `main` is absent | 3.4 |
 
 Module-level `var` does not exist — only `const` and immutable `let`.
+Module-level `const`s are evaluated in source order at load time;
+later items (fn, agent, …) see the binding (e.g. `prompt: PROMPT_CONST`).
 
 ---
 
@@ -189,9 +192,10 @@ never `null`); `fn main(cap, args)` receives both, in that order;
 |---|---|---|
 | `"hi {name}"` | interpolates the expression; concatenates the stringified result | 2.4 / 5.3 |
 | `"{f(g(1,2))}"` | braces nest: the inner expression may contain calls | 2.4 |
-| `"\{ \}"` | literal braces (no `{{`/`}}` doubling rule) | 2.4 |
-| `"{}"` | **lex error** — use `"\{\}"` for the literal `{}` | 2.4 |
+| `"{{ }}"` or `"\{ \}"` | literal braces — `{{`/`}}` doubling (Python f-string) or `\{`/`\}` escape | 2.4 / 5.3 |
+| `"{}"` | **lex error** — use `"{{}}"` or `"\{\}"` for the literal `{}` | 2.4 |
 | `"""multi\nline {x}"""` (M34.T1) | triple-quoted: spans newlines, `"` and `""` are literal, same escapes / interpolation as `"..."` | 2.4 |
+| `r"\d{3}"`, `r"""…{anything}…"""` | raw string: prefix `r`, no interpolation, no escape — every byte literal | 5.3.1 |
 | Migration | `aeris fmt --migrate-strings` rewrites legacy `\(...)` | 2.4 |
 
 ### 5.2.1 Subscript — `x[k]` (M34.T3)

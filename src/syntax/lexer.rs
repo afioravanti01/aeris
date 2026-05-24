@@ -174,6 +174,13 @@ impl<'a> Lexer<'a> {
             return self.lex_bytes(start);
         }
 
+        // Raw string `r"..."` / `r"""..."""` — no interpolation,
+        // no escape, every byte until the closing delimiter is
+        // literal. Same precedence-before-ident reasoning as `b"..."`.
+        if b == b'r' && self.peek_at(1) == b'"' {
+            return self.lex_raw_string(start);
+        }
+
         // Identifiers / keywords / underscore
         if is_ident_start(b) {
             return Ok(self.lex_ident_or_keyword());
@@ -782,6 +789,16 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 b'{' => {
+                    // `{{` doubles to a literal `{` (alongside the
+                    // pre-existing `\{` escape) — keeps prompt-style
+                    // text with literal braces readable without a
+                    // forest of backslashes.
+                    if self.peek_at(1) == b'{' {
+                        text.push('{');
+                        self.advance();
+                        self.advance();
+                        continue;
+                    }
                     // M16 — open interpolation. Capture the raw source
                     // between `{` and the matching `}` so the parser can
                     // re-lex it as an expression. We track depth so
@@ -833,6 +850,13 @@ impl<'a> Lexer<'a> {
                     has_interp = true;
                 }
                 b'}' => {
+                    // `}}` doubles to a literal `}` (companion to `{{`).
+                    if self.peek_at(1) == b'}' {
+                        text.push('}');
+                        self.advance();
+                        self.advance();
+                        continue;
+                    }
                     // A bare `}` outside an interpolation is a typo —
                     // require the explicit `\}` escape (M16 § 11.1).
                     return Err(self.err(LexErrorKind::InvalidEscape('}'), self.pos));
@@ -923,6 +947,14 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 b'{' => {
+                    // `{{` doubles to a literal `{` (same rule as the
+                    // single-quoted form).
+                    if self.peek_at(1) == b'{' {
+                        text.push('{');
+                        self.advance();
+                        self.advance();
+                        continue;
+                    }
                     // Interpolation — identical handling to single-quoted.
                     let interp_open = self.pos;
                     self.advance();
@@ -967,6 +999,13 @@ impl<'a> Lexer<'a> {
                     has_interp = true;
                 }
                 b'}' => {
+                    // `}}` doubles to a literal `}`.
+                    if self.peek_at(1) == b'}' {
+                        text.push('}');
+                        self.advance();
+                        self.advance();
+                        continue;
+                    }
                     return Err(self.err(LexErrorKind::InvalidEscape('}'), self.pos));
                 }
                 b => {
@@ -977,6 +1016,58 @@ impl<'a> Lexer<'a> {
                     }
                     text.push_str(&self.src[ch_start..self.pos]);
                 }
+            }
+        }
+    }
+
+    /// Raw string `r"..."` or `r"""..."""`. Disables both interpolation
+    /// (`{…}`) and escape (`\n`, `\{`, …); every byte until the closing
+    /// delimiter is literal. Ideal for LLM prompts, regex sources, and
+    /// any text that would otherwise need a forest of backslashes.
+    fn lex_raw_string(&mut self, start: usize) -> Result<TokenKind, LexError> {
+        self.advance(); // consume `r`
+        let triple = self.peek() == b'"'
+            && self.peek_at(1) == b'"'
+            && self.peek_at(2) == b'"';
+        if triple {
+            self.advance();
+            self.advance();
+            self.advance();
+            let body_start = self.pos;
+            loop {
+                if self.eof() {
+                    return Err(self.err(LexErrorKind::UnterminatedString, start));
+                }
+                if self.peek() == b'"'
+                    && self.peek_at(1) == b'"'
+                    && self.peek_at(2) == b'"'
+                {
+                    let text = self.src[body_start..self.pos].to_string();
+                    self.advance();
+                    self.advance();
+                    self.advance();
+                    return Ok(TokenKind::Str(text));
+                }
+                let len = utf8_char_len(self.peek());
+                for _ in 0..len {
+                    self.advance();
+                }
+            }
+        }
+        self.advance(); // opening `"`
+        let body_start = self.pos;
+        loop {
+            if self.eof() {
+                return Err(self.err(LexErrorKind::UnterminatedString, start));
+            }
+            if self.peek() == b'"' {
+                let text = self.src[body_start..self.pos].to_string();
+                self.advance();
+                return Ok(TokenKind::Str(text));
+            }
+            let len = utf8_char_len(self.peek());
+            for _ in 0..len {
+                self.advance();
             }
         }
     }
@@ -1314,12 +1405,11 @@ mod tests {
     #[test]
     fn m16_string_interpolation_balances_nested_braces() {
         use crate::syntax::token::StrSegment;
-        // `{ a: 1 }` inside a string is a record literal expression;
-        // the lexer captures the whole thing as a single interp body.
-        let toks = kinds_of(r#""x = {{ a: 1 }}""#);
-        // outer braces here are LITERAL because `\{`/`\}` escapes are
-        // the only way to embed `{`/`}`. So this raw input means: open
-        // interpolation, body `{ a: 1 }`, close interpolation.
+        // Interpolating a record literal: write the outer `{`, then a
+        // space, then the inner record. The leading space prevents the
+        // `{{` doubling rule from kicking in. Depth tracking inside the
+        // interp body still balances the nested `{ ... }` correctly.
+        let toks = kinds_of(r#""x = { { a: 1 } }""#);
         match &toks[0] {
             TokenKind::StrInterp(segs) => {
                 assert_eq!(segs.len(), 2);
@@ -1404,6 +1494,71 @@ mod tests {
         // `\(...)` was an escape in v0.2.0; M16 removes it.
         let res = super::tokenize(r#""x = \(name)""#);
         assert!(res.is_err(), "legacy `\\(...)` must now be rejected");
+    }
+
+    #[test]
+    fn raw_string_single_quoted_disables_interpolation_and_escape() {
+        // `r"..."`: no interpolation, no escape — every byte literal.
+        let toks = kinds_of(r#"r"set is {a, b, c} and \n stays \n""#);
+        assert_eq!(
+            toks,
+            vec![TokenKind::Str("set is {a, b, c} and \\n stays \\n".to_string())]
+        );
+    }
+
+    #[test]
+    fn raw_string_triple_quoted_preserves_braces_verbatim() {
+        // `r"""..."""`: spans newlines, no interpolation.
+        let src = "r\"\"\"\nseverity in { info, warning, error }\nliteral \\n\n\"\"\"";
+        let toks = kinds_of(src);
+        assert_eq!(
+            toks,
+            vec![TokenKind::Str(
+                "\nseverity in { info, warning, error }\nliteral \\n\n".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn double_brace_escapes_to_literal_brace_in_normal_string() {
+        // `{{` → `{`, `}}` → `}` — Python f-string / Rust format! style.
+        let toks = kinds_of(r#""set is {{ a, b, c }}""#);
+        assert_eq!(
+            toks,
+            vec![TokenKind::Str("set is { a, b, c }".to_string())]
+        );
+    }
+
+    #[test]
+    fn double_brace_escapes_to_literal_brace_in_triple_string() {
+        let src = "\"\"\"severity in {{ info, warning, error }}\"\"\"";
+        let toks = kinds_of(src);
+        assert_eq!(
+            toks,
+            vec![TokenKind::Str(
+                "severity in { info, warning, error }".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn double_brace_coexists_with_interpolation() {
+        // `{{ x }}` is two literal braces around `x`, *not* a nested
+        // interpolation. `{x}` next to it is still interpolation.
+        use crate::syntax::token::StrSegment;
+        let toks = kinds_of(r#""json = {{ {x} }}""#);
+        match &toks[0] {
+            TokenKind::StrInterp(segs) => {
+                assert_eq!(segs.len(), 3);
+                assert!(matches!(&segs[0], StrSegment::Text(t) if t == "json = { "));
+                match &segs[1] {
+                    StrSegment::Interp { source, .. } => assert_eq!(source, "x"),
+                    _ => panic!("expected Interp"),
+                }
+                assert!(matches!(&segs[2], StrSegment::Text(t) if t == " }"));
+            }
+            other => panic!("expected StrInterp, got {other:?}"),
+        }
     }
 
     #[test]

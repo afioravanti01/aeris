@@ -294,6 +294,16 @@ impl Parser {
         let start_tok = self.advance();
         let mut imported: Vec<String> = Vec::new();
         let mut last_span = start_tok.span;
+        // Captured by the two local-file clause shapes:
+        //   `use "./lib/foo.aer"`            → anonymous import
+        //   `use alias from "./lib/foo.aer"` → namespaced import
+        // The CLI's module-loader consumes this to recursively
+        // inline the referenced file. Version-pinned external
+        // imports (`use ... from "host" alias@"1.0.0"`) are
+        // skipped here — they are resolved through `[deps]` in
+        // `aeris.toml`, not as on-disk paths.
+        let mut source_path: Option<String> = None;
+        let is_local_path = |s: &str| s.starts_with("./") || s.starts_with("../") || s.starts_with("/");
 
         loop {
             // Stop at the next item-start keyword or EOF.
@@ -322,8 +332,11 @@ impl Parser {
                     }
                 }
                 // `"path"` — anonymous import. No name added.
-                TokenKind::Str(_) => {
+                TokenKind::Str(s) => {
                     last_span = self.advance().span;
+                    if source_path.is_none() && is_local_path(&s) {
+                        source_path = Some(s);
+                    }
                 }
                 // `<ident>` — bare alias, optionally followed by
                 // `as <ident>`, `from "<path>"` (with optional
@@ -343,10 +356,16 @@ impl Parser {
                         TokenKind::Keyword(Keyword::From) => {
                             imported.push(name);
                             last_span = self.advance().span;
-                            if matches!(self.peek(), TokenKind::Str(_)) {
+                            if let TokenKind::Str(s) = self.peek().clone() {
                                 last_span = self.advance().span;
+                                if source_path.is_none() && is_local_path(&s) {
+                                    source_path = Some(s);
+                                }
                             }
-                            // optional `<ident>@"<version>"` tail.
+                            // optional `<ident>@"<version>"` tail —
+                            // marks an external version-pinned import;
+                            // clear `source_path` so the loader does
+                            // not try to read it from the filesystem.
                             if matches!(self.peek(), TokenKind::Ident(_)) {
                                 last_span = self.advance().span;
                                 if matches!(self.peek(), TokenKind::At) {
@@ -354,6 +373,7 @@ impl Parser {
                                     if matches!(self.peek(), TokenKind::Str(_)) {
                                         last_span = self.advance().span;
                                     }
+                                    source_path = None;
                                 }
                             }
                         }
@@ -378,6 +398,7 @@ impl Parser {
         UseDecl {
             raw: RawSpan { span },
             imported_names: imported,
+            source_path,
             span,
         }
     }
@@ -996,12 +1017,16 @@ impl Parser {
             None
         };
         self.expect_kind(&TokenKind::Eq)?;
-        let init = self.skip_until_top_level();
+        let init_expr = self.parse_expr()?;
+        let init = RawSpan {
+            span: init_expr.span(),
+        };
         Ok(ConstDecl {
             vis,
             name,
             ty,
             init,
+            init_expr,
             span: Self::span_join(start, init.span),
         })
     }
@@ -1620,37 +1645,6 @@ impl Parser {
             name,
             span: name_span,
         })
-    }
-
-    // -------- skip helpers --------
-
-    fn skip_until_top_level(&mut self) -> RawSpan {
-        let start_tok_span = self.peek_token().span;
-        let mut last_span = start_tok_span;
-        let mut depth: i32 = 0;
-        loop {
-            match self.peek() {
-                TokenKind::Eof => break,
-                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
-                    depth += 1;
-                    last_span = self.advance().span;
-                }
-                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
-                    if depth == 0 {
-                        break;
-                    }
-                    depth -= 1;
-                    last_span = self.advance().span;
-                }
-                TokenKind::Keyword(kw) if depth == 0 && is_item_start_keyword(*kw) => break,
-                _ => {
-                    last_span = self.advance().span;
-                }
-            }
-        }
-        RawSpan {
-            span: Self::span_join(start_tok_span, last_span),
-        }
     }
 
     // =================================================================

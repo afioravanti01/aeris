@@ -1,0 +1,83 @@
+/// The four postmortem agents and the dataflow that wires them.
+/// Schemas come from `./models.aer`.
+
+use "./models.aer"
+
+const TIMELINE_PROMPT = """
+You will receive a TraceBundle: `events_jsonl` is the raw JSONL
+event stream from one Aeris run. Produce a PostmortemDraft. Keep
+trace_id, events_jsonl, event_count unchanged. Set `timeline` to
+a chronological bulleted summary (one line per significant event:
+saga_enter, step_enter/exit, http_call with non-2xx status,
+shell_exec with non-zero exit, undo_enter/exit, saga_exit). Leave
+`root_cause` and `mitigation` empty strings.
+"""
+
+const ROOT_CAUSE_PROMPT = """
+You will receive a PostmortemDraft with a populated `timeline`.
+Inspect timeline and events_jsonl and set `root_cause` to a
+2-4 sentence diagnosis: which step failed, why, and what
+upstream signal caused it (status code, exit code, error kind).
+Keep every other field unchanged.
+"""
+
+const MITIGATION_PROMPT = """
+You will receive a PostmortemDraft with a populated `root_cause`.
+Set `mitigation` to a numbered list of 3-5 concrete next steps:
+immediate remediation, follow-up verification, and at least one
+structural change to reduce recurrence. Keep every other field
+unchanged.
+"""
+
+const WRITER_PROMPT = """
+You will receive a complete PostmortemDraft. Produce a Postmortem
+with:
+  - title:    a single-line summary (<= 80 chars)
+  - severity: one of low | medium | high | critical, derived from
+              the failed step and outcome
+  - markdown: a self-contained Markdown postmortem with these
+              sections: # Title, ## Timeline, ## Root cause,
+              ## Mitigation, ## Trace reference (the trace_id and
+              event_count). Use the fields you received verbatim.
+"""
+
+agent timeline_extractor {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Extract a chronological timeline from raw trace events."
+  prompt:  TIMELINE_PROMPT
+  accept:  TraceBundle@v1
+  produce: PostmortemDraft@v1
+  retries: 2
+}
+
+agent root_cause {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Diagnose the root cause from the timeline and the raw events."
+  prompt:  ROOT_CAUSE_PROMPT
+  accept:  PostmortemDraft@v1
+  produce: PostmortemDraft@v1
+  retries: 2
+}
+
+agent mitigation {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Recommend mitigation steps and structural changes."
+  prompt:  MITIGATION_PROMPT
+  accept:  PostmortemDraft@v1
+  produce: PostmortemDraft@v1
+  retries: 2
+}
+
+agent writer {
+  llm:     "claude-sonnet-4-6"
+  intent:  "Collapse the draft into a publishable Markdown postmortem."
+  prompt:  WRITER_PROMPT
+  accept:  PostmortemDraft@v1
+  produce: Postmortem@v1
+  retries: 1
+}
+
+agent_net postmortem_pipeline {
+  intent "extract timeline -> diagnose -> mitigate -> write postmortem"
+  flow timeline_extractor -> root_cause -> mitigation -> writer
+}

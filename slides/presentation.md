@@ -1355,7 +1355,13 @@ policy pii_redact {
 
 # Trace — what every run records
 
-JSONL stream at `.aeris/traces/<id>.jsonl`, **always on**.
+JSONL stream at `<project>/<output_dir>/traces/<id>.jsonl`, **always on**.
+Default `output_dir = ".aeris"`, configurable in `[runtime]`.
+
+```text
+$ aeris run main.aer
+[aeris] trace_id = 01JFEZH7W… → ./.aeris/traces/01JFEZH7W….jsonl
+```
 
 | Source | Recorded fields |
 |---|---|
@@ -1363,6 +1369,7 @@ JSONL stream at `.aeris/traces/<id>.jsonl`, **always on**.
 | `clock.now`, `random.next` | `value` |
 | `http.*` | `url`, `method`, `status`, hashes |
 | `fs.read_*` / `fs.write_*` | `path`, `len`, `hash` |
+| `minio.*`, `mongodb.*`, `rabbitmq.*` | family-specific fields + `backend` |
 | `intent`, `saga`, `agent_net`, `policy` | structured events |
 
 ```json
@@ -1370,7 +1377,7 @@ JSONL stream at `.aeris/traces/<id>.jsonl`, **always on**.
  "tokens":142,"intent":"classify the invoice","ts":"..."}
 ```
 
-> Trace IDs are propagated across HTTP via `X-Aeris-Trace-Id: <id>` — a single request stays contiguous across processes.
+> Trace IDs are propagated across HTTP via `X-Aeris-Trace-Id: <id>` — a single request stays contiguous across processes. The trace path resolves against the **project root** (`main.aer`'s directory), so `cd ~ && aeris run /path/to/demo/main.aer` writes to the demo, not to `$HOME`.
 
 ---
 
