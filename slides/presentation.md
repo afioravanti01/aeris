@@ -12,7 +12,7 @@ footer: 'Aeris v0.3 · interpreted language for operations, AI and governance'
 
 <style>
   /* Bumped from theme default (36px) so the slimmer slides fill the canvas. */
-  section { font-size: 44px; }
+  section { font-size: 40px; }
   figure.aeris-figure {
     margin: 0.4em auto;
     width: 100%;
@@ -50,12 +50,11 @@ An interpreted language for **automation**, **AI orchestration**, **operations**
 |---|---|---|
 | **1** | Aeris at a glance | What it is, what it's for |
 | **2** | How an interpreted language works | Lexer · parser · check · tree-walk |
-| **3** | The four layers | Architectural rationale |
+| **3** | The four layers | Architectural overview |
 | **4** | Core language | Types, control flow, sagas, concurrency, modules |
 | **5** | AI primitives | Sessions, decisions, knowledge bases, multi-agent |
-| **6** | Verifiability | Capabilities, allow-lists, enforce modes |
-| **7** | Governance & reasoning | Intent, contracts, policy, trace, supply chain |
-| **8** | Putting it together | End-to-end SRE alert triage |
+| **6** | Verifiability & Governance | `cap`, `intent`, contracts, `policy`, trace, supply chain |
+| **7** | Why Aeris — design philosophy | The thesis, designed for LLMs, reducing non-determinism |
 
 ---
 
@@ -223,36 +222,6 @@ fn walk(node: Node, env: &mut Env) -> Value {
 - A 30-line script lives in **L1**.
 - A self-recovering pipeline uses **L1 + L2 + L3**.
 - A coordinated multi-agent system uses **all four**.
-
-</div>
-</div>
-
----
-
-# Why these four layers?
-
-> Code is increasingly **generated** by LLMs and **read** by LLMs — for reasoning, debugging, modifying. That changes the design constraints of the language itself.
-
-<div class="columns">
-<div class="column compact">
-
-**Two requirements that matter now**
-
-- **Reduce non-determinism** at every level the language can control.
-- **Make code mechanically verifiable** — what is in the source is the truth.
-
-**The four layers, as a response**
-
-- **L1 — syntax.** Density and zero ambiguity reduce hallucinations.
-- **L2 — semantics.** `cap` makes a function's intent mechanically checkable.
-
-</div>
-<div class="column compact">
-
-- **L3 — agentic loop.** Per-step trace + idempotent compensations make recovery deterministic over non-deterministic execution.
-- **L4 — multi-agent.** When 3+ agents coordinate, the routing protocol *is* the program. Lifting it to a typed graph eliminates coordination-as-prompt-string.
-
-> Opt-in is the contract. A throwaway script uses only L1; a regulated production system uses all four. Verification, agents, governance — each layer activates *only when needed*.
 
 </div>
 </div>
@@ -1001,9 +970,9 @@ fn main() {
 
 <!-- _class: divider -->
 
-# Verifiability
+# Verifiability & Governance
 
-> The signature is the truth about what a function can do. `cap`, allow-lists, narrowing, enforce modes.
+> What the signature can do (`cap`, allow-lists, enforce). What the program **means** to do (`intent`, contracts, `policy`). What every run leaves behind (trace, replay, content-addressed deps).
 
 ---
 
@@ -1150,97 +1119,6 @@ enforce = "strict"   # off | loose | strict
 </div>
 
 > Modes govern the **static check** only. Trace, replay, schema validation and policy evaluation stay active in all three modes.
-
----
-
-<!-- _class: divider -->
-
-# Governance & reasoning
-
-> Intent, contracts, policy, trace, supply chain. Non-determinism made explicit, isolated, and governable.
-
----
-
-# The thesis — controlled non-determinism
-
-> *A small language in which the **visibility** of effects, the **compensation** of external writes, the **integrity** of the supply chain, and the **intent** are structural properties of the source.*
-
-**Three sources of non-determinism**
-
-| Source | Nature | What addresses it |
-|---|---|---|
-| **The model** | Same prompt, different output | Trace + replay |
-| **The grammar** | Ambiguous constructs force the model to guess | One canonical form, reserved keywords |
-| **The world** | Networks drop, databases mutate, file systems change | `cap`, `intent`, `policy`, `model@vN` |
-
-> Aeris does not try to *eliminate* non-determinism — it makes it **explicit, isolated and governable**.
-
----
-
-# From a language for humans to a language for agents (1/2)
-
-> Programming languages were always an interface between **the human mind** and **the machine**. Every design choice — readable syntax, clear error messages, idiomatic style — minimised the cognitive load of the human writing and reading. **That assumption has fallen.**
-
-<div class="columns">
-<div class="column compact">
-
-**WHAT, not HOW**
-
-The principal *author* of code is now an LLM. An LLM does not have a mental model — it has a probability distribution over the next token. Writing code is, for an LLM, an **intrinsically stochastic** process.
-
-So the question stops being *"how do I lay out the syntax to be readable?"* and becomes *"what intentions can I let an agent express directly, without encoding them as mechanism?"*
-
-In Aeris, `saga`, `agent`, `intent`, `policy` are not mechanisms — they are **complete intentions** lifted to first-class constructs.
-
-</div>
-<div class="column compact">
-
-**High abstraction, not low**
-
-There is an opposite temptation: keep the language *as low as possible*, close to the hardware, so the LLM has less room to fail. **Wrong logic.**
-
-An LLM generates correct code with probability proportional to:
-
-- how much the code **resembles its training corpus**, and
-- how **constrained** the space of valid completions is by the language itself.
-
-High abstraction does both: fewer decisions to make → fewer points of failure; higher signal-to-noise per token generated.
-
-</div>
-</div>
-
----
-
-# From a language for humans to a language for agents (2/2)
-
-> Programming languages historically separated **what the code does** (semantics) from **why it does it** (commits, tickets, PR descriptions). The separation was necessary for humans; the machine did not need the *why*.
-
-<div class="columns">
-<div class="column compact">
-
-**The cost of that separation**
-
-An LLM reading a `.aer` file *without* the *why* must reverse-engineer purpose from mechanics. **Every inference is a point of non-determinism.**
-
-An agent *executing* code without knowing *why* cannot decide autonomously whether to continue, stop, or escalate when something looks off — it has no acceptance criterion against which to judge unexpected state.
-
-</div>
-<div class="column compact">
-
-**Why-as-grammar**
-
-In Aeris the *why* is part of the grammar.
-
-`intent`, `requires:` / `ensures:`, `policy` are **traceable, structurally enforced constructs** that:
-
-- shrink the space of valid interpretations the agent can adopt,
-- make the program's purpose **machine-readable**,
-- propagate as structured data into the trace, where another agent can consume them.
-
-</div>
-</div>
-
-> *The goal is not a language humans write better — it is a language agents **execute with more certainty**.*
 
 ---
 
@@ -1506,129 +1384,246 @@ allow.http = ["api.acme.com"]
 
 <!-- _class: divider -->
 
-# Putting it together
+# Why Aeris — Design philosophy
 
-> An end-to-end SRE alert triage system — typed agents, runtime policy, compensating saga, every-loop driver.
-
----
-
-<!-- _class: tight -->
-
-# End-to-end — SRE alert triage (1/2)
-
-```rust
-model Alert@v1     { id: uuid, service: string, message: string }
-model Diagnosis@v1 {
-  severity:   string  where severity in ["critical","high","medium","low"]
-  kind:       string  where kind in ["database","api","infrastructure"]
-  confidence: f64     where confidence >= 0.0 and confidence <= 1.0
-}
-model FixPlan@v1   { commands: list<string>, rollback: list<string> }
-
-agent classify {
-  llm:     "claude-haiku-4-5"
-  accept:  Alert@v1
-  produce: Diagnosis@v1
-  prompt:  "Classify alert {input.message} on {input.service}."
-}
-
-agent plan {
-  llm:     "claude-opus-4-7"
-  accept:  Diagnosis@v1
-  produce: FixPlan@v1
-  prompt:  "Propose a fix and rollback for a {input.severity} alert."
-}
-
-agent_net triage {
-  flow classify -> plan
-  until: classify.confidence > 0.85 || iterations >= 3
-}
-```
-
-> A typed graph of agents. Each edge is validated against `accept` / `produce`. A model hallucination producing out-of-shape JSON is rejected by the schema check, not by the reviewer.
+> Why these four layers, why a small language, why now. The thesis: a language designed for the principal author of code today — the model — and for the **reproducibility** its stochastic nature requires.
 
 ---
 
-<!-- _class: tight -->
+# Why these four layers?
 
-# End-to-end — SRE alert triage (2/2)
+> Code is increasingly **generated** by LLMs and **read** by LLMs — for reasoning, debugging, modifying. That changes the design constraints of the language itself.
 
-```rust
-saga apply_fix(plan: FixPlan@v1, alert: Alert@v1) {
-  intent "apply fix for alert {alert.id}"
-  step snapshot {
-    do   { shell.exec("kubectl get all > /tmp/{alert.id}.yaml") }
-    undo { shell.exec("rm -f /tmp/{alert.id}.yaml") }
-  }
-  step apply {
-    requires: snapshot.ok
-    do   { for c in plan.commands { shell.exec(c)? } }
-    undo { for c in plan.rollback { shell.exec(c)? } }
-  }
-}
+**Two requirements that matter now**
 
-every 30s {
-  let alerts = json.decode<list<Alert@v1>>(
-    http.get("https://alertmanager/api/alerts")?.body)?
-  for a in alerts { apply_fix(triage(a)?, a)? }
-}
-```
+- **Reduce non-determinism** at every level the language can control.
+- **Make code mechanically verifiable** — what is in the source is the truth.
 
-> One file: typed agents (previous slide), a saga with compensation, a 30-second poll loop. AI orchestration, runtime governance, compensation, scheduling — all in one grammar.
+**The four layers, as a response**
+
+- **L1 — syntax.** Density and zero ambiguity reduce hallucinations.
+- **L2 — semantics.** `cap`, contracts, `intent` make a function's behaviour mechanically checkable.
+- **L3 — agentic loop.** Per-step trace and idempotent compensations make recovery **deterministic over a non-deterministic execution**.
+- **L4 — multi-agent.** The routing protocol becomes a **typed graph**, not a coordination prompt.
+
+> **Opt-in is the contract.** A 30-line script uses only L1; a regulated production system uses all four.
 
 ---
 
-# Error model — layered exit codes
+# The thesis — controlled non-determinism
 
-<div class="columns">
-<div class="column">
+> *A small language in which the **visibility** of effects, the **compensation** of external writes, the **integrity** of the supply chain, and the **intent** are structural properties of the source.*
 
-| Phase | Failure | Exit |
+**Three sources of non-determinism**
+
+| Source | Nature | What addresses it |
 |---|---|---|
-| Lex / Parse | malformed syntax | 1 |
-| Static check | type / contract | 64 |
-| Static check | `cap` missing / over-broad | 65 |
-| Static check | missing `intent` on write | 66 |
-| Static check | saga step `undo: noop` on write | 67 |
+| **The model** | Same prompt, different output | Trace + replay |
+| **The grammar** | Ambiguous constructs force the model to guess | Reserved keywords, one canonical form, `cap` as value |
+| **The world** | Networks drop, databases mutate, file systems change | `cap`, `intent`, `requires` / `ensures`, `policy`, `model@vN` |
 
-</div>
-<div class="column">
+> Aeris does not try to *eliminate* non-determinism — it makes it **explicit, isolated and governable**.
 
-| Phase | Failure | Exit |
-|---|---|---|
-| Static check | `model` without `@vN` on boundary | 68 |
-| Static check | dep hash mismatch | 69 |
-| Static check | `agent_net` cycle | 70 |
-| Static check | allow-list over ceiling | 71 |
-| Static check | module reference without `use` | 72 |
-| Runtime | `saga` `PartialFailure` | 74 |
+---
 
-</div>
-</div>
+# Designed for LLMs (1/4) — Familiar carrier, domain inserts
 
-> The static check produces **distinct exit codes** so CI can react differently. A failed `intent` check (66) is not the same kind of failure as a missing-undo (67) or a bad model version (68).
+> The probability that a model produces correct code rises with how much the code **resembles its training corpus** and how **narrow** the space of valid completions is.
+
+**Familiar carrier — lower the cognitive ramp**
+
+- Curly braces, `match`, **named arguments** — known to anyone who used **Rust, Go, Swift**.
+- Tokenizer-friendly, well-represented in pre-training corpora.
+- Human reviewers and models pick the surface up **without learning a new dialect**.
+
+**Domain inserts — channel the intention**
+
+- `saga`, `agent`, `intent`, `policy`, `cap` — first-class constructs that **encode the domain in the grammar**.
+- A compensating workflow is `saga { step { do {…} undo {…} } }`, not fifty lines of try / finally.
+- Fewer syntactically valid completions → **fewer errors per generated token**.
+
+> **Familiar where it lowers the ramp; novel where it concentrates intent.**
+
+---
+
+# Designed for LLMs (2/4) — WHAT, not HOW
+
+> Programming languages were always an interface between **the human mind** and **the machine**. The principal author of code today is an LLM. **That assumption has fallen.**
+
+**The shift in the question**
+
+- A model does not have a mental model of the program.
+- It has a **probability distribution over the next token**.
+- Generating code is, for a model, an **intrinsically stochastic** process.
+
+**From "how do I build it?" to "what do I want built?"**
+
+- Traditional language: *how do I lay out the syntax to be readable?*
+- Aeris: *what intentions can the agent express directly, without encoding them as mechanism?*
+- `saga`, `agent`, `intent`, `policy` are **complete intentions**, not mechanisms.
+
+> `agent_net { flow extractor -> normalizer }` communicates more intent than fifty lines of Python — and gives the model less margin to introduce error.
+
+---
+
+# Designed for LLMs (3/4) — High abstraction, not low
+
+> The opposite temptation: keep the language **low-level**, close to the hardware, so the model "has less room to fail." **Wrong logic.**
+
+**Why high abstraction wins**
+
+- A model generates correct code with probability proportional to:
+  - how much the code **resembles its training corpus**, and
+  - how **constrained** the space of valid completions is by the language.
+- High abstraction does both:
+  - **fewer decisions to make** → fewer points of failure;
+  - **higher signal-to-noise** per generated token.
+
+**Concrete consequence**
+
+- `saga deploy { … }` codifies an entire deployment-with-compensation pattern in one keyword.
+- Replacing it with twenty `if` / `else` branches and ad-hoc rollback logic does not make the model more accurate — it makes it more likely to **drift**.
+
+> The aim is not a language humans write faster — it is a language **agents execute with more certainty**.
+
+---
+
+# Designed for LLMs (4/4) — Why-as-grammar
+
+> Historically the *what* of code lived in the source; the *why* lived in commits, tickets, PR descriptions — channels the agent **never reads**.
+
+**The cost of that separation**
+
+- A model reading a `.aer` file *without* the why must **reverse-engineer purpose** from mechanics.
+- **Every inference is a point of non-determinism.**
+- An agent *executing* code without knowing why cannot decide whether to **continue, stop, or escalate** when state looks off — it has no acceptance criterion.
+
+**The why, lifted into the grammar**
+
+- **`intent`** — purpose attached to every effectful block; **mandatory** at the parse level (exit code 66).
+- **`requires:` / `ensures:`** — conditions on inputs, outputs, world state; **runtime contracts**, exit 64 on violation.
+- **`policy`** — declarative guardrails the runtime evaluates **on every matching call**.
+- All three propagate as **structured events** into the trace — another agent can consume them.
+
+> A call with external effects without an enclosing `intent` is **not even parsed**.
+
+---
+
+# Reducing non-determinism (1/3) — The model
+
+> **Same prompt, different output.** `temperature = 0` attenuates the variance; it does not eliminate it. This is a physical property of the model — not something a language can remove.
+
+**Aeris' answer: capture, not control**
+
+- Every `ai.*` call is recorded in the JSONL trace: **prompt, model, response, tokens, timestamp**.
+- `aeris replay <trace_id>` reproduces the recorded tape — **no network, no model cost, bit-identical** on the deterministic subset.
+- `aeris trace diff` aligns events by `(scope, ordinal)` and reports field-level divergences — the foundation for **regression bisect**.
+
+**The honest promise**
+
+- *Not* "deterministic LLM code" — that would be physically false.
+- *Yes* **reproducibility after the first execution** — exactly what audit, debugging, regression tests, and post-incident analysis need.
+- The first run is non-deterministic; **every replay is identical**.
+
+> **Capture the stochasticity. Do not pretend to control it.**
+
+---
+
+# Reducing non-determinism (2/3) — The grammar
+
+> Every ambiguity in the language forces the model to **infer**. Every inference is a fresh point of non-determinism the language can prevent **by construction**.
+
+**Three structural choices**
+
+- **All keywords are reserved.** No soft keywords, no position-dependent meaning. `grep saga` finds **every saga** in the project — no false negatives.
+- **One canonical form per concept.** `aeris fmt` is **total, not partial** — exactly one way to write each construct, so model and human converge on the same shape.
+- **Capabilities are values, passed as parameters.** The function signature **is the truth** about what the function can touch — no hidden state, no ambient authority to infer.
+
+**Consequence for the model**
+
+- Fewer paths through the grammar → **tighter completion distribution**.
+- A reviewer (human or agent) reads the signature and **already knows** what the function can do.
+
+> The language gives the model **nothing to guess about**.
+
+---
+
+# Reducing non-determinism (3/3) — The world
+
+> Code runs against networks, databases, file systems — state that changes between two runs of the same program. This is what **governance** addresses.
+
+**Five structural constructs**
+
+- **`intent`** binds code to its purpose; **mandatory** on every effectful call — the parser rejects its absence.
+- **`requires:` / `ensures:`** declare conditions on inputs, outputs, world state; a violation **halts at the boundary**, before damage propagates.
+- **`cap`** isolates what each function can touch — the signature **lists the authority**.
+- **`model@vN`** validates data crossing trust boundaries — a malformed model response is **rejected before it reaches business logic**.
+- **`policy`** enforces guardrails the model **cannot forget** — evaluated by the runtime, not entrusted to a system prompt.
+
+> The world stays non-deterministic. **The program's response to it does not.**
+
+---
+
+# Theoretical foundations
+
+> Nothing in Aeris is new research. The contribution is **synthesis** of well-understood models, applied at one specific level of abstraction: a small interpreted language for **operations, AI, and governance**.
+
+**Pieces, applied**
+
+- **Capabilities as values** — the object-capability pattern: the function signature **is the authority graph**; no ambient access.
+- **Sagas with mandatory compensation** — a long-running operation decomposed into idempotent steps, each with an `undo`.
+- **Content-addressed supply chain** — every external dep is pinned by its **blake3 hash** in `aeris.toml`; if the bytes do not match, **no code from the dep runs**. Same approach as **Cargo, npm, Nix**.
+- **Runtime contracts** — pre / post-conditions checked at boundaries, not proved statically.
+
+**Why this synthesis matters here**
+
+- Each piece has decades of evidence in its own domain.
+- Putting them together **inside the grammar** — not in side-channels — is what makes them visible to the agent that is now the **principal author**.
+
+> **Engineering applied.** The novelty is in the **assembly**, not in the parts.
 
 ---
 
 # Honest limits
 
-- **First model run stays non-deterministic.** Replay is reproducibility *after* the first run.
-- **In-body correctness inside a legitimate `cap` is not verified** — tests, property checks, backend RBAC.
-- **Cap over-broadening is a process problem** — the `surface.lock` diff makes it visible; CI enforces.
-- **Cascading undo is best-effort** — `PartialFailure` (exit 74) when retries exhaust.
+> Aeris does not promise what it cannot deliver. Every refusal pays a **declared cost**.
 
-> Aeris is the **first defensive layer**, not the only one.
+**What Aeris does not promise**
+
+- **First model run stays non-deterministic.** Replay is reproducibility *after* the first run — never instead of it.
+- **In-body correctness inside a legitimate `cap` is not verified.** That is what tests, property checks, and backend RBAC are for.
+- **`cap` over-broadening is a process problem.** The `surface.lock` diff makes it visible; CI enforces it.
+- **Cascading undo is best-effort.** Retries exhaust → `PartialFailure` (exit code 74), surfaced to the operator.
+
+**Position in the stack**
+
+- Aeris is the **first defensive layer**, not the only one.
+- It removes whole classes of error from the source — it does not replace operational discipline.
+
+> The promise is **made explicit**, so the parts that need other safeguards are visible.
 
 ---
 
 # What Aeris refuses on principle
 
-- **No automatic formal proofs** — verdicts that depend on the machine and on the solver's heuristics.
-- **No automatic inference of capabilities** — the signature must be the truth; hidden changes break PR review.
-- **No mutable dependency references** — no `latest`, no `*`, no movable Git tags.
-- **No unsigned third-party native plug-ins** — only L2 modules signed by the Aeris registry key are loaded; their cap surface is declared in an embedded manifest the static checker reads.
+> Every refusal is a deliberate trade: a feature declined to keep **what is in the source the truth**.
 
-> Every refusal pays a **declared cost** — accepted to keep what is in the source the truth.
+**No automatic formal proofs**
+
+- Solver verdicts depend on the **machine and the heuristics** — that is non-determinism in the *tooling*, the very thing we are trying to control.
+- `requires:` / `ensures:` are **runtime contracts**, checked at boundaries.
+
+**No automatic inference of capabilities**
+
+- The signature must be the truth. A hidden inference would silently broaden authority between two PRs — and **break review**.
+
+**No mutable dependency references**
+
+- No `latest`, no `*`, no movable Git tags. The answer to *"what version is in this build?"* is always in `aeris.toml`, pinned by **blake3 hash**.
+
+**No unsigned third-party native plug-ins**
+
+- Only L2 modules signed by the **Aeris registry key** are loaded. Their cap surface is declared in an embedded manifest the static checker reads — no opaque native authority.
 
 ---
 
