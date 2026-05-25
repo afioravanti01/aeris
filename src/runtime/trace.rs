@@ -147,6 +147,18 @@ fn write_kv_raw(out: &mut String, key: &str, value_as_json: &str) {
     out.push_str(value_as_json);
 }
 
+/// Encode `s` as a JSON string literal (surrounding quotes included),
+/// ready to be passed as a raw trace field value. Callers that put a
+/// free-form message (e.g. a step's failure reason, which may carry
+/// quotes or newlines from a subprocess's stderr) into `record` must
+/// route it through here rather than `format!("\"{s}\"")`, which does
+/// not escape and would produce invalid JSONL.
+pub fn json_string_field(s: &str) -> String {
+    let mut out = String::new();
+    write_json_string(s, &mut out);
+    out
+}
+
 fn write_json_string(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {

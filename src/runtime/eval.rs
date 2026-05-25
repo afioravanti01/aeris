@@ -5544,6 +5544,10 @@ fn invoke_agent(
     call_env.replay_tape.clone_from(&agent.replay_tape);
     call_env.full_record = agent.full_record;
     call_env.imported_modules = agent.imported_modules.clone();
+    // M22.T1 fix: see invoke_saga — L2 dispatch needs to see the
+    // backends table the agent was registered with, not the all-mock
+    // Env::new() default.
+    call_env.l2_backends = agent.l2_backends.clone();
     call_env.bind_let("cap", cap.clone());
     // 3. Compose the prompt with the routing-protocol contract (T3).
     let full_prompt = compose_agent_prompt(agent, input);
@@ -6151,6 +6155,7 @@ fn invoke_agent_net(
             env.replay_tape.clone_from(&net.replay_tape);
             env.full_record = net.full_record;
             env.imported_modules = net.imported_modules.clone();
+            env.l2_backends = net.l2_backends.clone();
             env.bind_let("cap", cap.clone());
             env.bind_let("iterations", Value::Int(iters_run as i64));
             for (k, v) in &last_node_outputs {
@@ -6261,6 +6266,12 @@ fn invoke_saga(saga: &SagaInstance, args: &[Value], span: Span) -> Result<Value,
     saga_env.replay_tape.clone_from(&saga.replay_tape);
     saga_env.full_record = saga.full_record;
     saga_env.imported_modules = saga.imported_modules.clone();
+    // M22.T1 fix: every step body must dispatch L2 calls through
+    // the L2Backends table the saga was registered with (which in
+    // turn reflects `aeris.toml [l2.<family>]`). Without this clone
+    // saga_env.l2_backends would default to all-Mock, silently
+    // bypassing the manifest's `backend = "real"` selection.
+    saga_env.l2_backends = saga.l2_backends.clone();
     saga_env.push_scope();
     for (name, val) in saga.params.iter().zip(args) {
         saga_env.bind_let(name, val.clone());
@@ -6279,7 +6290,7 @@ fn invoke_saga(saga: &SagaInstance, args: &[Value], span: Span) -> Result<Value,
         );
     }
     let mut completed: Vec<String> = Vec::new();
-    let mut failed_step: Option<(String, Span)> = None;
+    let mut failed_step: Option<(String, Span, String)> = None;
     for (i, step) in saga.steps.iter().enumerate() {
         let key = idempotency_key(&trace_id, &step.name, i as u64);
         // Per-step env: copy saga env + step-scope idempotency key.
@@ -6317,6 +6328,23 @@ fn invoke_saga(saga: &SagaInstance, args: &[Value], span: Span) -> Result<Value,
         let outcome = eval_block(&step.do_block, &mut step_env);
         let step_failed = matches!(&outcome, Ok(Flow::Value(Value::Result(Err(_)))) | Err(_));
         if step_failed {
+            // Capture *why* the step failed so the trace explains the
+            // rollback rather than just flagging `outcome: "err"`. An
+            // `Err(value)` result carries the handler's message (e.g.
+            // `kubectl unavailable: ...`); an `EvalError` carries the
+            // kind. Both end up in `step_exit.reason` and propagate to
+            // `rollback_enter` and the saga's returned error string.
+            let reason = match &outcome {
+                Ok(Flow::Value(Value::Result(Err(inner)))) => value_as_display(inner),
+                // A step body that propagates an `err` via `?` surfaces
+                // it as `Raised(value)`; unwrap so the reason is the
+                // handler's plain message, not its Debug rendering.
+                Err(e) => match &e.kind {
+                    EvalErrorKind::Raised(v) => value_as_display(v),
+                    other => format!("{other:?}"),
+                },
+                _ => "unknown error".to_string(),
+            };
             if let Some(t) = &saga.tracer {
                 t.record(
                     "step_exit",
@@ -6324,10 +6352,14 @@ fn invoke_saga(saga: &SagaInstance, args: &[Value], span: Span) -> Result<Value,
                     vec![
                         ("step".into(), format!("\"{}\"", step.name)),
                         ("outcome".into(), "\"err\"".into()),
+                        (
+                            "reason".into(),
+                            crate::runtime::trace::json_string_field(&reason),
+                        ),
                     ],
                 );
             }
-            failed_step = Some((step.name.clone(), step.span));
+            failed_step = Some((step.name.clone(), step.span, reason));
             break;
         }
         if let Some(t) = &saga.tracer {
@@ -6352,12 +6384,18 @@ fn invoke_saga(saga: &SagaInstance, args: &[Value], span: Span) -> Result<Value,
         completed.push(step.name.clone());
     }
     // Roll back if any step failed.
-    if let Some((failed_name, _failed_span)) = failed_step.clone() {
+    if let Some((failed_name, _failed_span, failed_reason)) = failed_step.clone() {
         if let Some(t) = &saga.tracer {
             t.record(
                 "rollback_enter",
                 None,
-                vec![("step_failed".into(), format!("\"{}\"", failed_name))],
+                vec![
+                    ("step_failed".into(), format!("\"{}\"", failed_name)),
+                    (
+                        "reason".into(),
+                        crate::runtime::trace::json_string_field(&failed_reason),
+                    ),
+                ],
             );
         }
         for step_name in completed.iter().rev() {
@@ -6430,7 +6468,7 @@ fn invoke_saga(saga: &SagaInstance, args: &[Value], span: Span) -> Result<Value,
             t.intent_exit("rolled_back");
         }
         return Ok(Value::err(Value::Str(format!(
-            "saga `{}` rolled back after step `{failed_name}`",
+            "saga `{}` rolled back after step `{failed_name}`: {failed_reason}",
             saga.name
         ))));
     }
@@ -14851,6 +14889,42 @@ mod tests {
             .fields
             .iter()
             .any(|(k, v)| k == "outcome" && v == "\"rolled_back\""));
+    }
+
+    #[test]
+    fn saga_step_exit_err_carries_reason() {
+        // A failing step records *why* it failed: `step_exit` and
+        // `rollback_enter` both carry a `reason` field, and the saga's
+        // returned error string embeds it.
+        let src = r#"
+            saga s(cap: cap[]) {
+                intent "x"
+                step a { do { Err("disk full") } undo noop }
+            }
+            fn main(cap: cap[]) -> result<unit> { s(cap) }
+        "#;
+        let (r, evs) = run_saga_with_tracer(src);
+        let exit = evs
+            .iter()
+            .find(|e| e.kind == "step_exit")
+            .expect("step_exit emitted");
+        let reason = exit
+            .fields
+            .iter()
+            .find(|(k, _)| k == "reason")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(reason, Some("\"disk full\""));
+        let rb = evs
+            .iter()
+            .find(|e| e.kind == "rollback_enter")
+            .expect("rollback_enter emitted");
+        assert!(rb.fields.iter().any(|(k, v)| k == "reason" && v.contains("disk full")));
+        match r.unwrap() {
+            Value::Result(Err(inner)) => {
+                assert!(value_as_display(&inner).contains("disk full"));
+            }
+            other => panic!("expected rolled-back Err, got {other:?}"),
+        }
     }
 
     #[test]
