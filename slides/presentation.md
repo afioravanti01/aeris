@@ -5,8 +5,8 @@ paginate: true
 html: true
 size: 16:10
 title: "Aeris v0.3"
-header: 'Technical presentation · v0.3'
-footer: 'Aeris v0.3 · interpreted language for operations, AI and governance'
+header: 'Technical talk · v0.3'
+footer: 'Aeris v0.3 · an experiment in designing for the era when code is written by models'
 ---
 
 
@@ -36,153 +36,209 @@ footer: 'Aeris v0.3 · interpreted language for operations, AI and governance'
 
 <!-- _class: cover -->
 
-<p class="eyebrow">Technical presentation · v0.3</p>
+<p class="eyebrow">Technical talk · v0.3</p>
 
 ## AERIS v0.3
 
-An interpreted language for **automation**, **AI orchestration**, **operations** and **governance** — with capabilities, intent, and sagas as first-class constructs.
+A small interpreted language. **An experiment in designing for the era when code is written by models.**
 
 ---
 
 # Agenda
 
-| # | Section | What it covers |
+| # | What we'll cover |
+|---|---|
+| **1** | Motivation — why a toy language, what "agentic coding" means here |
+| **2** | Methodology — thesis · spec · plan · iterations |
+| **3** | Design — the trilemma, three sources of non-determinism |
+| **4** | What we drew on — capabilities, sagas, content addressing |
+| **5** | The language — four layers, AST walk, one concrete example |
+| **6** | What we observed, what we refused, open questions |
+
+---
+
+# Why a toy language
+
+> Code is now written and read by **LLMs**. We wanted to see what a language *designed for that audience* looks like — so we built one.
+
+**Be clear about what this is**
+
+- Aeris is a **toy**. Not a product, not an enterprise pitch.
+- A small interpreted language used as a **vehicle for an experiment**.
+- ~6 KLOC of Rust core, tree-walk interpreter, single binary.
+
+**The question being asked**
+
+- What changes in a language if its **principal author is a model**, not a human?
+- And: what does it take to build such a language **with an LLM doing the drafting**?
+
+> The point is the **process and the design choices**, not the deliverable.
+
+---
+
+# What "agentic coding" means here
+
+> An LLM has no mental model of a program. It has a **probability distribution over the next token**. Code generation is, for it, **intrinsically stochastic**.
+
+**Two consequences**
+
+- **Generation is stochastic.** Same prompt → different output. `temperature = 0` attenuates the variance, it does not remove it.
+- **Reading is shallow.** The model only uses what is **in the source**. Anything in commits, tickets, PR descriptions is invisible to it on the next run.
+
+**The two design pressures that follow**
+
+- **Less ambiguity in the syntax** — every choice the grammar forces on the model is a roll of the dice.
+- **More of the *why* inside the source** — anything the language doesn't encode, the model has to **re-infer each run**.
+
+---
+
+# How we worked — thesis → spec → plan → iterations
+
+> A language with structural guarantees can be built only when the **rationale is committed before the code**.
+
+- **`docs/thesis.md`** — written *before any code*. The design commitments. Non-negotiable.
+- **`docs/language.md`** — the language surface, **derived from** the thesis. Mechanically constrained by it.
+- **`docs/plan.md`** — the implementation, ordered into **~50 milestones**, each with an explicit *acceptance check* (a script that runs to green or red).
+- **The inner loop** — model proposes a milestone implementation → spec rules what's allowed → acceptance check verifies → mark done.
+- **No `// TODO`, no "we'll come back to it".** Incomplete is incomplete; the milestone stays open.
+
+> **The model proposed, the docs ruled, the checks verified.** Every change traces back to a stated commitment in `thesis.md`.
+
+---
+
+<!-- _class: tight -->
+
+# The design trilemma
+
+<div class="columns">
+<div class="column">
+
+```text
+        verifiability (static)
+              /\
+             /  \
+            /    \
+           /      \
+   readability ── expressiveness
+```
+
+> *Three desiderata pull against each other. A language at any vertex pays on the other two.*
+
+</div>
+<div class="column compact">
+
+**Aeris sits at the centroid**
+
+- **Verifiability is structural, not semantic.** We don't prove a function computes the right answer. We make it **impossible to hide** which resources it touches.
+- **Readability is the constraint, not the goal.** The goal is *reviewability* — by a human or by another agent.
+- **Expressiveness is deliberately limited.** One construct per concept. No soft keywords. **A grep-able language.**
+
+> Smaller is the feature.
+
+</div>
+</div>
+
+---
+
+# Three sources of non-determinism
+
+> Aeris does not try to *eliminate* non-determinism. It makes it **explicit, isolated, governable** — each source addressed at a different level of the design.
+
+| Source | Where it lives | How Aeris responds |
 |---|---|---|
-| **1** | Aeris at a glance | What it is, what it's for |
-| **2** | How an interpreted language works | Lexer · parser · check · tree-walk |
-| **3** | The four layers | Architectural overview |
-| **4** | Core language | Types, control flow, sagas, concurrency, modules |
-| **5** | AI primitives | Sessions, decisions, knowledge bases, multi-agent |
-| **6** | Verifiability & Governance | `cap`, `intent`, contracts, `policy`, trace, supply chain |
-| **7** | Why Aeris — design philosophy | The thesis, designed for LLMs, reducing non-determinism |
+| **The model** | Same prompt, different output | **Capture every call** in the JSONL trace; `aeris replay` reproduces it bit-identical |
+| **The grammar** | Ambiguity forces the model to infer | Reserved keywords, **one canonical form**, `cap` as a value |
+| **The world** | Networks drop, DBs mutate, files change | `cap`, `intent`, `requires:` / `ensures:`, `policy`, `model@vN` |
+
+> The honest promise: **reproducibility after the first run** — *not* deterministic LLM code, which is physically false.
 
 ---
 
-# Aeris at a glance
+<!-- _class: divider -->
 
-> A general-purpose interpreted language written in Rust, built around a specific domain: **operations, AI orchestration, and governance**.
+# What we drew on
 
-- **Runtime** — single static binary `aeris`, < 8 MB. Zero external runtime requirements. Tree-walk interpreter; one file extension `.aer`; one project manifest `aeris.toml`.
-- **Libraries** — general-purpose stdlib · native domain handlers · external `.aer` modules pinned by cryptographic hash.
-- **LLM integration** — pluggable backend: HTTP API or local CLI process, selected in `aeris.toml`.
-- **What it replaces in one file** — `bash` / Python / Terraform scripts, Airflow / Argo workflow manifests, LangChain / CrewAI agent graphs, OPA / Rego security rules.
+> Three pieces from the literature. **None of them is new.** What is new is putting them together inside a small language with an LLM as the principal author.
 
-> One grammar covers a 30-line script and a multi-agent system. Discipline is **opt-in by depth**.
+---
+
+# Capabilities as values
+
+> Authority is a **value passed by parameter**, not an ambient property of the process. Who holds the value can call; who doesn't, can't.
+
+**Where the idea comes from**
+
+- **Dennis & Van Horn, 1966** — *"Programming Semantics for Multiprogrammed Computations"* (CACM). The original capability paper at MIT Project MAC.
+- **The E language** (Mark Miller, ~2003) — brought object-capability into a practical, statically-typed PL.
+- **Modern descendants:** Capsicum (FreeBSD), Genode OS, Pony's reference capabilities.
+
+**How Aeris uses it**
+
+- A function declares `cap: cap[http.get @ ["api.acme.com"]]` in its signature. **Without `cap`, it cannot perform any external effect.**
+- The signature **is the authority graph**. A reviewer (human or agent) reads it and knows what the function can touch, *without entering the body*.
+
+> Not the first language to do this. The first one we know of doing it **for code written by an LLM**.
+
+---
+
+# The SAGA pattern
+
+> A long-running operation is **a sequence of short operations**, each with a **compensating action** that rolls it back.
+
+**Where the idea comes from**
+
+- **Garcia-Molina & Salem, 1987** — *"Sagas"*. SIGMOD '87 paper. Originally for databases that could not hold a long transaction.
+- **Microservices adoption:** Netflix Conductor, Uber Cadence → **Temporal**, AWS Step Functions. All are sagas with different surfaces.
+
+**How Aeris uses it**
+
+- Every `step` declares **both** `do` (the action) and `undo` (the compensation). `undo: noop` is allowed only when `do` does not write.
+- If a step fails, the runtime runs the `undo`s of completed steps **in reverse order**.
+- **Idempotency keys** are auto-derived as `blake3(trace_id, step_name, retry_idx)` and injected into write capabilities — so a replay does not double-charge.
+
+> Aeris's contribution: making compensation **mandatory syntax**, not an optional decorator.
+
+---
+
+# Content-addressed supply chain
+
+> Every external dependency is identified by **the hash of its bytes**. If the bytes change, no code from the dep runs.
+
+**Where the idea comes from**
+
+- **Nix** (Eelco Dolstra, PhD thesis 2006) — purely functional package management; every artifact has a deterministic hash-based store path.
+- **Cargo + `Cargo.lock`** (Rust, 2014) and **Go modules + GOSUMDB** (Go, 2018) — same principle, transparency-logged in Go's case.
+
+**How Aeris uses it**
+
+- Every external `.aer` library is pinned by **blake3 hash** in `aeris.toml`.
+- L2 native modules add **ed25519 signature** by the Aeris registry key on top of the hash.
+- **No `latest`, no `*`, no movable Git tags.** The version answer is one line in the manifest.
+
+> Known-good idea. Aeris just applies it consistently across the language's whole supply chain.
+
+---
+
+# Why-as-grammar — the design move
+
+> Languages have separated *what the code does* (in the source) from *why it does it* (in commits, tickets, PR descriptions). **The agent never sees the second part.**
+
+**The cost of that separation in the agentic era**
+
+- Every read of the code without the *why* makes the agent **reverse-engineer purpose from mechanics**. Each inference is a fresh point of non-determinism.
+- An agent executing code without a *why* has **no acceptance criterion** — no way to decide whether to continue, stop, or escalate when state looks off.
+
+**Aeris lifts the *why* into the grammar**
+
+- **`intent "..."`** — purpose attached to every effectful block. **Mandatory at parse**. Propagates into the trace.
+- **`requires:` / `ensures:`** — runtime contracts at the boundary, not solver proofs over the body.
+- **`policy`** — guardrails the runtime evaluates **on every matching call**. The model cannot forget them.
+
+> This is the **load-bearing claim of the project**. We think the *why* must become machine-readable.
 
 ---
 
 <!-- _class: tight -->
-
-# Hello world
-
-<div class="columns">
-<div class="column">
-
-```rust
-// Script mode — no main, no ceremony.
-use io
-
-io.println("hello, aeris")
-```
-
-```rust
-// With a main function.
-use io
-
-fn main() {
-  io.println("hello, aeris")
-}
-```
-
-</div>
-<div class="column compact">
-
-- A `.aer` file without `fn main` is a **valid program** — top-level statements run in declaration order.
-- A `.aer` file with `fn main` runs the function after the top-level statements.
-- `use io` is **mandatory** to call `io.println` — modules must be brought into scope.
-- The standard library is **closed** — no third-party deps. Adding a built-in requires an Aeris release.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# How an interpreted language works
-
-<div class="columns">
-<div class="column compact">
-
-**1 · Lexer** — reads the bytes of a `.aer` file and emits typed tokens annotated with line numbers. An unknown character ends the run.
-
-**2 · Parser** — recursive-descent over the tokens. Builds the **AST** — a tree where each node is a language construct (a `let`, a call, a `saga`, an `agent`).
-
-**3 · Static check** — pre-run pass that verifies structural properties: schemas, idempotency-key obligations, agent graphs. Failure → distinct exit codes per category.
-
-**4 · Interpreter** — walks the AST node by node. Each statement updates the scope; each expression returns a value. Side effects go through the standard library.
-
-</div>
-<div class="column">
-
-```rust
-// The Aeris source tree, mapped to the pipeline.
-src/lexer.rs        // bytes  → tokens
-src/parser.rs       // tokens → AST
-src/checker.rs      // AST    → ok / error
-src/interpreter.rs  // AST    → value, side effects
-```
-
-> The AST **is** the program. No bytecode, no intermediate representation, no compilation step.
-
-> ~6 KLOC of Rust core. Zero external runtime. Single-shell-script deployment.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# The AST walk
-
-<div class="columns">
-<div class="column">
-
-```rust
-fn walk(node: Node, env: &mut Env) -> Value {
-  match node {
-    Let(name, e)   => env.set(name, walk(e, env)),
-    If(c, t, f)    => if walk(c, env).is_truthy() {
-                        walk(t, env)
-                      } else { walk(f, env) },
-    Call(f, args)  => apply(f, args.map(|a| walk(a, env))),
-    Block(stmts)   => stmts.for_each(|s| walk(s, env)),
-    Return(e)      => unwind(walk(e, env)),
-    // ...one arm per AST variant
-  }
-}
-```
-
-</div>
-<div class="column compact">
-
-**Reading the walk**
-
-- An *expression* node returns a `Value` — data flows back up the tree.
-- A *statement* node updates the scope or triggers an effect.
-- `return` / `break` / `continue` are error variants that unwind to the right frame.
-
-**A function call is a sub-walk**
-
-- The function's body is an AST sub-tree.
-- A new scope is pushed, parameters bound, the body recursed into.
-- Closures snapshot their environment, so `spawn { ... }` keeps the scope chain alive.
-
-</div>
-</div>
-
----
 
 # The four layers
 
@@ -217,65 +273,92 @@ fn walk(node: Node, env: &mut Env) -> Value {
 </div>
 <div class="column compact">
 
-- Each layer **composes** with the ones below.
-- A program **pays only** for the layers it uses.
-- A 30-line script lives in **L1**.
-- A self-recovering pipeline uses **L1 + L2 + L3**.
-- A coordinated multi-agent system uses **all four**.
+- **L1 — syntax.** Dense, low-token, no soft keywords. **Fewer choices → fewer hallucinations.**
+- **L2 — semantics.** `cap`, `intent`, contracts. The **compiler** catches the rogue effect, not the reviewer.
+- **L3 — agentic loop.** `saga` + `do`/`undo` + auto-idempotency keys. **Deterministic recovery over a non-deterministic execution.**
+- **L4 — multi-agent.** `agent_net` is a typed dataflow graph; the routing protocol is **owned by the runtime**, not encoded in prompts.
+
+> **Opt-in by depth.** A 30-line script uses L1 only.
 
 </div>
 </div>
-
----
-
-<!-- _class: divider -->
-
-# Core language
-
-> Curly braces, named arguments, models, sagas, concurrency. Everything that ships in the binary.
 
 ---
 
 <!-- _class: tight -->
 
-# Language at a glance
+# How the interpreter runs your program
+
+> The AST **is** the program. Aeris walks the tree node by node — no bytecode, no intermediate representation.
 
 <div class="columns">
 <div class="column">
 
-```rust
-// Variables: let immutable, var mutable, const file-level.
-let title  = "report"
-var count  = 0
-const PI   = 3.14159
+<figure class="aeris-figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 400" role="img" aria-label="Tree-walking interpreter visiting an AST for let x = add(2, 3)">
+<defs>
+<marker id="ast-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#5F6470"/></marker>
+</defs>
+<g font-family="Inter, system-ui, sans-serif">
 
-// Type annotations optional, encouraged at API boundaries.
-let amount: decimal = 12.50
+<rect x="10" y="10" width="520" height="36" rx="4" fill="#F6F3F0" stroke="#1C2035" stroke-width="1"/>
+<text x="22" y="34" font-family="Geist Mono, JetBrains Mono, monospace" font-size="18" fill="#0E1020">let x = add(2, 3)</text>
 
-// Functions return the last expression — no return needed.
-fn greet(name: string) -> string { "Hello, {name}!" }
-greet(name: "Aeris")
+<rect x="180" y="70" width="180" height="46" rx="8" fill="#FFE9C4" stroke="#1C2035" stroke-width="2"/>
+<text x="270" y="99" text-anchor="middle" font-size="17" font-weight="700" fill="#0E1020">Let("x", _)</text>
+<circle cx="168" cy="93" r="14" fill="#1C2035"/>
+<text x="168" y="98" text-anchor="middle" font-size="13" font-weight="700" fill="#F6F3F0">1</text>
+<text x="372" y="88" font-size="13" font-style="italic" fill="#5F6470">effect:</text>
+<text x="372" y="107" font-family="Geist Mono, monospace" font-size="13" font-weight="700" fill="#0E1020">env { x: 5 }</text>
 
-// Closures are first-class values.
-let double = fn(x) { x * 2 }
-let evens  = [1, 2, 3, 4].filter(fn(x) { x % 2 == 0 })
+<line x1="270" y1="116" x2="270" y2="160" stroke="#5F6470" stroke-width="2" marker-end="url(#ast-arr)"/>
 
-// String interpolation, multi-line strings.
-let log = "request {req.method} {req.path}"
-let prompt = """
-  You are an SRE.
-  Analyse: {log}
-"""
-```
+<rect x="180" y="165" width="180" height="46" rx="8" fill="#D6E5FF" stroke="#1C2035" stroke-width="2"/>
+<text x="270" y="194" text-anchor="middle" font-size="17" font-weight="700" fill="#0E1020">Call("add", _)</text>
+<circle cx="168" cy="188" r="14" fill="#1C2035"/>
+<text x="168" y="193" text-anchor="middle" font-size="13" font-weight="700" fill="#F6F3F0">2</text>
+<text x="372" y="183" font-size="13" font-style="italic" fill="#7C3AED">returns:</text>
+<text x="372" y="202" font-family="Geist Mono, monospace" font-size="14" font-weight="700" fill="#7C3AED">Value(5)</text>
+
+<line x1="225" y1="211" x2="135" y2="258" stroke="#5F6470" stroke-width="2" marker-end="url(#ast-arr)"/>
+<line x1="315" y1="211" x2="405" y2="258" stroke="#5F6470" stroke-width="2" marker-end="url(#ast-arr)"/>
+
+<rect x="65" y="263" width="110" height="46" rx="8" fill="#D6E5FF" stroke="#1C2035" stroke-width="2"/>
+<text x="120" y="292" text-anchor="middle" font-size="17" font-weight="700" fill="#0E1020">Lit(2)</text>
+<circle cx="53" cy="286" r="14" fill="#1C2035"/>
+<text x="53" y="291" text-anchor="middle" font-size="13" font-weight="700" fill="#F6F3F0">3</text>
+<text x="120" y="335" text-anchor="middle" font-size="13" font-style="italic" fill="#7C3AED">↑ Value(2)</text>
+
+<rect x="365" y="263" width="110" height="46" rx="8" fill="#D6E5FF" stroke="#1C2035" stroke-width="2"/>
+<text x="420" y="292" text-anchor="middle" font-size="17" font-weight="700" fill="#0E1020">Lit(3)</text>
+<circle cx="487" cy="286" r="14" fill="#1C2035"/>
+<text x="487" y="291" text-anchor="middle" font-size="13" font-weight="700" fill="#F6F3F0">4</text>
+<text x="420" y="335" text-anchor="middle" font-size="13" font-style="italic" fill="#7C3AED">↑ Value(3)</text>
+
+<rect x="20" y="362" width="14" height="14" rx="3" fill="#FFE9C4" stroke="#1C2035"/>
+<text x="40" y="374" font-size="12" fill="#0E1020">statement · effect on env</text>
+<rect x="240" y="362" width="14" height="14" rx="3" fill="#D6E5FF" stroke="#1C2035"/>
+<text x="260" y="374" font-size="12" fill="#0E1020">expression · returns Value</text>
+<circle cx="430" cy="369" r="9" fill="#1C2035"/>
+<text x="430" y="373" text-anchor="middle" font-size="11" font-weight="700" fill="#F6F3F0">n</text>
+<text x="445" y="374" font-size="12" fill="#0E1020">visit order</text>
+
+</g>
+</svg>
+</figure>
 
 </div>
 <div class="column compact">
 
-- Three binding forms: `let` (immutable, default), `var` (mutable, function-scope only), `const` (file-level).
-- Types are **inferred**; annotations live at API boundaries.
-- Functions return the last expression of their body — no `return` keyword needed.
-- Call sites use **named arguments**: `greet(name: "Aeris")` — order-independent.
-- Strings interpolate with `{expr}`; triple-quoted strings preserve newlines.
+**The whole interpreter, in one sentence**
+
+- One recursive function over typed AST nodes. **What the source says is what it does, in the order it says it.**
+
+**The corners**
+
+- A **function call** is a sub-walk over the callee's sub-tree: push scope, bind params, recurse.
+- **Closures** capture their env by reference; `spawn { … }` keeps the scope chain alive.
+- **`return` / `break` / `continue`** propagate as a typed unwind to the right frame.
 
 </div>
 </div>
@@ -284,1346 +367,110 @@ let prompt = """
 
 <!-- _class: tight -->
 
-# Control flow — `if`, `match`, loops
-
-<div class="columns">
-<div class="column">
-
-```rust
-// if and match are expressions — they yield a value.
-let label = if score >= 90 { "A" }
-            else if score >= 70 { "B" }
-            else { "C" }
-
-let summary = match resp.status {
-  200      -> "ok",
-  400..499 -> "client error",
-  500..599 -> "server error",
-  _        -> "other",
-}
-
-// Loops.
-for tag in tags { io.println(tag) }
-for (k, v) in map { io.println("{k}={v}") }
-while count > 0 { count = count - 1 }
-loop {
-  let line = io.read_line() ?? ""
-  if line == "quit" { break }
-}
-```
-
-</div>
-<div class="column compact">
-
-- `if` and `match` are **expressions** — they evaluate to a value.
-- `match` patterns: literals, ranges (`400..499`), wildcards (`_`), enum variants.
-- `match` is **exhaustive** — the compiler tells you which case you forgot.
-- `for x in iter` walks any iterable (`list`, `range`, `map`, `channel`).
-- `loop { ... }` is sugar for `while true { ... }`.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Pattern matching — enums and destructuring
-
-<div class="columns">
-<div class="column">
-
-```rust
-enum Status {
-  Pending,
-  Active(since: timestamp),
-  Banned { reason: string, until: option<date> },
-}
-
-match s {
-  Pending           -> "pending",
-  Active(t)         -> "since {t}",
-  Banned { reason } -> "blocked: {reason}",
-}
-
-// List destructuring with a rest binding.
-match xs {
-  []                -> "empty",
-  [x]               -> "single {x}",
-  [first, ..rest]   -> "{first} + {len(rest)} more",
-  [a, .., z]        -> "{a} ... {z}",
-}
-
-// Result destructuring.
-match http.get(url) {
-  Ok(resp) -> use_body(resp.body),
-  Err(e)   -> raise e,
-}
-```
-
-</div>
-<div class="column compact">
-
-- `enum` variants can carry **typed payload fields** (positional or named).
-- Variant patterns **bind** their payload — `Active(t)` makes `t` available in the arm.
-- List patterns support `..rest` for "everything else".
-- Pattern matching covers `option<T>`, `result<T>`, and any user enum with one structural API.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Models — records, enums, versioned schemas
-
-<div class="columns">
-<div class="column">
-
-```rust
-// record — a named-field struct.
-record User {
-  id:   uuid
-  name: string
-  age:  int  where age >= 0
-}
-
-let u = User { id: uuid_v7(), name: "Ada", age: 36 }
-let v = User { ..u, age: 37 }       // structural update
-
-// model X@vN — a record + a version tag + constraints.
-model Invoice@v1 {
-  id:       uuid
-  amount:   decimal where amount > 0
-  customer: string  where len(customer) <= 64
-
-  where: status == Cancelled implies amount == 0
-}
-
-// v2 extends v1 — inherits fields and constraints.
-model Invoice@v2 extends Invoice@v1 {
-  currency: string where len(currency) == 3
-}
-```
-
-</div>
-<div class="column compact">
-
-- `record` is a struct with named, typed fields.
-- `model X@vN` is a **versioned record**, validated at every **trust boundary** (HTTP ingress, JSON decoding, agent edges).
-- `where` clauses run on construction — both per-field and at the record level.
-- `extends` inherits the parent's shape: you may add fields, never remove or rename.
-- A bare `model X` (no `@vN`) at a trust boundary is a parse error.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Errors & recovery — `result`, `?`, `??`, `catch`, `defer`
-
-<div class="columns">
-<div class="column">
-
-```rust
-// result<T> is Ok(value) or Err(error) — errors are values.
-fn read_config(path: string) -> result<Config> {
-  let bytes = fs.read_file(path)?     // propagate Err
-  json.decode<Config>(bytes)
-}
-
-// ?? substitutes on Err / None / unit.
-let nick = lookup_nickname() ?? "anonymous"
-
-// catch — handle Err inline, supply a fallback.
-let data = fs.read_file("config.json") catch err {
-  io.eprintln("missing: {err.message}")
-  b"{}"
-}
-
-// defer — LIFO cleanup on every exit path.
-fn render(items: list<Item>) -> result<unit> {
-  let tmp = fs.create_temp()?
-  defer fs.remove(tmp)
-  fs.write_file("./out/report.html", build(items, tmp))?
-  Ok(())
-}
-```
-
-</div>
-<div class="column compact">
-
-- `result<T>` is `Ok(value)` or `Err(error)` — **errors are values**, not exceptions.
-- `?` after an expression: if `Err`, return early from the caller.
-- `??` substitutes on `Err`, `None`, or unit.
-- `catch err { ... }` handles errors inline; `err` binds to the error value.
-- `defer stmt` runs on **every** exit path (return, `?`, `raise`) — like Go's `defer`.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Time control — `every`, `retry`, `timeout`
-
-```rust
-// Periodic loop — first iteration runs immediately.
-every 5m {
-  let h = http.get("https://api.acme.com/health")
-  if !h.ok { audit.event("api.down", { ts: clock.now() }) }
-}
-
-// Bounded retry on Err.
-let r = retry 3, delay: 1s {
-  http.get("https://api.acme.com/status")
-}
-
-// Wall-clock bound; not preempted mid-statement.
-let r = timeout 30s { long_running_call() }
-```
-
-- `every D` runs the body, waits `D`, repeats. `break` exits, `continue` skips.
-- `retry N, delay: D` re-runs the body on `Err`, up to `N` times with a pause `D`.
-- `timeout D` fails the block with `Err(...)` if it exceeds the wall-clock budget.
-- `clock.sleep(D)` is recorded so that `aeris replay` reproduces the same timeline.
-
-> No external scheduler (cron / systemd / Airflow) needed — the loop is part of the program, observable in the trace, replayable offline.
-
----
-
-<!-- _class: tight -->
-
-# Saga — the flagship construct for writes
-
-```rust
-saga settle(batch: list<Invoice@v1>) {
-  intent "settle invoice batch"
-  step charge {
-    do   { for it in batch { http.post("/charge", it)? } }
-    undo { for it in batch { http.post("/refund", it)? } }
-  }
-  step ledger {
-    requires: charge.ok
-    do   { kube.apply(ledger_manifest(batch))? }
-    undo { kube.delete(ledger_manifest(batch))? }
-  }
-}
-```
-
-- `saga` groups a **multi-step operation that needs compensation** if a later step fails.
-- Each `step` declares **both** `do` (the action) and `undo` (the compensation).
-- If a later step fails, the runtime runs the `undo`s of the completed steps in reverse order.
-- `undo: noop` is allowed **only when `do` does not write** — every external write must declare how to undo itself.
-- Three deterministic outcomes: `ok`, `rolled_back`, or `PartialFailure` (when even the rollback fails — exit code 74).
-
-> `intent "..."` declares the saga's purpose; it appears in every trace event emitted from inside the saga.
-
----
-
-# Idempotency key — generated for you
-
-**The problem.** Network drops mid-write — you sent `POST /charge`, you don't know if the backend received it. If you retry, you risk a **double charge**. If you don't, you risk **no charge at all**.
-
-**The standard fix.** Attach a unique string — an *idempotency key* — to every write. The backend remembers keys it has already seen and drops the duplicates. Used by Stripe, AWS, Kubernetes, queues.
-
-**What Aeris does.** Inside every `saga` step, the runtime derives one key per invocation from three stable values:
-
-```text
-key = blake3( trace_id  ‖  step_name  ‖  invocation_index )
-            └─ run id ─┘  └─ in saga ─┘  └─ retry count ─┘
-```
-
-| Backend | Where the key goes |
-|---|---|
-| `http.{post, put, patch}` | header `Idempotency-Key` |
-| `kube.apply` | annotation `aeris.idempotency` |
-| `rabbitmq.publish` | `message-id` field |
-
-- Generated **for every saga step**, in all `enforce` modes (`off` / `loose` / `strict`).
-- Outside a saga, calls do not get the derived key — `saga` is the trigger.
-- Recorded into the trace alongside the call — `aeris replay` reuses the same keys.
-
-> Same program replayed → same `trace_id` → **same keys** → the backend drops every duplicate.
-
----
-
-<!-- _class: tight -->
-
-# Concurrency — `spawn`, `channel`, cancellation
-
-<div class="columns">
-<div class="column">
-
-```rust
-// spawn returns a handle; await yields the result.
-let h_a = spawn { fetch_a() }
-let h_b = spawn { fetch_b() }
-let (a, b) = (await h_a, await h_b)
-
-// Bounded channel between threads.
-let ch: channel<int> = channel(capacity: 16)
-spawn {
-  for x in 1..100 { ch.send(x)? }
-  ch.close()
-}
-for x in ch { io.println("{x}") }
-
-// Cooperative cancellation.
-let h = spawn { long_running() }
-h.cancel()      // delivered at the next cancel-point
-```
-
-</div>
-<div class="column compact">
-
-- `spawn { ... }` returns a `handle<T>`; `await h` yields the body's value.
-- `channel<T>` is a bounded queue between threads — `send` on full blocks, `recv` on empty blocks.
-- Cancellation is **cooperative**: cancel-points are `await`, `?`, capability calls, `for x in ch`.
-- The current runtime executes `spawn` inline on the same thread; a `spawn_inline` trace event marks the limitation.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Modules — three layers, one keyword
-
-<div class="columns">
-<div class="column">
-
-```rust
-// Layer 1: general-purpose stdlib (built in).
-use io, json, fs, http, shell
-
-// Layer 2: native domain handlers (built in).
-use ai, kube, mongodb
-
-// Layer 3: external .aer libraries.
-use deploy
-  from "github.com/acmecorp/aeris-devops"
-       deploy@"1.2.0"
-use "./lib/utilities.aer"
-use utilities from "./lib/utilities.aer"
-use http as net           // rename at the use site
-```
-
-</div>
-<div class="column compact">
-
-- All imports use the same keyword: `use`. The layer is inferred from the form.
-- **Layer 1** is built into the `aeris` binary.
-- **Layer 2** modules are signed native `.so` / `.dylib` extensions of the stdlib, declared in `aeris.toml [modules.<family>]` and pinned by blake3 hash + ed25519 signature.
-- **Layer 3** is `.aer` source, pinned by `blake3` hash in `aeris.toml`.
-- `use` is **mandatory** for every module reference (exit code 72).
-- Cyclic imports are rejected at parse time.
-
-</div>
-</div>
-
----
-
-# Standard library — general-purpose modules
-
-<div class="columns">
-<div class="column">
-
-| Module | Operations |
-|---|---|
-| `io` | `print`, `println`, `read_line` |
-| `fs` | `read_*`, `write_*`, `walk`, `mkdir`, `remove` |
-| `http` | `get`, `post`, `put`, `patch`, `delete` |
-| `shell` | `exec`, `pipe` |
-| `strings`, `date`, `json`, `yaml` | parsing, formatting |
-| `clock`, `random` | recorded for replay |
-| `net` | `http(port) -> HttpServer` |
-
-</div>
-<div class="column">
-
-```rust
-use io, fs, http, json
-
-let cfg  = json.decode<Config>(fs.read_text("./cfg.json"))?
-let resp = http.get("https://api.acme.com/{cfg.path}")?
-io.println("{resp.status} — {resp.body.len()} bytes")
-```
-
-> `use` brings the module into scope; what each operation does is defined by the runtime.
-
-</div>
-</div>
-
----
-
-# Standard library — native domain handlers
-
-<div class="columns">
-<div class="column">
-
-| Module | Operations |
-|---|---|
-| `ai` | `complete`, `chat`, `embed`, `tools` |
-| `kube` | `apply`, `delete`, `get`, `watch` |
-| `docker` | `run`, `build`, `push`, `pull` |
-| `mongodb` | `read`, `write` |
-| `minio`, `rabbitmq` | object store, message queue |
-| `audit` | `event` |
-
-</div>
-<div class="column">
+# A concrete example
 
 ```rust
 use ai, kube, audit
 
-intent "scale the inference pod" {
-  kube.apply(scale_manifest(pod, replicas: 4))?
-  audit.event("scaled", { pod, to: 4 })
-}
-```
+model Alert@v1     { service: string, message: string }
+model Diagnosis@v1 { severity: string, kind: string }
 
-> These modules are **signed `.so` / `.dylib` extensions of the stdlib**, declared in `aeris.toml [modules.<family>]`, loaded at startup, blake3-pinned and ed25519-signed by the Aeris registry key.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# A full HTTP server — `net.http`
-
-<div class="columns">
-<div class="column">
-
-```rust
-use net, fs, json
-
-let server = net.http(port: 8080)
-
-loop {
-  let req = server.accept()
-  spawn {
-    if req.path == "/api/health" {
-      req.reply_json(200, json.encode({ status: "ok" }))
-    } else if req.path == "/" {
-      req.reply(200, fs.read_text("./index.html"), "text/html")
-    } else {
-      req.reply(404, "not found")
-    }
-  }
-}
-```
-
-</div>
-<div class="column compact">
-
-- `net.http(port) -> HttpServer` opens a blocking TCP listener.
-- `server.accept() -> HttpReq` returns the next request.
-- `req.reply` / `req.reply_json` write the response.
-- Per-request fan-out via `spawn`.
-- A `net_listen` event opens the trace; an `http_request` event is recorded per accepted request.
-
-> Part of the binary — no framework, no linked library.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Tests — built into the language
-
-<div class="columns">
-<div class="column">
-
-```rust
-
-test "addition is commutative" {
-  assert add(2, 3) == add(3, 2)
-}
-
-test "GET /health" {
-  let resp = http_for_tests().get("/health")
-  assert_status(resp, 200)
-  assert_json(resp.body, ["status", "version"])
-}
-
-test "summary is faithful" {
-  assert_semantic(
-    actual:   summarise(doc),
-    criteria: "faithful and complete to the original",
-    judge:    "claude-haiku-4-5",
-  )
-}
-
-property "concat is associative" with (
-  a: list<int>, b: list<int>, c: list<int>,
-) {
-  assert (a ++ b) ++ c == a ++ (b ++ c)
-}
-```
-
-</div>
-<div class="column compact">
-
-| Helper | Checks |
-|---|---|
-| `assert e` | boolean |
-| `assert_status(r, c)` | HTTP status |
-| `assert_json(t, keys)` | JSON object has keys |
-| `assert_semantic(...)` | model as judge |
-
-- `test` and `property` blocks are top-level. The **file** is the grouping unit — no `suite` keyword.
-- `assert_semantic` uses the model as a judge — pass iff it agrees the criterion is met.
-- `aeris test <file>` runs the tests; exit 0 = all pass.
-
-</div>
-</div>
-
----
-
-<!-- _class: divider -->
-
-# AI primitives
-
-> Model calls as standard-library functions. Sessions, decisions, knowledge bases, multi-agent graphs.
-
----
-
-<!-- _class: tight -->
-
-# AI primitives — direct call and multi-turn
-
-<div class="columns">
-<div class="column">
-
-```rust
-use ai, io
-
-// One-shot.
-let answer = ai.complete("Analyse: {log}")
-
-// Multi-turn; auto-compaction past 40 messages
-// (last 20 kept, earlier turns summarised).
-let s        = ai.session(
-  system: "You are an SRE assistant.",
-  model:  "claude-haiku-4-5",
-)
-let (s2, a)  = ai.session_ask(s,  "What does this log mean?")
-let (s3, b)  = ai.session_ask(s2, "And how do I react?")
-```
-
-</div>
-<div class="column compact">
-
-- **`ai.complete(prompt, model?)`** — single-shot call to the model.
-- **`ai.session` + `ai.session_ask`** — rolling conversation. Past 40 messages the history is compacted: the last 20 remain, earlier turns become a single system summary.
-- Every call is recorded as an `ai_call` event — `aeris replay` returns it from the trace, without contacting the model.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# AI primitives — constrained choice and usage
-
-<div class="columns">
-<div class="column">
-
-```rust
-// Enum-style decision, auto-retry on mismatch.
-let action = ai.decide(
-  prompt:  "CPU at 95%. What to do?",
-  choices: ["scale_up", "restart", "alert", "ignore"],
-  retries: 3,
-)?
-
-// Per-process counters.
-let u = ai.usage()
-io.println("spent ${u.cost_usd} over {u.calls} calls")
-```
-
-</div>
-<div class="column compact">
-
-**`ai.decide`**
-
-- Post-validates the reply against `choices`.
-- Retries on mismatch; `Err(err.llm(...))` after `retries` failures.
-
-**`ai.usage`**
-
-- Read-classified diagnostic.
-- Counter is in-memory; cost via static price table indexed by model name.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# `ai.chat` — knowledge base and integrated server
-
-<div class="columns">
-<div class="column">
-
-```rust
-// Form 1 — handle with a KB loaded from a directory.
-let chat = ai.chat(
-  system: "Answer only from the loaded documents.",
-  dir:    "./docs",
-)
-io.println("{chat.kb_size()} files loaded")
-io.println(chat.ask("how do capabilities work?")?)
-
-// Form 2 — same KB + integrated HTTP server.
-ai.chat(
-  system: "You are the Aeris assistant.",
-  dir:    "./docs",
-  port:   8080,
-)
-// blocking accept loop; does not return
-```
-
-</div>
-<div class="column compact">
-
-**Form 1 — knowledge base**
-
-- Loads `*.md`, `*.txt`, `*.rst`, `*.adoc`, `*.yaml` into the system prompt.
-- Returns a `Chat` value with `.ask(prompt)` and `.kb_size()`.
-
-**Form 2 — `port: int`**
-
-- Same KB plus an HTTP server on the given port: `GET /`, `POST /api/chat`, `GET /api/health`, CORS preflight.
-- A complete chatbot — KB, server, healthcheck, CORS — in **one stdlib call**.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Multi-agent — `agent_net` (declarative) vs `ai.network` (programmatic)
-
-<div class="columns">
-<div class="column">
-
-```rust
-// Declarative — typed on model@vN.
-model Doc@v1      { text: string }
-model Summary@v1  { headline: string, bullets: list<string> }
-
-agent summarise {
+agent classify {
   llm:     "claude-haiku-4-5"
-  accept:  Doc@v1
-  produce: Summary@v1
-  prompt:  "Summarise in <= 5 bullets."
+  accept:  Alert@v1
+  produce: Diagnosis@v1
+  prompt:  "Classify {input.message} on {input.service}."
 }
 
-agent_net summarise_loop {
-  flow summarise -> critique
-  until: critique.ok == true || iterations >= 3
-}
-```
-
-</div>
-<div class="column">
-
-```rust
-// Programmatic — runtime-discovered agents.
-fn main() {
-  var net = ai.network(max_rounds: 10)
-
-  net.agent(name: "geologist",
-            system: fs.read_text("./agents/geo.md"))
-  net.agent(name: "risk",
-            system: fs.read_text("./agents/risk.md"))
-
-  let r = net.run(
-    entry:   "geologist",
-    message: "Analyse today's events.",
-    until:   "DONE",
-  )
-}
-```
-
-</div>
-</div>
-
-- **`agent_net`** when schemas are stable: every edge validated against `accept` / `produce`, cycles rejected at parse time, iteration via `until:`.
-- **`ai.network`** when the agent set is discovered at runtime (e.g. loaded from a prompt directory). Text-based hand-off: a reply prefixed `>>NAME:` routes to that node.
-
----
-
-<!-- _class: divider -->
-
-# Verifiability & Governance
-
-> What the signature can do (`cap`, allow-lists, enforce). What the program **means** to do (`intent`, contracts, `policy`). What every run leaves behind (trace, replay, content-addressed deps).
-
----
-
-<!-- _class: tight -->
-
-# `cap` — a permission, carried as a value
-
-<div class="columns">
-<div class="column">
-
-```rust
-// A function that reaches the network must declare it.
-fn fetch(cap: cap[http.get @ ["api.acme.com"]]) -> result<string> {
-  http.get("https://api.acme.com/users")?.body
-}
-
-// A function without `cap` cannot reach anything external.
-fn total(items: list<Invoice@v1>) -> decimal {
-  items.fold(0, fn(acc, it) { acc + it.amount })
-}
-```
-
-</div>
-<div class="column compact">
-
-- `cap` is a **parameter** whose type lists the allowed operations.
-- A function with **no `cap`** cannot reach the network, the file system, or the model.
-- Allow-lists (`@ ["api.acme.com"]`) restrict *which* endpoints, paths, models are reachable.
-- **Pure ⇔ no `cap`** — purity is a *structural* property of the signature, not a keyword.
-
-</div>
-</div>
-
-> Aeris applies a well-known idea — *permissions as parameters* — to LLM-generated code. **Not novel research.**
-
----
-
-<!-- _class: tight -->
-
-# Allow-list — per-family endpoint restriction
-
-<div class="columns">
-<div class="column">
-
-```rust
-fn settle(items, cap: cap[
-  http.post     @ ["api.acme.com", "api.stripe.com"],
-  kube.apply    @ ["prod-eu-1"],
-  fs.write_file @ ["./out/**"],
-  ai.complete   @ ["claude-opus-4-7"],
-]) -> result<unit> { ... }
-```
-
-| Family | Form |
-|---|---|
-| `http.*` | hosts |
-| `fs.*` | path globs |
-| `kube.*` | contexts |
-| `ai.*` | models |
-| `shell.exec` | `argv0` list |
-
-</div>
-<div class="column compact">
-
-- Each effectful operation names its **reachable endpoints**.
-- The allow-list is part of the **type** of `cap`.
-- A signature outside the project's ceiling is a parse error (exit code 71).
-- A reviewer reads the signature and learns which external systems are touched **and which endpoints** are reachable — without entering the body.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Narrowing and `main(cap)`
-
-<div class="columns">
-<div class="column">
-
-```rust
-// Pass a tighter sub-cap to the callee.
-settle(batch, cap.subset[
-  http.post @ ["api.stripe.com"],
-])
-```
-
-```text
-$ aeris run src/main.aer
-[aeris] effective main cap:
-  http.{get,post}  @ ["api.acme.com", "api.stripe.com"]
-  fs.write_file    @ ["./out/**"]
-  kube.{apply,get} @ ["prod-eu-1"]
-  ai.complete      @ ["claude-opus-4-7"]
-  audit.event
-```
-
-</div>
-<div class="column compact">
-
-**`cap.subset[...]`**
-
-- Restricts the parent cap; never broadens.
-- An endpoint outside the parent is a parse error.
-
-**`main(cap)`**
-
-- Synthesised from `aeris.toml [caps]` at startup.
-- The **only way** a `cap` value enters the program.
-- Reviewing the manifest = reviewing the whole authority surface.
-
-</div>
-</div>
-
----
-
-# `enforce` — three modes, one grammar
-
-<div class="columns">
-<div class="column">
-
-| | `strict` | `loose` | `off` |
-|---|---|---|---|
-| `main(cap)` from `[caps]` | yes | yes | `cap[*]` |
-| `cap` on fn (65) | error | suppressed | suppressed |
-| `intent` on write (66) | error | error | suppressed |
-| `undo: noop` on write (67) | error | error | suppressed |
-| Runtime allow-list | enforced | enforced | bypassed |
-
-</div>
-<div class="column compact">
-
-```toml
-[caps]
-enforce = "strict"   # off | loose | strict
-```
-
-- **`off`** — script mode (`aeris init` default).
-- **`loose`** — manifest is the runtime ceiling.
-- **`strict`** — full discipline.
-
-</div>
-</div>
-
-> Modes govern the **static check** only. Trace, replay, schema validation and policy evaluation stay active in all three modes.
-
----
-
-<!-- _class: tight -->
-
-# `intent` — executable documentation
-
-```rust
-intent "monitor API latency, alert above the threshold" {
-  every 1m {
-    let p99 = http.get("https://metrics/p99").json<f64>()
-    if p99 > 500.0 {
-      http.post(
-        url:  "https://slack/hook",
-        body: { text: "High latency: {p99}ms" },
-      )
-    }
+saga apply_fix(alert: Alert@v1, cap: cap[kube.apply, audit.event]) {
+  intent "triage and apply fix for {alert.service}"
+  step apply {
+    do   { kube.apply(fix_for(classify(alert)?))? }
+    undo { kube.delete("deployment/{alert.service}-fix")? }
   }
 }
 ```
 
-- A piece of code's *why* exists today only in commits, tickets, PR descriptions — out-of-band channels the agent never sees.
-- `intent` brings the *why* **into the grammar**.
-- **Mandatory** around every write-effectful call. Lexical check at compile time — exit code 66 when missing.
-- The runtime emits `intent_enter` and `intent_exit` events; every nested event carries the active `intent` string.
-- Does **not** verify the body matches the string. Makes **omission** impossible, not dishonesty.
+> Versioned schema · typed agent · saga with mandatory compensation · `cap` passed explicitly · `intent` attached. **One file, one grammar, no extra runtime.** The trace records every call; `aeris replay` rebuilds the run offline.
 
 ---
 
-<!-- _class: tight -->
+# Capture, not control — the honest promise
 
-# `requires:` / `ensures:` — pre and post-conditions
+> An LLM cannot be made deterministic. That is a **physical property of the model**, not something a language can change.
 
-<div class="columns">
-<div class="column">
+**What Aeris does instead**
 
-```rust
-fn discount(amount: decimal, pct: decimal) -> decimal
-  requires: amount >= 0
-  requires: pct >= 0 and pct <= 1
-  ensures:  result >= 0 and result <= amount
-{
-  amount * (1 - pct)
-}
+- Every `ai.*` call → **JSONL trace** with prompt, model, response, tokens, timestamp. **The full payload**, not a summary.
+- `aeris replay <trace_id>` → **bit-identical** on the deterministic subset. No network, no model cost.
+- `aeris trace diff <a> <b>` → field-level divergence aligned by `(scope, ordinal)`. The foundation for **regression bisect** of LLM behaviour.
 
-saga deploy(version: string)
-  requires: env.read("DATABASE_URL") != None
-  ensures:  http.get("https://prod/health").status == 200
-{
-  intent "ship release {version}"
-  step apply  { do { kube.apply(...)? } undo { kube.delete(...)? } }
-  step verify { do { http.wait("/health", timeout: 2m)? } undo { noop } }
-}
-```
+**The promise, stated honestly**
 
-</div>
-<div class="column compact">
+- **Not** "deterministic LLM code" — physically false.
+- **Yes** **reproducibility after the first execution** — which is what audit, debug, and post-mortem actually need.
 
-- `requires:` lists **pre-conditions** — checked at function entry, before any body code runs.
-- `ensures:` lists **post-conditions** — checked at every exit path. `result` refers to the returned value.
-- Both available on **functions and sagas**.
-- A violation produces a fatal `ContractViolation` — **not catchable** with `?` or `catch`. Exit code 64.
-- **Runtime contracts** — checked at boundaries, not proved statically.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# `policy` — declarative governance
-
-<div class="columns">
-<div class="column">
-
-```rust
-policy production_egress {
-  match: http.*
-  deny:  url.host not in ["api.acme.com", "api.stripe.com"]
-  audit: { url, method }
-  when:  env == "production"
-}
-
-policy model_budget {
-  match: ai.*
-  limit: tokens_per_minute = 60_000
-  limit: usd_per_day       = 50
-}
-
-policy pii_redact {
-  match:   ai.*
-  require: not contains_pii(prompt)
-  deny:    contains_email(response)
-}
-```
-
-</div>
-<div class="column compact">
-
-- `match:` picks which calls the rule applies to.
-- `deny:` blocks the call if the condition is true; `require:` blocks if false.
-- `limit:` enforces a quota over a window.
-- `audit:` adds extra fields to the trace event for matching calls.
-- `when:` gates activation on the environment.
-
-> Rules live in the program — not in the system prompt. The model cannot forget them; the runtime evaluates them on every matching call.
-
-</div>
-</div>
-
----
-
-# Trace — what every run records
-
-JSONL stream at `<project>/<output_dir>/traces/<id>.jsonl`, **always on**.
-Default `output_dir = ".aeris"`, configurable in `[runtime]`.
-
-```text
-$ aeris run main.aer
-[aeris] trace_id = 01JFEZH7W… → ./.aeris/traces/01JFEZH7W….jsonl
-```
-
-| Source | Recorded fields |
-|---|---|
-| `ai.*` | `prompt`, `model`, `response`, `tokens`, `latency` |
-| `clock.now`, `random.next` | `value` |
-| `http.*` | `url`, `method`, `status`, hashes |
-| `fs.read_*` / `fs.write_*` | `path`, `len`, `hash` |
-| `minio.*`, `mongodb.*`, `rabbitmq.*` | family-specific fields + `backend` |
-| `intent`, `saga`, `agent_net`, `policy` | structured events |
-
-```json
-{"kind":"ai_call","scope":"classify","model":"claude-opus-4-7",
- "tokens":142,"intent":"classify the invoice","ts":"..."}
-```
-
-> Trace IDs are propagated across HTTP via `X-Aeris-Trace-Id: <id>` — a single request stays contiguous across processes. The trace path resolves against the **project root** (`main.aer`'s directory), so `cd ~ && aeris run /path/to/demo/main.aer` writes to the demo, not to `$HOME`.
-
----
-
-<!-- _class: tight -->
-
-# Replay and bisect — `aeris replay`, `aeris trace diff`
-
-<div class="columns">
-<div class="column">
-
-```text
-$ aeris replay 01JFE...
-[aeris] replaying from trace 01JFE...
-[aeris] ai.complete  → recorded response
-[aeris] clock.now    → recorded value
-[aeris] ✓ bit-identical on deterministic subset
-
-$ aeris replay 01JFE... --live
-[aeris] live HTTP for http.*; trace for clock/random/ai
-
-$ aeris trace diff 01JFE... 01JG0...
-@ ai_call[classify]:
-  response: "{\"kind\":\"utilities\"}"
-       !=   "{\"kind\":\"software\"}"
-```
-
-</div>
-<div class="column compact">
-
-**`aeris replay <id>`**
-
-- `ai.*` returns the recorded response (no model call).
-- `clock.now`, `random.next` emit recorded values.
-- `http.*` replays fixtures (default) or hits live (`--live`).
-- **Bit-identical** on the deterministic subset.
-
-**`aeris trace diff`**
-
-- Aligns events by `(scope, ordinal)` and reports field-level differences.
-- Foundation for regression **bisect**.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# External libraries — content-addressed supply chain
-
-<div class="columns">
-<div class="column">
-
-```rust
-use deploy
-  from "github.com/acmecorp/aeris-devops"
-       deploy@"1.2.0"
-```
-
-```toml
-[deps]
-deploy = { source  = "github.com/acmecorp/aeris-devops",
-           version = "1.2.0",
-           hash    = "blake3:7e2c...c1a4" }
-```
-
-</div>
-<div class="column compact">
-
-- Each dependency is identified by the **blake3 hash** of its bytes.
-- If the fetched bytes do not match the hash, the run fails **before any code from the dep executes**.
-- No `latest`, no `*`, no movable Git tags — the version answer is always in `aeris.toml`.
-- External libs are always `.aer` source, pinned by `blake3` in `aeris.toml`. L2 modules are signed `.so` extensions of the stdlib (M45) — only modules signed by the Aeris registry key are accepted.
-
-> Same content-addressing approach already used by Cargo, npm, Nix.
-
-</div>
-</div>
-
----
-
-<!-- _class: tight -->
-
-# Manifest and lock file — `aeris.toml`, `surface.lock`
-
-<div class="columns">
-<div class="column">
-
-```toml
-# aeris.toml — single project reference
-[project]
-name  = "settle-pipeline"
-aeris = "0.3.0"
-
-[caps]
-enforce         = "strict"
-http.allow      = ["api.acme.com"]
-kube.contexts   = ["prod-eu-1"]
-ai.models       = ["claude-opus-4-7"]
-
-[ai.backend]
-kind = "http"
-url  = "https://api.anthropic.com"
-auth = "env:ANTHROPIC_API_KEY"
-```
-
-</div>
-<div class="column">
-
-```toml
-# .aeris/surface.lock — produced by `aeris lock surface`
-[surface."src/invoices.aer".settle]
-caps       = ["http.post", "kube.apply", "audit.event"]
-allow.http = ["api.acme.com"]
-```
-
-- **`[caps]`** is the project-wide ceiling on authority.
-- **`[ai.backend]`** picks where AI calls go — HTTP API or local CLI process.
-- `surface.lock` has one entry per `pub fn`. A PR that **broadens** any surface must regenerate the lock — the diff is the first hunk in review.
-
-</div>
-</div>
+> First run stochastic. **Every replay identical.**
 
 ---
 
 <!-- _class: divider -->
 
-# Why Aeris — Design philosophy
+# What we observed · what we refused · open questions
 
-> Why these four layers, why a small language, why now. The thesis: a language designed for the principal author of code today — the model — and for the **reproducibility** its stochastic nature requires.
-
----
-
-# Why these four layers?
-
-> Code is increasingly **generated** by LLMs and **read** by LLMs — for reasoning, debugging, modifying. That changes the design constraints of the language itself.
-
-**Two requirements that matter now**
-
-- **Reduce non-determinism** at every level the language can control.
-- **Make code mechanically verifiable** — what is in the source is the truth.
-
-**The four layers, as a response**
-
-- **L1 — syntax.** Density and zero ambiguity reduce hallucinations.
-- **L2 — semantics.** `cap`, contracts, `intent` make a function's behaviour mechanically checkable.
-- **L3 — agentic loop.** Per-step trace and idempotent compensations make recovery **deterministic over a non-deterministic execution**.
-- **L4 — multi-agent.** The routing protocol becomes a **typed graph**, not a coordination prompt.
-
-> **Opt-in is the contract.** A 30-line script uses only L1; a regulated production system uses all four.
+> Observations from one experiment. We do not claim they generalize.
 
 ---
 
-# The thesis — controlled non-determinism
+# What we observed while building this
 
-> *A small language in which the **visibility** of effects, the **compensation** of external writes, the **integrity** of the supply chain, and the **intent** are structural properties of the source.*
+> Not measurements — **observations**, recorded in the trace.
 
-**Three sources of non-determinism**
+- **Fewer syntactic alternatives → fewer drift bugs.** When the grammar has exactly one way to write a thing, the model converges on it; `aeris fmt` becomes a no-op rather than a source of churn.
+- **Adding `intent` changed the *kind* of bugs we saw.** Fewer "what was this supposed to do?" — the intent string is in the trace, the purpose is recoverable from a single line.
+- **Trace + replay made LLM debugging tractable.** Every regression becomes a reproducible test: same trace → same response → same outcome. The bug is in the code, not in the model's mood.
+- **The thesis-driven loop held across ~50 milestones.** The model could draft implementations across a wide surface while the acceptance checks kept the language internally consistent.
 
-| Source | Nature | What addresses it |
-|---|---|---|
-| **The model** | Same prompt, different output | Trace + replay |
-| **The grammar** | Ambiguous constructs force the model to guess | Reserved keywords, one canonical form, `cap` as value |
-| **The world** | Networks drop, databases mutate, file systems change | `cap`, `intent`, `requires` / `ensures`, `policy`, `model@vN` |
-
-> Aeris does not try to *eliminate* non-determinism — it makes it **explicit, isolated and governable**.
-
----
-
-# Designed for LLMs (1/4) — Familiar carrier, domain inserts
-
-> The probability that a model produces correct code rises with how much the code **resembles its training corpus** and how **narrow** the space of valid completions is.
-
-**Familiar carrier — lower the cognitive ramp**
-
-- Curly braces, `match`, **named arguments** — known to anyone who used **Rust, Go, Swift**.
-- Tokenizer-friendly, well-represented in pre-training corpora.
-- Human reviewers and models pick the surface up **without learning a new dialect**.
-
-**Domain inserts — channel the intention**
-
-- `saga`, `agent`, `intent`, `policy`, `cap` — first-class constructs that **encode the domain in the grammar**.
-- A compensating workflow is `saga { step { do {…} undo {…} } }`, not fifty lines of try / finally.
-- Fewer syntactically valid completions → **fewer errors per generated token**.
-
-> **Familiar where it lowers the ramp; novel where it concentrates intent.**
-
----
-
-# Designed for LLMs (2/4) — WHAT, not HOW
-
-> Programming languages were always an interface between **the human mind** and **the machine**. The principal author of code today is an LLM. **That assumption has fallen.**
-
-**The shift in the question**
-
-- A model does not have a mental model of the program.
-- It has a **probability distribution over the next token**.
-- Generating code is, for a model, an **intrinsically stochastic** process.
-
-**From "how do I build it?" to "what do I want built?"**
-
-- Traditional language: *how do I lay out the syntax to be readable?*
-- Aeris: *what intentions can the agent express directly, without encoding them as mechanism?*
-- `saga`, `agent`, `intent`, `policy` are **complete intentions**, not mechanisms.
-
-> `agent_net { flow extractor -> normalizer }` communicates more intent than fifty lines of Python — and gives the model less margin to introduce error.
-
----
-
-# Designed for LLMs (3/4) — High abstraction, not low
-
-> The opposite temptation: keep the language **low-level**, close to the hardware, so the model "has less room to fail." **Wrong logic.**
-
-**Why high abstraction wins**
-
-- A model generates correct code with probability proportional to:
-  - how much the code **resembles its training corpus**, and
-  - how **constrained** the space of valid completions is by the language.
-- High abstraction does both:
-  - **fewer decisions to make** → fewer points of failure;
-  - **higher signal-to-noise** per generated token.
-
-**Concrete consequence**
-
-- `saga deploy { … }` codifies an entire deployment-with-compensation pattern in one keyword.
-- Replacing it with twenty `if` / `else` branches and ad-hoc rollback logic does not make the model more accurate — it makes it more likely to **drift**.
-
-> The aim is not a language humans write faster — it is a language **agents execute with more certainty**.
-
----
-
-# Designed for LLMs (4/4) — Why-as-grammar
-
-> Historically the *what* of code lived in the source; the *why* lived in commits, tickets, PR descriptions — channels the agent **never reads**.
-
-**The cost of that separation**
-
-- A model reading a `.aer` file *without* the why must **reverse-engineer purpose** from mechanics.
-- **Every inference is a point of non-determinism.**
-- An agent *executing* code without knowing why cannot decide whether to **continue, stop, or escalate** when state looks off — it has no acceptance criterion.
-
-**The why, lifted into the grammar**
-
-- **`intent`** — purpose attached to every effectful block; **mandatory** at the parse level (exit code 66).
-- **`requires:` / `ensures:`** — conditions on inputs, outputs, world state; **runtime contracts**, exit 64 on violation.
-- **`policy`** — declarative guardrails the runtime evaluates **on every matching call**.
-- All three propagate as **structured events** into the trace — another agent can consume them.
-
-> A call with external effects without an enclosing `intent` is **not even parsed**.
-
----
-
-# Reducing non-determinism (1/3) — The model
-
-> **Same prompt, different output.** `temperature = 0` attenuates the variance; it does not eliminate it. This is a physical property of the model — not something a language can remove.
-
-**Aeris' answer: capture, not control**
-
-- Every `ai.*` call is recorded in the JSONL trace: **prompt, model, response, tokens, timestamp**.
-- `aeris replay <trace_id>` reproduces the recorded tape — **no network, no model cost, bit-identical** on the deterministic subset.
-- `aeris trace diff` aligns events by `(scope, ordinal)` and reports field-level divergences — the foundation for **regression bisect**.
-
-**The honest promise**
-
-- *Not* "deterministic LLM code" — that would be physically false.
-- *Yes* **reproducibility after the first execution** — exactly what audit, debugging, regression tests, and post-incident analysis need.
-- The first run is non-deterministic; **every replay is identical**.
-
-> **Capture the stochasticity. Do not pretend to control it.**
-
----
-
-# Reducing non-determinism (2/3) — The grammar
-
-> Every ambiguity in the language forces the model to **infer**. Every inference is a fresh point of non-determinism the language can prevent **by construction**.
-
-**Three structural choices**
-
-- **All keywords are reserved.** No soft keywords, no position-dependent meaning. `grep saga` finds **every saga** in the project — no false negatives.
-- **One canonical form per concept.** `aeris fmt` is **total, not partial** — exactly one way to write each construct, so model and human converge on the same shape.
-- **Capabilities are values, passed as parameters.** The function signature **is the truth** about what the function can touch — no hidden state, no ambient authority to infer.
-
-**Consequence for the model**
-
-- Fewer paths through the grammar → **tighter completion distribution**.
-- A reviewer (human or agent) reads the signature and **already knows** what the function can do.
-
-> The language gives the model **nothing to guess about**.
-
----
-
-# Reducing non-determinism (3/3) — The world
-
-> Code runs against networks, databases, file systems — state that changes between two runs of the same program. This is what **governance** addresses.
-
-**Five structural constructs**
-
-- **`intent`** binds code to its purpose; **mandatory** on every effectful call — the parser rejects its absence.
-- **`requires:` / `ensures:`** declare conditions on inputs, outputs, world state; a violation **halts at the boundary**, before damage propagates.
-- **`cap`** isolates what each function can touch — the signature **lists the authority**.
-- **`model@vN`** validates data crossing trust boundaries — a malformed model response is **rejected before it reaches business logic**.
-- **`policy`** enforces guardrails the model **cannot forget** — evaluated by the runtime, not entrusted to a system prompt.
-
-> The world stays non-deterministic. **The program's response to it does not.**
-
----
-
-# Theoretical foundations
-
-> Nothing in Aeris is new research. The contribution is **synthesis** of well-understood models, applied at one specific level of abstraction: a small interpreted language for **operations, AI, and governance**.
-
-**Pieces, applied**
-
-- **Capabilities as values** — the object-capability pattern: the function signature **is the authority graph**; no ambient access.
-- **Sagas with mandatory compensation** — a long-running operation decomposed into idempotent steps, each with an `undo`.
-- **Content-addressed supply chain** — every external dep is pinned by its **blake3 hash** in `aeris.toml`; if the bytes do not match, **no code from the dep runs**. Same approach as **Cargo, npm, Nix**.
-- **Runtime contracts** — pre / post-conditions checked at boundaries, not proved statically.
-
-**Why this synthesis matters here**
-
-- Each piece has decades of evidence in its own domain.
-- Putting them together **inside the grammar** — not in side-channels — is what makes them visible to the agent that is now the **principal author**.
-
-> **Engineering applied.** The novelty is in the **assembly**, not in the parts.
+> These say something about *this experiment*. **We don't claim they generalize.**
 
 ---
 
 # Honest limits
 
-> Aeris does not promise what it cannot deliver. Every refusal pays a **declared cost**.
+> What this experiment does **not** show.
 
-**What Aeris does not promise**
+- **First run stays non-deterministic.** Replay is reproducibility *after* — never *instead of*. If the first run produced something wrong, you have a trace, not a fix.
+- **In-body correctness is not verified.** `cap` tells you a function can reach `api.acme.com`. It does not tell you the function posts the right payload there. That's still **tests, property checks, backend RBAC**.
+- **`cap` broadening is a process problem.** The `surface.lock` diff makes a widened authority visible in every PR. The *enforcement* lives in CI and review, not in the runtime.
+- **The methodology might not scale.** ~50 milestones is small. We don't know if a 500-milestone language stays this coherent under the same loop.
 
-- **First model run stays non-deterministic.** Replay is reproducibility *after* the first run — never instead of it.
-- **In-body correctness inside a legitimate `cap` is not verified.** That is what tests, property checks, and backend RBAC are for.
-- **`cap` over-broadening is a process problem.** The `surface.lock` diff makes it visible; CI enforces it.
-- **Cascading undo is best-effort.** Retries exhaust → `PartialFailure` (exit code 74), surfaced to the operator.
-
-**Position in the stack**
-
-- Aeris is the **first defensive layer**, not the only one.
-- It removes whole classes of error from the source — it does not replace operational discipline.
-
-> The promise is **made explicit**, so the parts that need other safeguards are visible.
+> Aeris is the **first defensive layer**, not the only one. An experiment, not a complete system.
 
 ---
 
-# What Aeris refuses on principle
+# What we deliberately refused
 
-> Every refusal is a deliberate trade: a feature declined to keep **what is in the source the truth**.
+> Each refusal pays a declared cost. We chose to pay it.
 
-**No automatic formal proofs**
+- **No automatic formal proofs.** An SMT solver would prove more than `requires:` / `ensures:`. Its verdicts depend on the machine and on heuristics — **non-determinism in the tooling**, exactly what the language is trying to control.
+- **No capability inference.** Inferring `cap` from the body would be convenient. It would also let a PR silently broaden authority while the diff looks innocent. **It would break code review.**
+- **No mutable dependency references.** No `latest`, no `*`, no movable Git tags. The answer to *"what version is in this build?"* is always one line in `aeris.toml`.
+- **No unsigned native plug-ins.** Only L2 modules signed by the Aeris registry key load. Cost: ecosystem grows slower; benefit: no opaque native authority.
 
-- Solver verdicts depend on the **machine and the heuristics** — that is non-determinism in the *tooling*, the very thing we are trying to control.
-- `requires:` / `ensures:` are **runtime contracts**, checked at boundaries.
+> Each refusal is a deliberate trade — kept to preserve **what is in the source is the truth**.
 
-**No automatic inference of capabilities**
+---
 
-- The signature must be the truth. A hidden inference would silently broaden authority between two PRs — and **break review**.
+# Open questions
 
-**No mutable dependency references**
+> What we'd want to study next, with the honest disclaimer that we don't have answers yet.
 
-- No `latest`, no `*`, no movable Git tags. The answer to *"what version is in this build?"* is always in `aeris.toml`, pinned by **blake3 hash**.
+- **What's the right granularity for `intent` blocks?** Too coarse: useless. Too fine: noise. We don't have a principled answer.
+- **How much of the result comes from the language vs from the methodology?** We can't yet separate *"the grammar helps"* from *"the thesis-first process helps"*.
+- **Does this generalize to a typed language?** Aeris is dynamically typed. The same shape with static types might be more verifiable — or might collapse under the cognitive cost we explicitly chose to avoid.
+- **Does the loop scale beyond ~50 milestones?** Open. We don't know.
 
-**No unsigned third-party native plug-ins**
-
-- Only L2 modules signed by the **Aeris registry key** are loaded. Their cap surface is declared in an embedded manifest the static checker reads — no opaque native authority.
+> A starting point, **not a conclusion**.
 
 ---
 
@@ -1631,7 +478,6 @@ allow.http = ["api.acme.com"]
 
 # Thanks
 
-> Aeris is an open project.
-> Questions, feedback, contributions welcome.
+> An open project. Questions, feedback, contributions welcome.
 
-> Sources of truth: `docs/thesis.md`, `docs/language.md`, `docs/project.md`, `docs/plan.md`, `docs/cheatsheet.md`.
+> Sources: `docs/thesis.md`, `docs/language.md`, `docs/project.md`, `docs/plan.md`, `docs/cheatsheet.md`.
