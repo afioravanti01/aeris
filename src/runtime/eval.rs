@@ -2709,15 +2709,17 @@ fn run_ai_chat_server(
     eprintln!();
 
     loop {
-        let accepted = super::net_server::http_accept(server_id).map_err(|m| {
-            EvalError::new(
-                EvalErrorKind::Io {
-                    op: "ai.chat server".into(),
-                    message: m,
-                },
-                span,
-            )
-        })?;
+        let accepted = match super::net_server::http_accept(server_id) {
+            Ok(req) => req,
+            Err(m) => {
+                // A misbehaving or speculatively-opened client must
+                // not bring the chat server down — log and keep
+                // accepting (companion to the per-request swallowing
+                // in `ai_chat_handle_request`).
+                eprintln!("  ai.chat: dropped connection ({m})");
+                continue;
+            }
+        };
         ai_chat_handle_request(env, &accepted, &composed_system, &model, doc_count);
     }
 }

@@ -63,7 +63,19 @@ pub fn http_accept(server_id: i64) -> Result<AcceptedReq, String> {
     STREAMS.with(|m| {
         m.borrow_mut().insert(conn_id, stream);
     });
-    let req = parse_http_request(read_stream)?;
+    let req = match parse_http_request(read_stream) {
+        Ok(req) => req,
+        Err(e) => {
+            // Drop the write half so the connection is closed cleanly
+            // and we don't leak a slot in STREAMS for clients that
+            // opened a TCP connection without sending a valid request
+            // (speculative browser preopen, port scans, etc.).
+            STREAMS.with(|m| {
+                m.borrow_mut().remove(&conn_id);
+            });
+            return Err(e);
+        }
+    };
     Ok(AcceptedReq {
         conn_id,
         method: req.method,
@@ -138,7 +150,10 @@ struct ParsedReq {
 fn parse_http_request(stream: TcpStream) -> Result<ParsedReq, String> {
     let mut r = BufReader::new(stream);
     let mut line = String::new();
-    r.read_line(&mut line).map_err(|e| format!("read request line: {e}"))?;
+    let n = r.read_line(&mut line).map_err(|e| format!("read request line: {e}"))?;
+    if n == 0 {
+        return Err("client closed connection before sending request".into());
+    }
     let parts: Vec<&str> = line.trim_end_matches(['\r', '\n']).split_whitespace().collect();
     if parts.len() < 2 {
         return Err(format!("malformed request line: {line:?}"));
