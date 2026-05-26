@@ -130,7 +130,7 @@ scope. The signature is the contract. `requires:` / `ensures:` clauses
 declare runtime invariants on inputs, outputs, and world state, with
 violations halting the program at the boundary, before damage spreads.
 
-### Layer 3 — Agentic loop
+### Layer 3 — Reversible execution
 The `saga` construct expresses long-running operations on external
 state. Each step declares both `do` and `undo`. The compiler refuses
 a step whose `do` writes if `undo` is `noop`. Idempotency keys are
@@ -214,9 +214,10 @@ fewer.
   LLM's intent **mechanically checkable**. The compiler — not the
   human reviewer — catches the hallucinated `http.get` in a
   function that never declared `cap.http`.
-- **L3 · Agentic loop** — long-running LLM scripts fail
-  unpredictably. Per-step trace + idempotent compensations make
-  recovery **deterministic over non-deterministic execution**.
+- **L3 · Reversible execution** — long-running scripts (LLM-driven
+  or not) fail unpredictably on the outside world. Per-step trace
+  + idempotent compensations make recovery **deterministic over
+  non-deterministic execution**.
 - **L4 · Multi-agent orchestration** — when 3+ agents coordinate,
   the routing protocol *is* the program. Lifting it to a typed
   dataflow graph eliminates coordination-as-prompt-string.

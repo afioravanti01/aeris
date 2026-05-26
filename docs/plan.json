@@ -1,0 +1,511 @@
+{
+  "version": "v0.3",
+  "title": "Implementation plan",
+  "eyebrow": "Aeris · v0.3",
+  "source_of_truth": "docs/plan.md",
+  "stats": {
+    "milestones": 45,
+    "tasks": 256,
+    "weeks": "~70",
+    "release": "v0.3"
+  },
+  "phases": [
+    {
+      "id": "v02",
+      "label": "phase 1",
+      "title": "v0.2",
+      "range": "M0 → M15B",
+      "milestones": [
+        {
+          "id": "M0", "title": "Project bootstrap", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M0.T1", "desc": "Cargo package with 6 modules per spec § 2.", "status": "done" },
+            { "id": "M0.T2", "desc": "<code>cli</code> module skeleton: <code>aeris version</code>, <code>aeris init</code>.", "status": "done" },
+            { "id": "M0.T3", "desc": "CI pipeline (GitHub Actions): fmt, clippy, build, test.", "status": "deferred" },
+            { "id": "M0.T4", "desc": "License (MIT or Apache-2.0), README scaffold.", "status": "done" },
+            { "id": "M0.T5", "desc": "Test harness skeleton — <code>test_harness</code> reachable from <code>cargo test</code>.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M1", "title": "Lexer &amp; parser", "weeks": "3w", "status": "done",
+          "tasks": [
+            { "id": "M1.T1", "desc": "Lexer: all 51 reserved keywords; identifier collisions rejected.", "status": "done" },
+            { "id": "M1.T2", "desc": "Lexer: literals (int / float / bool / string / bytes / char).", "status": "done" },
+            { "id": "M1.T3", "desc": "Lexer: date / timestamp / duration as primary tokens.", "status": "done" },
+            { "id": "M1.T4", "desc": "Lexer: comments (<code>//</code>, <code>/* */</code>, <code>///</code>) — <code>///</code> kept for <code>aeris doc</code>.", "status": "done" },
+            { "id": "M1.T5", "desc": "Parser: top-level decls (<code>fn</code>, <code>record</code>, <code>enum</code>, <code>model</code>, <code>type</code>, <code>const</code>, <code>pub</code>).", "status": "done" },
+            { "id": "M1.T6", "desc": "Parser: expressions (binary / unary / call / match / if / block / lambda / spawn / try).", "status": "done" },
+            { "id": "M1.T7", "desc": "Parser: <code>cap[&lt;entry&gt;, ...]</code> with <code>@</code> allow-lists; <code>cap[*]</code> flagged for M2.", "status": "done" },
+            { "id": "M1.T8", "desc": "Parser: <code>saga</code>, <code>step</code>, <code>do</code>/<code>undo</code>, <code>intent</code>, <code>agent</code>, <code>agent_net</code>, <code>flow</code>, <code>until</code>, <code>policy</code>.", "status": "done" },
+            { "id": "M1.T9", "desc": "Parser: <code>requires:</code> / <code>ensures:</code> outside the body braces.", "status": "done" },
+            { "id": "M1.T10", "desc": "Pretty-printer round-trip <code>parse → format → parse</code> byte-identical.", "status": "done" },
+            { "id": "M1.T11", "desc": "Parse-error recovery — one error per problem, no avalanche.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M2", "title": "Static analysis", "weeks": "4w", "status": "done",
+          "tasks": [
+            { "id": "M2.T1", "desc": "Type checker: primitives, records, enums, generics, type aliases.", "status": "done" },
+            { "id": "M2.T2", "desc": "<code>match</code> exhaustiveness — structural, no SMT, guards excluded.", "status": "done" },
+            { "id": "M2.T3", "desc": "Capability narrowing in signatures; missing path → exit 65.", "status": "done" },
+            { "id": "M2.T4", "desc": "Body resolution: <code>&lt;module&gt;.&lt;op&gt;(...)</code> binds to in-scope <code>cap</code>.", "status": "done" },
+            { "id": "M2.T5", "desc": "<code>cap[*]</code> rejected in user code → exit 65.", "status": "done" },
+            { "id": "M2.T6", "desc": "Allow-list intersection with <code>aeris.toml [caps]</code> ceiling → exit 71.", "status": "done" },
+            { "id": "M2.T7", "desc": "V2: write call without enclosing <code>intent</code> → exit 66.", "status": "done" },
+            { "id": "M2.T8", "desc": "Saga: write <code>do</code> with <code>undo: noop</code> → exit 67.", "status": "done" },
+            { "id": "M2.T9", "desc": "<code>agent_net</code> cycle → exit 70.", "status": "done" },
+            { "id": "M2.T10", "desc": "<code>model</code> versioning: bare <code>Invoice</code> → exit 68.", "status": "done" },
+            { "id": "M2.T11", "desc": "<code>cap</code> escape rules: stored / returned / channelled → rejected.", "status": "done" },
+            { "id": "M2.T12", "desc": "<code>aeris check</code> CLI — prints surface diff when stale.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M3", "title": "Pure interpreter", "weeks": "2w", "status": "done",
+          "tasks": [
+            { "id": "M3.T1", "desc": "Value representation: primitives, records, enums, list/map/set/tuple, option, result.", "status": "done" },
+            { "id": "M3.T2", "desc": "Tree-walking evaluator — expressions, control flow, pattern matching.", "status": "done" },
+            { "id": "M3.T3", "desc": "<code>let</code> shadowing; <code>var</code> mutation (function-scope only).", "status": "done" },
+            { "id": "M3.T4", "desc": "Closures, higher-order, generics monomorphised at call site.", "status": "done" },
+            { "id": "M3.T5", "desc": "<code>result&lt;T&gt;</code> + <code>?</code> operator + <code>raise</code>.", "status": "done" },
+            { "id": "M3.T6", "desc": "<code>aeris run &lt;pure_file.aer&gt;</code> — exit-code matrix (0 / 64 / 1).", "status": "done" }
+          ]
+        },
+        {
+          "id": "M4", "title": "Tracing + safe L1 effects", "weeks": "3w", "status": "done",
+          "tasks": [
+            { "id": "M4.T1", "desc": "JSONL tracer with <code>intent_enter</code> / <code>intent_exit</code>, ULID <code>trace_id</code>.", "status": "done" },
+            { "id": "M4.T2", "desc": "Capability runtime: <code>cap</code> value type + <code>cap.subset[...]</code> narrowing.", "status": "done" },
+            { "id": "M4.T3", "desc": "<code>main</code>'s synthesised cap from <code>aeris.toml [caps]</code> (minimal stub).", "status": "done" },
+            { "id": "M4.T4", "desc": "L1 <code>io</code>: <code>print</code>, <code>println</code>, <code>eprint</code>, <code>eprintln</code>, <code>read_line</code>.", "status": "done" },
+            { "id": "M4.T5", "desc": "L1 <code>fs</code>: read/write/walk/stat/exists/mkdir/remove/rename with allow-list.", "status": "done" },
+            { "id": "M4.T6", "desc": "L1 <code>env.read</code> — read-only access; mutation forbidden.", "status": "done" },
+            { "id": "M4.T7", "desc": "N2: <code>clock.now</code> and <code>random.next</code> recorded into trace.", "status": "done" },
+            { "id": "M4.T8", "desc": "Diagnostic class: <code>io.print*</code> does not require <code>intent</code>.", "status": "done" },
+            { "id": "M4.T9", "desc": "Golden traces for each L1 op.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M5", "title": "http + shell + contracts", "weeks": "3w", "status": "done",
+          "tasks": [
+            { "id": "M5.T1", "desc": "L1 <code>http</code>: get / post / put / patch / delete; <code>req_hash</code> / <code>resp_hash</code>.", "status": "done" },
+            { "id": "M5.T2", "desc": "N4: HTTP egress allow-list at runtime; <code>X-Aeris-Trace-Id</code> propagated.", "status": "done" },
+            { "id": "M5.T3", "desc": "L1 <code>shell.exec</code> / <code>shell.pipe</code> with argv0 allow-list.", "status": "done" },
+            { "id": "M5.T4", "desc": "Contracts at runtime — <code>requires:</code> at entry, <code>ensures:</code> at every return.", "status": "done" },
+            { "id": "M5.T5", "desc": "<code>ContractViolation</code> flushes trace then exits 64 — not catchable by <code>?</code>.", "status": "done" },
+            { "id": "M5.T6", "desc": "<code>where</code> on record/model fields and on <code>match</code> arms.", "status": "done" },
+            { "id": "M5.T7", "desc": "Intent runtime: every cap call inside <code>intent</code> carries the active string.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M6", "title": "Sagas + idempotency (N1)", "weeks": "3w", "status": "done",
+          "tasks": [
+            { "id": "M6.T1", "desc": "Saga interpreter: forward execution; <code>step.&lt;n&gt;.ok</code> introspection.", "status": "done" },
+            { "id": "M6.T2", "desc": "Reverse-order rollback on step failure.", "status": "done" },
+            { "id": "M6.T3", "desc": "N1: idempotency key = <code>blake3(trace_id ‖ step ‖ idx)</code>.", "status": "done" },
+            { "id": "M6.T4", "desc": "Idempotency injection: HTTP header, K8s annotation, AMQP <code>message-id</code>, audit field, Mongo sentinel.", "status": "done" },
+            { "id": "M6.T5", "desc": "<code>undo</code> retries; on exhaustion → <code>PartialFailure</code> (exit 74).", "status": "done" },
+            { "id": "M6.T6", "desc": "Golden saga traces: success / mid-failure rollback / partial failure.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M7", "title": "Lockset + content-addressing + surface (V3)", "weeks": "3w", "status": "done",
+          "tasks": [
+            { "id": "M7.T1", "desc": "<code>aeris.toml</code> parser + semantic validation; malformed → exit 69.", "status": "done" },
+            { "id": "M7.T2", "desc": "Local path dep resolution + blake3 hashing of resolved bytes.", "status": "done" },
+            { "id": "M7.T3", "desc": "GitHub tarball dep + cache under <code>.aeris/ext/&lt;host&gt;__&lt;repo&gt;/&lt;version&gt;/</code>.", "status": "done" },
+            { "id": "M7.T4", "desc": "<code>main</code>'s synthesised cap composes from <code>[caps]</code> ceiling.", "status": "done" },
+            { "id": "M7.T5", "desc": "V3: per-<code>pub</code>-fn effect set written to <code>.aeris/surface.lock</code>.", "status": "done" },
+            { "id": "M7.T6", "desc": "<code>surface_hash</code> for deps recorded in <code>aeris.toml</code>.", "status": "done" },
+            { "id": "M7.T7", "desc": "CI mode: <code>aeris lock --check</code> rejects stale lockset (exit 69).", "status": "done" }
+          ]
+        },
+        {
+          "id": "M8", "title": "Models + policies", "weeks": "3w", "status": "done",
+          "tasks": [
+            { "id": "M8.T1", "desc": "<code>model@vN</code> validation on construction with all <code>where</code> clauses.", "status": "done" },
+            { "id": "M8.T2", "desc": "<code>model@vN</code> on <code>json.decode</code> + HTTP body ingress.", "status": "done" },
+            { "id": "M8.T3", "desc": "Record-level <code>where:</code> (multi-field invariants).", "status": "done" },
+            { "id": "M8.T4", "desc": "<code>policy</code> runtime: <code>match</code>, <code>deny</code>, <code>require</code>, <code>limit</code>, <code>audit</code>, <code>when</code>.", "status": "done" },
+            { "id": "M8.T5", "desc": "Policy activation: module import · <code>#[policy(name)]</code> · <code>aeris.toml</code>.", "status": "done" },
+            { "id": "M8.T6", "desc": "<code>policy_drift</code> trace event when replay differs from live.", "status": "done" },
+            { "id": "M8.T7", "desc": "<code>PolicyViolation</code> exit — not catchable by <code>?</code>.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M9", "title": "L2 <code>ai</code> + LLM tape (N3) + replay", "weeks": "4w", "status": "done",
+          "tasks": [
+            { "id": "M9.T1", "desc": "<code>ai</code> cap handler with pluggable backend (<code>[ai.backend]</code>): HTTP / CLI / mock.", "status": "done" },
+            { "id": "M9.T2", "desc": "Operations: <code>ai.complete</code>, <code>ai.chat</code>, <code>ai.embed</code>, <code>ai.tools</code>.", "status": "done" },
+            { "id": "M9.T3", "desc": "N3 tape recorder: every <code>ai.*</code> call records prompt/model/response/tokens/ts.", "status": "done" },
+            { "id": "M9.T4", "desc": "<code>aeris replay &lt;trace_id&gt;</code> re-runs against tape; no LLM contacted.", "status": "done" },
+            { "id": "M9.T5", "desc": "N2 deterministic clock/random under replay.", "status": "done" },
+            { "id": "M9.T6", "desc": "<code>aeris replay --live</code> — live LLM + recorded clock/random.", "status": "done" },
+            { "id": "M9.T7", "desc": "<code>aeris replay --from-fixtures</code> (default) — read-only, no network.", "status": "done" },
+            { "id": "M9.T8", "desc": "Trace size: bodies as hash by default; <code>--full-record</code> keeps bytes.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M10", "title": "Agents + <code>agent_net</code>", "weeks": "4w", "status": "done",
+          "tasks": [
+            { "id": "M10.T1", "desc": "<code>agent</code> declaration: <code>llm</code>, <code>intent</code>, <code>prompt</code>, <code>accept</code>, <code>produce</code>, <code>policy</code>, <code>retries</code>, <code>budget</code>.", "status": "done" },
+            { "id": "M10.T2", "desc": "Agent invocation: <code>accept</code>/<code>produce</code> validated; <code>SchemaViolation</code> on mismatch.", "status": "done" },
+            { "id": "M10.T3", "desc": "Auto-injected routing-protocol contract appended to user prompt.", "status": "done" },
+            { "id": "M10.T4", "desc": "Retries on <code>SchemaViolation</code>; <code>BudgetExceeded</code> on tokens/latency.", "status": "done" },
+            { "id": "M10.T5", "desc": "<code>agent_net</code> parsing: <code>flow</code>, <code>until:</code>, fan-out branches.", "status": "done" },
+            { "id": "M10.T6", "desc": "<code>agent_net</code> execution: edge validation, fan-out, type-driven routing.", "status": "done" },
+            { "id": "M10.T7", "desc": "<code>until:</code> iteration with <code>iterations</code> counter; \"exhausted\" on bound.", "status": "done" },
+            { "id": "M10.T8", "desc": "<code>agent_net</code> composition — a net used as a node inside another net.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M11", "title": "L2 native handlers", "weeks": "4w", "status": "done",
+          "tasks": [
+            { "id": "M11.T1", "desc": "<code>audit.event</code> append-only log with idempotency key.", "status": "done" },
+            { "id": "M11.T2", "desc": "<code>kube.{apply,delete,get,watch}</code> against kind cluster / mock.", "status": "done" },
+            { "id": "M11.T3", "desc": "<code>docker.{run,build,push,pull,inspect}</code> subprocess wrapping.", "status": "done" },
+            { "id": "M11.T4", "desc": "<code>mongodb.{read,write}</code> against testcontainers.", "status": "done" },
+            { "id": "M11.T5", "desc": "<code>minio.{get,put}</code> against testcontainers; bucket allow-list.", "status": "done" },
+            { "id": "M11.T6", "desc": "<code>rabbitmq.{publish,subscribe}</code>; <code>message-id</code> = idempotency key.", "status": "done" },
+            { "id": "M11.T7", "desc": "Per-call trace event per L2 op with backend-specific fields.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M12", "title": "Tests + properties + <code>fmt</code> + V1 narrow-caps", "weeks": "4w", "status": "done",
+          "tasks": [
+            { "id": "M12.T1", "desc": "<code>aeris test</code> runner; <code>tests/**/*.test.aer</code>; file-as-suite.", "status": "done" },
+            { "id": "M12.T2", "desc": "<code>assert</code> with pretty <code>expected vs actual</code> rendering.", "status": "done" },
+            { "id": "M12.T3", "desc": "Property runner; 200 default cases; counter-example shrinking.", "status": "done" },
+            { "id": "M12.T4", "desc": "<code>with fixture:</code> — load recorded trace, replay against test.", "status": "done" },
+            { "id": "M12.T5", "desc": "<code>aeris fmt</code> total — idempotent, deterministic.", "status": "done" },
+            { "id": "M12.T6", "desc": "V1 <code>aeris fmt --narrow-caps</code> — capability minimisation linter.", "status": "done" },
+            { "id": "M12.T7", "desc": "<code>aeris fmt --check</code> — exit 1 if not formatted.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M13", "title": "Trace diff + <code>aeris doc</code> + diagnostics", "weeks": "3w", "status": "done",
+          "tasks": [
+            { "id": "M13.T1", "desc": "<code>aeris trace diff &lt;a&gt; &lt;b&gt;</code> — aligns by <code>(scope, ordinal)</code>.", "status": "done" },
+            { "id": "M13.T2", "desc": "<code>aeris doc &lt;file&gt;</code> — extracts <code>///</code> doc comments → JSONL.", "status": "done" },
+            { "id": "M13.T3", "desc": "Diagnostic renderer references the <code>language.md</code> section for each rule.", "status": "done" },
+            { "id": "M13.T4", "desc": "Source-span quoting with <code>^</code> underline (Rust-style).", "status": "done" },
+            { "id": "M13.T5", "desc": "\"Did you mean ...?\" suggestions for typo / missing <code>intent</code>.", "status": "done" },
+            { "id": "M13.T6", "desc": "<code>aeris check --explain &lt;code&gt;</code> — rule + positive/negative example.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M14", "title": "Performance + packaging + v0.2.0 release", "weeks": "3w", "status": "partial", "status_label": "CI deferred",
+          "tasks": [
+            { "id": "M14.T1", "desc": "Static binary build (musl on Linux); <code>aeris</code> &lt; 8 MB stripped.", "status": "deferred" },
+            { "id": "M14.T2", "desc": "Cross-compile matrix: Linux x86_64 / arm64, macOS arm64 / x86_64, Win x86_64.", "status": "deferred" },
+            { "id": "M14.T3", "desc": "Performance: pure-fn evaluator within 5× CPython.", "status": "done" },
+            { "id": "M14.T4", "desc": "Trace JSONL throughput ≥ 100k events/sec on a representative SSD.", "status": "done" },
+            { "id": "M14.T5", "desc": "Cold-start <code>aeris run</code> &lt; 50 ms.", "status": "done" },
+            { "id": "M14.T6", "desc": "Release packaging: tarballs + checksums + GPG-signed.", "status": "deferred" },
+            { "id": "M14.T7", "desc": "<code>aeris init</code> template — hello / saga / agent.", "status": "done" },
+            { "id": "M14.T8", "desc": "<code>RELEASE.md</code> referencing every milestone's golden traces.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M15", "title": "Capability prototype mode", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M15.T1", "desc": "<code>[caps] required: bool</code> parsed; default <code>true</code>.", "status": "done" },
+            { "id": "M15.T2", "desc": "<code>required = false</code> suppresses E65 on fns without <code>cap</code>.", "status": "done" },
+            { "id": "M15.T3", "desc": "<code>aeris init</code> template emits <code>required = false</code>.", "status": "done" },
+            { "id": "M15.T4", "desc": "Examples migrated: <code>saga</code> + <code>agent_net</code> opt into <code>required = true</code>.", "status": "done" },
+            { "id": "M15.T5", "desc": "Docs: <code>RELEASE.md</code> + <code>language.md § 8.4.1</code> updated.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M15B", "title": "Three-mode enforcement (<code>off</code> / <code>loose</code> / <code>strict</code>)", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M15B.T1", "desc": "<code>EnforceMode { Off, Loose, Strict }</code>; legacy <code>required</code> as alias.", "status": "done" },
+            { "id": "M15B.T2", "desc": "All three modes honoured by static check.", "status": "done" },
+            { "id": "M15B.T3", "desc": "<code>synthesise_main_cap</code> returns <code>CapValue { star: true }</code> under <code>off</code>.", "status": "done" },
+            { "id": "M15B.T4", "desc": "<code>enforce_ai_cap</code> returns empty under <code>cap[*]</code>; <code>\"default\"</code> model fallback.", "status": "done" },
+            { "id": "M15B.T5", "desc": "<code>aeris init</code> defaults to <code>enforce = \"off\"</code>; banner shows mode.", "status": "done" },
+            { "id": "M15B.T6", "desc": "Docs: <code>language.md § 8.4.1</code> + <code>§ 24.1</code> updated.", "status": "done" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v03",
+      "label": "phase 2",
+      "title": "v0.3",
+      "range": "M16 → M45",
+      "milestones": [
+        {
+          "id": "M16", "title": "String interpolation <code>{x}</code>", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M16.T1", "desc": "Lexer: parse <code>{ &lt;expr&gt; }</code> inside <code>\"...\"</code> and <code>\"\"\"...\"\"\"</code>.", "status": "done" },
+            { "id": "M16.T2", "desc": "Disambiguate <code>{</code> between interpolation, record, block.", "status": "done" },
+            { "id": "M16.T3", "desc": "Escape <code>\\{</code> / <code>\\}</code>; no <code>{{</code> doubling (one rule).", "status": "done" },
+            { "id": "M16.T4", "desc": "<code>aeris fmt --migrate-strings</code> rewrites <code>\\(...)</code> to <code>{...}</code>.", "status": "done" },
+            { "id": "M16.T5", "desc": "All <code>aeris-tests/</code>, <code>examples/</code>, templates migrated.", "status": "done" },
+            { "id": "M16.T6", "desc": "<code>language.md § 2.4</code> updated; <code>\\(...)</code> removed from spec.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M17", "title": "Inline errors: <code>catch</code>, <code>error()</code>, <code>defer</code>", "weeks": "2w", "status": "done",
+          "tasks": [
+            { "id": "M17.T1", "desc": "<code>&lt;expr&gt; catch &lt;ident&gt; { &lt;block&gt; }</code> as a postfix expression.", "status": "done" },
+            { "id": "M17.T2", "desc": "<code>error(msg)</code> builtin → <code>err.user(msg)</code>.", "status": "done" },
+            { "id": "M17.T3", "desc": "<code>defer &lt;stmt&gt;</code> — LIFO at function exit (also on <code>?</code>, <code>raise</code>, contract).", "status": "done" },
+            { "id": "M17.T4", "desc": "Trace: <code>defer_enter</code> / <code>defer_exit</code>.", "status": "done" },
+            { "id": "M17.T5", "desc": "Cap-system: <code>defer</code> body resolves against enclosing <code>cap</code>; V2 applies.", "status": "done" },
+            { "id": "M17.T6", "desc": "<code>aeris check --explain 75</code> for <code>catch</code> misuse.", "status": "partial" }
+          ]
+        },
+        {
+          "id": "M18", "title": "Time control: <code>every</code>, <code>retry</code>, <code>timeout</code>, <code>clock.sleep</code>", "weeks": "2w", "status": "done",
+          "tasks": [
+            { "id": "M18.T1", "desc": "L1 <code>clock.sleep(d)</code> cap-gated; recorded for replay.", "status": "done" },
+            { "id": "M18.T2", "desc": "<code>every &lt;d&gt; { body }</code> ≡ <code>loop { sleep(d); body }</code>.", "status": "done" },
+            { "id": "M18.T3", "desc": "<code>retry &lt;n&gt;, delay: &lt;d&gt; { body }</code> — bounded retry on <code>Err</code>.", "status": "done" },
+            { "id": "M18.T4", "desc": "<code>timeout &lt;d&gt; { body }</code> — cooperative cancel.", "status": "partial" },
+            { "id": "M18.T5", "desc": "Trace: <code>every_iter</code>, <code>retry_attempt</code>, <code>timeout_fired</code>.", "status": "done" },
+            { "id": "M18.T6", "desc": "Each construct desugars BEFORE static check.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M19", "title": "AI builtins", "weeks": "4w", "status": "partial",
+          "tasks": [
+            { "id": "M19.T1", "desc": "<code>ai.session(system, model)</code> + <code>ai.session_ask</code> — auto-compaction at 40 msgs.", "status": "done" },
+            { "id": "M19.T2", "desc": "<code>ai.decide(prompt, choices, retries)</code> — retry until reply is in <code>choices</code>.", "status": "done" },
+            { "id": "M19.T3", "desc": "<code>ai.extract&lt;M&gt;</code> / <code>ai.generate&lt;M&gt;</code> — typed agents.", "status": "deferred" },
+            { "id": "M19.T4", "desc": "<code>ai.ensemble(prompt, models, strategy)</code> via <code>agent_net</code>.", "status": "deferred" },
+            { "id": "M19.T5", "desc": "<code>ai.eval(output, criteria, scale?, judge?)</code> — LLM judge.", "status": "deferred" },
+            { "id": "M19.T6", "desc": "<code>ai.chat(system, dir) → Chat</code>; <code>chat.ask</code>; <code>chat.kb_size</code>.", "status": "done" },
+            { "id": "M19.T7", "desc": "<code>ai.guard(input_policy, output_policy, on_violation)</code>.", "status": "deferred" },
+            { "id": "M19.T8", "desc": "<code>ai.cache(strategy, ttl)</code> — on-disk cache.", "status": "deferred" },
+            { "id": "M19.T9", "desc": "<code>ai.usage() → { total_tokens, cost_usd, calls }</code>.", "status": "done" },
+            { "id": "M19.T10", "desc": "CLI: <code>aeris chat</code> REPL.", "status": "deferred" },
+            { "id": "M19.T11", "desc": "Every builtin requires <code>intent</code>; per-builtin cap entries.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M20", "title": "Network listeners", "weeks": "2w", "status": "partial", "status_label": "HTTP only",
+          "tasks": [
+            { "id": "M20.T1", "desc": "<code>net.http(port) → HttpServer</code>; cap-gated, blocking accept loop.", "status": "done" },
+            { "id": "M20.T2", "desc": "<code>server.accept() → HttpReq</code> with method/path/query/headers/body.", "status": "done" },
+            { "id": "M20.T3", "desc": "<code>req.reply(status, body, content_type)</code>.", "status": "done" },
+            { "id": "M20.T4", "desc": "TCP: <code>net.tcp.listen</code> / <code>accept</code> / <code>connect</code>.", "status": "deferred" },
+            { "id": "M20.T5", "desc": "UDP: <code>net.udp.bind</code> / <code>send</code> / <code>recv</code>.", "status": "deferred" },
+            { "id": "M20.T6", "desc": "<code>net.resolve(host) → string</code>.", "status": "deferred" },
+            { "id": "M20.T7", "desc": "Trace: <code>net_listen</code>, <code>net_accept</code>, <code>tcp_send</code>, <code>udp_recv</code>.", "status": "partial" },
+            { "id": "M20.T8", "desc": "Listeners shut down on <code>aeris run</code> exit; no leaked sockets.", "status": "deferred" }
+          ]
+        },
+        {
+          "id": "M21", "title": "Test helpers + <code>@example</code> + suite setup", "weeks": "1w", "status": "partial",
+          "tasks": [
+            { "id": "M21.T1", "desc": "<code>assert_status</code> + <code>assert_json</code> builtins.", "status": "done" },
+            { "id": "M21.T2", "desc": "<code>assert_semantic(text, criterion)</code> — hidden judge agent.", "status": "done" },
+            { "id": "M21.T3", "desc": "<code>@example(arg1, arg2) → expected</code> generates implicit test.", "status": "deferred" },
+            { "id": "M21.T4", "desc": "<code>suite \"name\" { setup { } test \"...\" { } }</code>.", "status": "deferred" },
+            { "id": "M21.T5", "desc": "<code>aeris doc</code> extracts <code>@example</code> entries.", "status": "deferred" }
+          ]
+        },
+        {
+          "id": "M22", "title": "Real L2 handlers (no more trace-only stubs)", "weeks": "5w", "status": "done",
+          "tasks": [
+            { "id": "M22.T1", "desc": "<code>l2_backend/</code> module with one trait per L2 family + Mock default.", "status": "done" },
+            { "id": "M22.T2", "desc": "<code>[l2.&lt;family&gt;]</code> manifest tables; per-family connection settings.", "status": "done" },
+            { "id": "M22.T3", "desc": "<code>l2_runtime.rs</code> — Tokio current-thread; SDK error classification.", "status": "done" },
+            { "id": "M22.T4", "desc": "<code>minio</code> real — filesystem-backed; <code>put</code>/<code>get</code>/<code>mb</code>/<code>list</code>.", "status": "done" },
+            { "id": "M22.T5", "desc": "<code>mongodb</code> real — JSONL files per collection.", "status": "done" },
+            { "id": "M22.T6", "desc": "<code>docker</code> real — subprocess via <code>docker</code> binary.", "status": "done" },
+            { "id": "M22.T7", "desc": "<code>kube</code> real — subprocess via <code>kubectl</code>.", "status": "done" },
+            { "id": "M22.T8", "desc": "<code>rabbitmq</code> real — filesystem-backed JSONL queues.", "status": "done" },
+            { "id": "M22.T9", "desc": "Replay path scaffolding — <code>BackendKind::Replay</code> recognised.", "status": "done" },
+            { "id": "M22.T10", "desc": "E2E integration tests in <code>tests/l2_integration.rs</code>.", "status": "done" },
+            { "id": "M22.T11", "desc": "Plan rows + cheatsheet reflect shipped backends.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M23", "title": "<code>model X@vN extends X@v(N-1)</code>", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M23.T1", "desc": "Parser: <code>model X@v2 extends X@v1 { ... }</code>.", "status": "done" },
+            { "id": "M23.T2", "desc": "Static check: every parent field present + <code>where</code> implied.", "status": "done" },
+            { "id": "M23.T3", "desc": "Auto-migration for structurally-trivial diffs.", "status": "deferred" },
+            { "id": "M23.T4", "desc": "<code>aeris doc</code> emits the <code>extends</code> chain.", "status": "deferred" }
+          ]
+        },
+        {
+          "id": "M24", "title": "Script-friendly surface", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M24.T1", "desc": "<code>loop { body }</code> desugars to <code>while true { body }</code>.", "status": "done" },
+            { "id": "M24.T2", "desc": "<code>??</code> null-coalesce — <code>Ok/Some/value</code> → v, <code>Err/None/()</code> → rhs.", "status": "done" },
+            { "id": "M24.T3", "desc": "<code>strings.{trim, lower, upper, contains, starts_with, ends_with, split, join, replace, parse_int}</code>.", "status": "done" },
+            { "id": "M24.T4", "desc": "Method-call sugar on <code>list</code> / <code>string</code> / <code>map</code>.", "status": "done" },
+            { "id": "M24.T5", "desc": "Top-level <code>len(x)</code> intrinsic.", "status": "done" },
+            { "id": "M24.T6", "desc": "<code>json.encode</code> / <code>parse</code> — natural (untagged) JSON.", "status": "done" },
+            { "id": "M24.T7", "desc": "<code>date.today()</code> / <code>date.timestamp()</code>.", "status": "done" },
+            { "id": "M24.T8", "desc": "Natural display: <code>Ok(v)</code>/<code>Some(v)</code> render as <code>v</code>.", "status": "done" },
+            { "id": "M24.T9", "desc": "<code>ai.chat(system, dir) → Chat</code> (KB loader).", "status": "done" },
+            { "id": "M24.T10", "desc": "Docs cross-referenced.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M25", "title": "Untyped params + kwargs on builtins", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M25.T1", "desc": "<code>fn f(x)</code>, <code>fn f(x, y)</code> parse without explicit types (dynamic).", "status": "done" },
+            { "id": "M25.T2", "desc": "<code>f(name: value)</code> resolves to parameter <code>name</code> on L1/L2 builtins and methods.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M26", "title": "Top-level effectful statements", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M26.T1", "desc": "<code>let</code>, expression-statements, cap calls outside any <code>fn</code>.", "status": "done" },
+            { "id": "M26.T2", "desc": "Run in declaration order before <code>main</code> (or as program body if absent).", "status": "done" },
+            { "id": "M26.T3", "desc": "Module-level <code>var</code> remains forbidden.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M27", "title": "Script builtins", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M27.T1", "desc": "<code>env.set(key, value)</code> — cap <code>env.write</code>.", "status": "done" },
+            { "id": "M27.T2", "desc": "<code>date.now() → timestamp</code>, <code>date.format(t, fmt)</code>.", "status": "done" },
+            { "id": "M27.T3", "desc": "Mutable <code>list.push(x)</code> / <code>list.pop()</code> on <code>var</code> bindings.", "status": "done" },
+            { "id": "M27.T4", "desc": "<code>yaml.parse(s) → result&lt;record&gt;</code> — v0.1-compatible subset.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M28", "title": "Programmatic agent network (<code>ai.network</code>)", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M28.T1", "desc": "<code>ai.network(max_rounds) → Network</code>.", "status": "done" },
+            { "id": "M28.T2", "desc": "<code>network.agent(name, system)</code> — register an agent into a <code>var</code>.", "status": "done" },
+            { "id": "M28.T3", "desc": "<code>network.run(entry, message, until?) → { trace, rounds }</code>.", "status": "done" },
+            { "id": "M28.T4", "desc": "Text-based routing: <code>&gt;&gt;NAME:</code> hand-off; else round-robin.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M29", "title": "Kwargs on user-defined functions", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M29.T1", "desc": "Reorder kwargs against closure <code>params</code> in <code>eval_call</code>.", "status": "done" },
+            { "id": "M29.T2", "desc": "Same reorder for record-field closures and lambdas (single helper).", "status": "done" },
+            { "id": "M29.T3", "desc": "<code>language.md § 7.6</code> extended with the mixed rule + error messages.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M30", "title": "Scenario-port micro-APIs", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M30.T1", "desc": "<code>list.map(fn)</code> via <code>builtin_method_dispatch</code>.", "status": "done" },
+            { "id": "M30.T2", "desc": "<code>string.index_of(needle, from?) → option&lt;int&gt;</code>.", "status": "done" },
+            { "id": "M30.T3", "desc": "<code>http.{post, put, patch}</code> with optional <code>content_type</code>.", "status": "done" },
+            { "id": "M30.T4", "desc": "<code>assert_semantic</code> default judge <code>\"claude-haiku-4-5\"</code>.", "status": "done" },
+            { "id": "M30.T5", "desc": "<code>minio.mb</code>, <code>bucket_exists</code>, <code>list</code> — mock-friendly.", "status": "done" },
+            { "id": "M30.T6", "desc": "Cheatsheet + <code>language.md</code> updated.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M31", "title": "<code>spawn</code> single-thread fallback", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M31.T1", "desc": "<code>spawn { body }</code> executes inline on the current thread in its own scope.", "status": "done" },
+            { "id": "M31.T2", "desc": "<code>return</code> / <code>break</code> / <code>continue</code> confined to the spawn block.", "status": "done" },
+            { "id": "M31.T3", "desc": "<code>await</code> is the identity; inline <code>spawn</code> returns <code>Unit</code>.", "status": "done" },
+            { "id": "M31.T4", "desc": "<code>spawn_inline</code> trace event marks the degradation.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M33", "title": "Mandatory <code>use</code> for module references", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M33.T1", "desc": "Parser stores imported names on every <code>use</code> clause.", "status": "done" },
+            { "id": "M33.T2", "desc": "Reject <code>&lt;module&gt;.&lt;op&gt;(...)</code> when not in scope — <code>E72</code>.", "status": "done" },
+            { "id": "M33.T3", "desc": "<code>aeris fmt --add-uses</code> auto-prepends a <code>use</code> line.", "status": "deferred" },
+            { "id": "M33.T4", "desc": "Every fixture / example / demo migrated.", "status": "done" },
+            { "id": "M33.T5", "desc": "<code>language.md § 3.2</code> + <code>cheatsheet § 11.1</code> updated; exit code 72.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M34", "title": "Chatbot-port carryover", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M34.T1", "desc": "<code>\"\"\"...\"\"\"</code> literals admissible at top-level (lexer fix).", "status": "done" },
+            { "id": "M34.T2", "desc": "<code>aeris run &lt;file&gt; &lt;args...&gt;</code> forwards argv to <code>main(args)</code>.", "status": "done" },
+            { "id": "M34.T3", "desc": "Subscript <code>x[k]</code> on <code>map</code> and <code>record</code> → <code>option&lt;V&gt;</code>.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M35", "title": "<code>ai.chat(port:)</code> integrated HTTP server", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M35.T1", "desc": "Extend <code>builtin_param_names</code> to <code>[system, dir, port]</code>.", "status": "done" },
+            { "id": "M35.T2", "desc": "<code>run_ai_chat_server</code> — blocking accept loop, single-threaded.", "status": "done" },
+            { "id": "M35.T3", "desc": "Routes: <code>GET /</code>, <code>POST /api/chat</code>, <code>GET /api/health</code>, <code>OPTIONS *</code>, 404.", "status": "done" },
+            { "id": "M35.T4", "desc": "<code>demo/02_chatbot_http</code> collapses to a single <code>ai.chat(...)</code> call.", "status": "done" },
+            { "id": "M35.T5", "desc": "Permissive CORS headers on every response.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M36", "title": "Module-level <code>const</code> evaluation", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M36.T1", "desc": "Parse <code>const</code> initialiser as <code>Expr</code>; evaluate before fns/agents register.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M37", "title": "Raw strings + <code>{{</code> / <code>}}</code> doubling", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M37.T1", "desc": "<code>r\"...\"</code> / <code>r\"\"\"...\"\"\"</code> — no interp, no escape.", "status": "done" },
+            { "id": "M37.T2", "desc": "<code>{{</code> → <code>{</code> / <code>}}</code> → <code>}</code> doubling in normal strings.", "status": "done" },
+            { "id": "M37.T3", "desc": "<code>demo/02-codereviewer</code> prompts switch to raw strings.", "status": "done" },
+            { "id": "M37.T4", "desc": "<code>language.md § 5.3 / § 5.3.1</code> updated; cheatsheet refreshed.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M38", "title": "Tolerant agent response decoding", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M38.T1", "desc": "<code>extract_json_object</code> strips Markdown fence + lifts balanced <code>{...}</code> from prose.", "status": "done" },
+            { "id": "M38.T2", "desc": "<code>compose_agent_prompt</code> tells the model to emit a bare object.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M39", "title": "Schema sketch in agent prompts", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M39.T1", "desc": "<code>render_model_schema</code> walks the <code>produce</code> model and inserts a <code>{ \"field\": &lt;type&gt; }</code> sketch.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M40", "title": "<code>coerce_to_field_type</code> for <code>list&lt;T&gt;</code> / sub-models / <code>option&lt;T&gt;</code>", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M40.T1", "desc": "Three new arms: <code>list&lt;T&gt;</code> / <code>set&lt;T&gt;</code>, <code>Model@vN</code>, <code>option&lt;T&gt;</code> — recursive coercion.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M41", "title": "Project-rooted runtime outputs + filesystem tracer", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M41.T1", "desc": "New <code>[runtime] output_dir</code> + <code>trace</code> section (default <code>.aeris</code>, on).", "status": "done" },
+            { "id": "M41.T2", "desc": "<code>cmd_run</code> computes project root from <code>main.aer</code>'s directory.", "status": "done" },
+            { "id": "M41.T3", "desc": "Audit log pinned via <code>set_audit_log_override</code>.", "status": "done" },
+            { "id": "M41.T4", "desc": "JSONL tracer instantiated on disk; <code>[aeris] trace_id = ...</code> banner.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M42", "title": "Unified <code>cmd_run</code> entry", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M42.T1", "desc": "Collapse the two run paths into <code>run_main_with_full_cfg_argv_full</code>.", "status": "done" },
+            { "id": "M42.T2", "desc": "<code>active_policy_names</code> threaded alongside every other config.", "status": "done" },
+            { "id": "M42.T3", "desc": "<code>[ai.backend]</code> + <code>[l2.*]</code> survive <code>[policies] active = [..]</code>.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M43", "title": "<code>aeris test</code> reads the manifest", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M43.T1", "desc": "<code>runtime::eval::TestConfig</code> + <code>run_test_with_cfg</code>.", "status": "done" },
+            { "id": "M43.T2", "desc": "<code>cmd_test</code> threads cap + backend + L2 + policies into every test body.", "status": "done" },
+            { "id": "M43.T3", "desc": "<code>demo/05-test-suite</code> returns 4/4 passing.", "status": "done" }
+          ]
+        },
+        {
+          "id": "M45", "title": "Native L2 modules as signed dynamic <code>.so</code>", "weeks": "1w", "status": "done",
+          "tasks": [
+            { "id": "M45.T1", "desc": "Stable 4-function C ABI; calls cross as JSON.", "status": "done" },
+            { "id": "M45.T2", "desc": "Loader verifies blake3 hash + ed25519 signature before <code>dlopen</code>.", "status": "done" },
+            { "id": "M45.T3", "desc": "Bridge wraps loaded modules behind the in-tree backend traits.", "status": "done" },
+            { "id": "M45.T4", "desc": "<code>aeris-module-sign</code> binary signs <code>.so</code> with dev key.", "status": "done" },
+            { "id": "M45.T5", "desc": "<code>aeris module list</code> / <code>verify</code> CLI commands.", "status": "done" },
+            { "id": "M45.T6", "desc": "POC <code>aeris-mongo-mock</code> cdylib + integration tests (tamper detection).", "status": "done" }
+          ]
+        }
+      ]
+    }
+  ]
+}

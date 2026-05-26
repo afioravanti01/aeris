@@ -11,9 +11,12 @@ footer: 'Aeris v0.3 · a small interpreted language where effects, compensation 
 
 
 <style>
-  /* Theme default is 36px; bumped a little so the slimmer slides
-     fill the canvas. */
-  section { font-size: 42px; }
+  /* Theme default is 36px; prose bumped modestly; code blocks
+     pinned so the bump doesn't overflow the canvas. */
+  section { font-size: 40px; line-height: 1.3; }
+  section pre,
+  section pre code { font-size: 26px; line-height: 1.45; }
+  section li > ul { margin-top: 0.15em; }
   figure.aeris-figure {
     margin: 0.3em auto;
     width: 100%;
@@ -55,7 +58,7 @@ A small interpreted language.
 | **2** | **How an interpreted language works** | lexer → parser → AST → tree-walk |
 | **3** | **L1 · The core language** | values, functions, pattern matching, models, libraries |
 | **4** | **L2 · Verifiability & governance** | `cap`, `intent`, contracts, `policy`, supply chain |
-| **5** | **L3 · The agentic loop** | `saga`, trace & replay |
+| **5** | **L3 · Reversible execution** | `saga`, trace & replay |
 | **6** | **L4 · AI & agents** | `ai.*`, `agent`, `agent_net` |
 | **7** | **The theory behind Aeris** | trilemma, *what*-not-*how*, why-as-grammar |
 
@@ -73,79 +76,71 @@ A small interpreted language.
 
 # Aeris
 
-> A personal experiment to build a language using an **LLM**.
+> A **personal experiment** — let an **LLM** build a language.
 
-<div class="columns">
-<div class="column">
+- A small **interpreted language**
+  - target: **AI · automation · operations**
+  - one `.aer` file
+  - **written in Rust**, single static binary **< 8 MB**
+  - no JVM · no Python · no container
 
-**What it is**
+- **Familiar surface, native constructs**
+  - reads like **Rust / Go / Swift / TS**
+  - plus `saga` · `agent` · `policy` · `intent` · `model` · `cap`
 
-- A small interpreted language for **AI, automation and operations**
-  - one `.aer` file, one static binary under **8 MB** — no JVM, no Python, no container
-  - reads like Rust / Go / Swift / TS — *plus* `saga`, `agent`, `policy`, `intent`, `model`, `cap`
+---
 
-**Where it came from**
+# Built **docs-first**
 
-- Started just as an experiment 
-- Usage of **Agentic Coding** 
-- Long discussion before generating the project
+- **Four authoring files** — written before any code
+  - **`thesis.md`** — the *rationale*
+  - **`language.md`** — the *spec*
+  - **`project.md`** — the *constraints*
+  - **`plan.md / plan.json`** — **~50 milestones** ([→ full plan](plan.html))
 
-</div>
-<div class="column">
-
-**How it was built — docs before code**
-
-- Key files definition:
-  - **`thesis.md`** — the rationale, written before any code; non-negotiable
-  - **`language.md`** — the language spec, **based on** the thesis
-  - **`project.md`** — the practical constraints to respect
-  - **`plan.md`** — **~50 milestones**, each with a pass/fail acceptance check
-- Iterative approach
-  - the LLM writes → the docs say what's allowed → the check confirms → mark done
-</div>
-</div>
+- **The loop**
+  - **read** the plan
+  - **for each task** in the next milestone
+    - **LLM implements** the code
+    - **verify** — acceptance check + functional tests
+    - **mark done** → next task
 
 ---
 
 # Change of perspective
 
-> The author of code is now an **LLM** — no mental model, just the next token, reading only the source. That leaves **two problems** a language has to answer.
+> The author of code is now an **LLM** — no mental model, just the next token.
 
-<div class="columns">
-<div class="column">
+- **Two problems** the language must answer
 
-**1 · Opacity** — *what does this code touch?*
+  1. **Opacity** — *what side effects does this function actually perform?*
+     - a leaf helper does `http.post()` **6 frames deep**
+     - `grep -r http` misses **wrapped SDK clients**
+     - signatures (`fn f(x: User) -> Order`) say **nothing about I/O**
+     - **code review** can't enforce what the type system can't see
 
-- Effects aren't on the surface — a helper deep in the call tree can quietly hit the network, the disk, an API
-- You'd have to **read every line** to be sure — which doesn't scale when a model writes the code
+  2. **Non-determinism** — *will the same input produce the same output?*
+     - **LLM** — sampling, temperature, model version drift
+     - **runtime** — `clock.now()`, `uuid4()`, `os.urandom()`, RNG seeds
+     - **world** — HTTP responses, DB rows, file mtimes, env vars
+     - flaky tests → **retries hide the root cause**
 
-</div>
-<div class="column">
-
-**2 · Non-determinism** — *does it do the same thing twice?*
-
-- **Generation** varies — the same prompt yields different code
-- The **runtime** drifts — networks, clocks, files and LLM replies all move under the program
-
-</div>
-</div>
-
-> Aeris's goal: make that code **legible** — you can see what it touches without running it — and **reproducible** — you can replay exactly what it did.
+> Aeris's goal: **every effect declared in the signature** + **every run reproducible from the trace**.
 
 ---
 
 # What today's defences miss
 
-> Back to the first problem — **opacity**. The tools you'd reach for each check something *else*, never *which function can touch which resource*.
+> No existing tool answers: **which function can touch which resource?**
 
-| Approach | What it checks | What it misses |
+| Tool | What it **checks** | What it **misses** |
 |---|---|---|
-| **Sandboxing** — Docker, gVisor | what the whole *process* may do | *which function* does it — a deep helper can still call `http.get` |
-| **Static types** — TS, Java, Rust | the *shape* of data | what the code *does* with it — a `String` can be produced by anything |
-| **Effect systems** — F\*, Dafny, Koka | effects, *with proofs* | easy everyday use — cryptic solver errors, hard to learn |
-| **Frameworks** — Airflow, Temporal | the *structure* and order of steps | real *enforcement* — a "step" is still arbitrary code |
+| **Sandboxing** (Docker, gVisor) | the **outside** of the program — what the whole process can do | what happens **inside** — any function can still call any API |
+| **Static types** (TS, Java, Rust) | the **shape** of data (`string`, `number`, `list`) | what the code **does** with that data — read a file? call HTTP? |
+| **Effect systems** (F\*, Dafny, Koka) | the **effects**, with mathematical proof | usable only by **experts** — too complex for everyday teams |
+| **Frameworks** (Airflow, Temporal) | the **order** of steps and the retries | what each step **actually does** inside its body |
 
-> Aeris answers it in the **signature**: a function lists every resource it can reach — no need to read the body.
+> Aeris answers **in the signature** — never read the body.
 
 ---
 
@@ -173,8 +168,8 @@ A small interpreted language.
 <text x="40" y="157" font-size="16" fill="#5F6470">capabilities-as-values, contracts, intent</text>
 <line x1="300" y1="170" x2="300" y2="185" stroke="#1C2035" stroke-width="2.5" marker-end="url(#L4)"/>
 <rect x="20" y="185" width="560" height="70" rx="10" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
-<text x="40" y="215" font-size="22" font-weight="700" fill="#0E1020">L3 — Agentic loop</text>
-<text x="40" y="242" font-size="16" fill="#5F6470">saga with do/undo, derived idempotency</text>
+<text x="40" y="215" font-size="22" font-weight="700" fill="#0E1020">L3 — Reversible execution</text>
+<text x="40" y="242" font-size="16" fill="#5F6470">saga with do/undo, trace &amp; replay</text>
 <line x1="300" y1="255" x2="300" y2="270" stroke="#1C2035" stroke-width="2.5" marker-end="url(#L4)"/>
 <rect x="20" y="270" width="560" height="70" rx="10" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
 <text x="40" y="300" font-size="22" font-weight="700" fill="#0E1020">L4 — Multi-agent orchestration</text>
@@ -186,16 +181,20 @@ A small interpreted language.
 </div>
 <div class="column compact">
 
-- **L1 · syntax** (§3) — values, functions, `model`, `use`
-  - dense and unambiguous → **fewer wrong guesses**
-- **L2 · semantics** (§4) — `cap`, `intent`, contracts, `policy`
-  - the **compiler** catches a stray effect, not the reviewer
-- **L3 · agentic loop** (§5) — `saga`, trace & replay
-  - **clean recovery** from a failed run
-- **L4 · multi-agent** (§6) — `ai.*`, `agent`, `agent_net`
-  - routing as a **typed graph**, not prompt strings
+- **L1 · syntax**
+  - dense, unambiguous
+  - → **fewer wrong guesses**
+- **L2 · semantics**
+  - `cap` · `intent` · contracts · `policy`
+  - **compiler** catches stray effects
+- **L3 · reversible execution**
+  - `saga`, trace & replay
+  - **clean recovery** from any failure
+- **L4 · multi-agent**
+  - `ai.*` · `agent` · `agent_net`
+  - routing = **typed graph**
 
-> Each layer builds on the one below; **opt in by depth** — a script lives in L1, a production pipeline uses all four.
+> **Opt in by depth** — script: L1; production: all four.
 
 </div>
 </div>
@@ -250,18 +249,16 @@ A small interpreted language.
 </div>
 <div class="column compact">
 
-**The stages**
+**Three stages**
 
 - **Lexer** → tokens
-  - every keyword is reserved, so meaning never depends on position
+  - keywords reserved → no positional meaning
 - **Parser** → AST
-  - the program's nested structure
-  - Aeris's **static checks** run here
+  - **static checks here**: caps, intent, cycles
 - **Evaluator** → effects
-  - one recursive function over the tree
-  - *what the source says is what it does, in order*
+  - one recursive **walk** over the tree
 
-> Verification lives **at parse time**; the trace is produced **at walk time**.
+> **Parse-time** = verify · **walk-time** = trace.
 
 </div>
 </div>
@@ -325,17 +322,16 @@ A small interpreted language.
 
 **Reading the walk**
 
-- A **function call** = a sub-walk over the callee's tree
+- **Function call** = sub-walk on the callee
   - push a scope, bind params, recurse
-- `return` / `break` / `continue`
-  - unwind the walk back to the right frame
+- `return` / `break` / `continue` = **unwind**
 
-**Why this matters for Aeris**
+**Why it matters for Aeris**
 
-- The walk is where effects are **recorded**
-  - every `cap.*`, `clock.now`, `random.next`, `ai.*`
-- `aeris replay` re-walks the *same tree*
-  - against the recorded tape → the same run, offline
+- The walk is where **effects are recorded**
+  - `cap.*` · `clock.now` · `random.next` · `ai.*`
+- `aeris replay` = **same tree, against the tape**
+  - same run, **offline**
 
 </div>
 </div>
@@ -362,40 +358,51 @@ A small interpreted language.
 <div class="column">
 
 ```rust
-use io, json, fs            // stdlib
-use kube, docker            // native modules
+use io, json, fs, kube, docker   // stdlib + native
 
-let  x = 1            // immutable (default)
-var  y = 1            // mutable, function-scope only
-const PI = 3.14159    // module-level, folded
+const PI    = 3.14159     // module-level, folded
+let   RATE  = 0.02        // module-level let (v0.3)
+type  Email = string      // type alias (pure rename)
 
 record User {
-  id:   uuid
-  name: string
-  age:  int  where age >= 0   // checked at construction
+  id:    uuid
+  name:  string
+  email: Email
+  age:   int   where age >= 0   // checked at construction
+  joined: timestamp
 }
+
+let bob  = User { id: uuid_v7(), name: "Bob",
+                  email: "bob@acme.com",
+                  age: 30, joined: now() }
+let bob2 = User { ..bob, age: 31 }    // structural update
 
 enum Status {
-  Pending
-  Active(since: timestamp)
-  Banned { reason: string }
+  Pending                              // unit variant
+  Active(since: timestamp)             // positional
+  Banned { reason: string }            // named record
 }
 
-let n = if x > 0 { 1 } else { -1 }   // blocks are values
+fn first<T>(xs: list<T>) -> option<T>  // generic
+  { if xs.empty() { None } else { Some(xs[0]) } }
+
+let sign = if RATE > 0 { "+" } else { "-" }   // blocks = values
 ```
 
 </div>
 <div class="column compact">
 
-- **Primitives**
-  - `decimal`, `uuid`, `date`, `timestamp`, `duration` are first-class literals (`2026-05-07`, `500ms`)
-- **Records** — immutable values
-  - copied **by value** on every rebinding; no shared mutable references
-- **Enums** — sum types
-  - `match` **must cover every case**, checked at parse time
-- **Bindings** — `let` / `var` / `const`
-  - `var` is **function-scope only**; module level allows only `const`
-  - so "no `cap` means pure" is **guaranteed**, not just convention
+- **Primitives** — first-class literals
+  - `decimal` · `uuid` · `date` · `timestamp` · `duration`
+  - `2026-05-07`, `500ms` — recognised by lexer
+- **Records** — immutable, **by-value**
+  - **structural update** via `..u`
+- **Enums** — 3 variant shapes
+  - unit · positional · named record
+- **Type aliases** — `type Email = string`
+- **Generics** — parametric, no bounds
+- **Bindings** — `let` · `var` · `const`
+  - `var` = **function-scope only**
 
 </div>
 </div>
@@ -412,38 +419,51 @@ let n = if x > 0 { 1 } else { -1 }   // blocks are values
 <div class="column">
 
 ```rust
-use kube, docker            // native modules
+use http, io                // L1 stdlib
 
 fn discount(amount: decimal, pct: decimal) -> decimal
   requires: amount >= 0
   requires: pct >= 0 and pct <= 1
   ensures:  result >= 0 and result <= amount
 {
-  amount * (1 - pct)
+  amount * (1 - pct)              // pure: no `cap`
 }
 
-fn restart(svc: string, cap: cap[kube.delete @ ["prod-eu-1"]])
+fn refund(id: uuid,
+          cap: cap[http.post @ ["api.acme.com"]])
   -> result<unit>
 {
-  intent "restart {svc}: delete its pods" {
-    kube.delete("pods", selector: "app={svc}")?   // ? bubbles Err
+  intent "refund {id}" {
+    if id == nil { raise error("missing id") }
+    defer io.println("refund {id} done")    // LIFO at exit
+    let r = retry 3, delay: 1s {            // bounded retry
+      http.post("/refund", { id })
+    } catch err {                           // inline recover
+      return Err(err)
+    }
+    if r.status != 200 { raise error("HTTP {r.status}") }
+    Ok(())
   }
 }
+
+let h1 = spawn { refund(o1, cap.subset[...]) }   // concurrency
+let h2 = spawn { refund(o2, cap.subset[...]) }
+let (r1, r2) = (await h1, await h2)
 ```
 
 </div>
 <div class="column compact">
 
 - **Purity is structural**
-  - `fn add(a, b)` with no `cap` ⇒ it can't perform any side effect
-- **Errors are values**
-  - `result<T>` = `Ok(T) | Err(err)`; **`?`** returns early on `Err`
-  - one error type, structured for the trace
-- **Control flow**
-  - `if`, `match`, `for`, `while`, `loop`
-  - `every`, `retry`, `timeout` cover the common timing patterns
-- **Contracts** — `requires:` / `ensures:`
-  - checked at runtime on the boundary, not proved by a solver (more in §4)
+  - **no `cap` ⇒ no side effects**
+- **Contracts**
+  - `requires:` at entry · `ensures:` at return
+- **Errors are values** — `result<T> = Ok(T) | Err(err)`
+  - `?` propagates · `catch` recovers · `raise` short-circuits
+- **Time control** (v0.3)
+  - `every` · `retry` · `timeout` · `defer`
+- **Control flow** — `if` · `match` · `for` · `while` · `loop`
+- **Concurrency** — `spawn { ... }` · `await`
 
 </div>
 </div>
@@ -460,26 +480,45 @@ fn restart(svc: string, cap: cap[kube.delete @ ["prod-eu-1"]])
 <div class="column">
 
 ```rust
-let xs: list<int> = [1, 2, 3]
-let m    = { "a": 1, "b": 2 }     // map
-let pair = ("ok", 200)            // tuple
+let xs: list<int> = [1, 2, 3, 4, 5]
+let m    = { "a": 1, "b": 2 }      // map
+let pair = ("ok", 200)              // tuple
+let opt: option<string> = Some("hi")
+let res: result<int>    = Ok(42)
 
 let label = match status {
-  Pending           -> "waiting",
-  Active(since)      -> "up since {since}",
-  Banned { reason }  -> "blocked: {reason}",
+  Pending                       -> "waiting",
+  Active(t) if t < deadline     -> "expired",         // guard
+  Active(_)                     -> "live",
+  Banned { reason: "spam", .. } -> "blocked: spam",   // partial
+  Banned { .. }                 -> "blocked",
 }
 
-let first = xs.first() ?? 0       // option, with a default
+let summary = match xs {
+  []                  -> "empty",
+  [x]                 -> "one: {x}",
+  [first, .., last]   -> "range {first}..{last}",     // list pattern
+}
+
+let head = xs.first() ?? 0          // option fallback
+let body = http.get(url)? catch err { "" }    // inline recover
+
+if res is Ok(v) { use(v) }          // refinement check
+for (k, v) in m { io.println("{k}={v}") }
 ```
 
 </div>
 <div class="column compact">
 
-- **`match`** — must be **exhaustive**; arms **destructure** and may carry an `if` guard
-- **Collections** — `list`, `set`, `map`, `tuple`, plus `option<T>` and `result<T>`
-- **`??`** — supplies a fallback for `None`, `Err`, or `()`
-- **Errors** — `?` propagates, `catch` recovers inline, `raise` aborts with a typed error
+- **`match`** — **exhaustive**
+  - patterns: literal · binder · enum · tuple · list · record
+  - optional **`if` guard**
+- **List patterns** — `[]` · `[x]` · `[x, ..rest]` · `[first, .., last]`
+- **`is` / `as`** — refinement check / coercion
+- **Collections** — `list` · `set` · `map` · `tuple`
+  - plus `option<T>` · `result<T>`
+- **`??`** — fallback for `None` / `Err` / `()`
+- **Methods** — `.first()` · `.empty()` · `.map(f)` · `.contains(x)` · `.len()`
 
 </div>
 </div>
@@ -490,7 +529,7 @@ let first = xs.first() ?? 0       // option, with a default
 
 # Models — versioned trust-boundary schemas
 
-> A `model` is the **only** type the runtime checks where untrusted data enters: an LLM response, incoming network data, a queue message.
+> A `model` validates **untrusted data at the door**: LLM reply, HTTP body, queue message.
 
 <div class="columns">
 <div class="column">
@@ -498,25 +537,36 @@ let first = xs.first() ?? 0       // option, with a default
 ```rust
 model Invoice@v1 {
   id:       uuid
-  amount:   decimal  where amount > 0 and amount < 1_000_000
+  amount:   decimal  where amount > 0
   customer: string   where len(customer) <= 64
-  issued:   date     where issued <= today()
-  lines:    list<Line@v1> where len(lines) >= 1
 }
+
+// schema evolves → bump the tag
+model Invoice@v2 extends Invoice@v1 {
+  currency: string
+    where currency in ["EUR", "USD"]
+}
+
+// explicit bridge between versions
+fn migrate_v1_to_v2(
+  old: Invoice@v1,
+) -> Invoice@v2 { ... }
 ```
 
 </div>
 <div class="column compact">
 
-- **Version tag `@vN` is mandatory**
-  - bare `Invoice` is a parse error
-  - `Invoice@v1` and `@v2` are *distinct types*; migration is an explicit function
-- **`where` clauses validated at every boundary**
-  - construction, JSON decode, agent boundary, HTTP / queue ingress
-- **A bad shape raises `SchemaViolation`**
-  - rejected **before** it reaches your logic
+- **`@vN` = version of the schema shape**
+  - same idea as `/api/v1` · Avro · Protobuf
+  - bump it when **fields change** or **constraints evolve**
+- **`v1` ≠ `v2` — they are distinct types**
+  - no implicit conversion
+  - **explicit migration** function bridges them
+- **`where` runs at every boundary**
+  - construction · `json.decode` · agent edge · HTTP / queue ingress
+- **Bad shape** → `SchemaViolation`, rejected **at the door**
 
-> This is how an unpredictable LLM output is forced into a **known shape** at the door.
+> LLM output forced into a **known, versioned shape**.
 
 </div>
 </div>
@@ -543,15 +593,15 @@ use deploy from
 <div class="column compact">
 
 - **stdlib** — built in
-  - `io`, `fs`, `http`, `shell`, `env`, `clock`, `random`, `json`
-  - compiled into the binary; a small, frozen registry
-- **native modules** — signed binaries
-  - `ai`, `kube`, `docker`, `mongodb`, `minio`, `rabbitmq`, `audit`
-  - `.so` / `.dylib`, **pinned by blake3 and signed by the Aeris registry**
-  - each declares its `cap` surface in a manifest the checker reads
-- **external libraries** — third-party
-  - `.aer` source, pinned by blake3 hash in `aeris.toml`
-  - no `latest`, no `*`, no movable git tags
+  - **12 modules**, frozen registry
+  - `io` · `fs` · `http` · `shell` · `env` · `clock`
+  - `random` · `strings` · `date` · `json` · `yaml` · `net`
+- **native modules** — signed `.so` / `.dylib`
+  - `ai` · `kube` · `docker` · `mongodb` · `minio` · `rabbitmq` · `audit`
+  - **blake3-pinned** + **registry-signed**
+- **external libraries** — third-party `.aer`
+  - **blake3 hash** in `aeris.toml`
+  - **no** `latest` · `*` · movable tags
 
 </div>
 </div>
@@ -570,23 +620,19 @@ use deploy from
 
 # Structural, not semantic
 
-> Aeris does not try to prove your code is *correct*. It makes the **suspicious code unable to hide** — and the rules it must obey **explicit in the source**.
+> Don't *prove* code correct — make the **suspicious code unable to hide**.
 
-**Visible in the source, checked at parse time**
+- **Parse-time** — visible in the source
+  - **what** a function touches → `cap`
+  - **why** → `intent` (mandatory on writes)
 
-- **what** a function can touch → the `cap` in its signature
-- **why** it touches it → an enclosing `intent` (mandatory on writes)
+- **Runtime** — declared, enforced
+  - **invariants** → `requires` / `ensures`
+  - **guardrails** → `policy` (`deny` · `limit` · `require`)
 
-**Declared in the source, enforced at run time**
-
-- **invariants** on inputs and outputs → `requires` / `ensures`
-- **guardrails** the model can't forget → `policy` (`deny` / `limit` / `require`)
-
-**What it deliberately does *not* do**
-
-- it does not check the *logic* inside a legitimate `cap`
-  - a function that holds `audit.write` can still log the wrong thing
-  - that stays the job of tests, review, and backend RBAC
+- **Out of scope**
+  - logic *inside* a legitimate `cap`
+  - tests · review · backend RBAC
 
 ---
 
@@ -602,7 +648,9 @@ use deploy from
 ```rust
 // pure: no cap ⇒ cannot do IO at all
 fn total(items: list<Invoice@v1>) -> decimal {
-  items.fold(0, fn(a, it) { a + it.amount })
+  var sum: decimal = 0
+  for it in items { sum += it.amount }
+  sum
 }
 
 // authority is on the signature, with allow-lists
@@ -619,19 +667,19 @@ fn settle(
 </div>
 <div class="column compact">
 
-- **The signature is the contract**
-  - answer *"what does this touch?"* without reading the body
+- **Signature = contract**
+  - "what does this touch?" **without reading the body**
 - **`cap` cannot escape**
-  - not stored in a field, returned, or put on a channel
-  - `cap[*]` is forbidden in user code
-- **Enforcement is a project decision**
-  - `off | loose | strict` in `aeris.toml`
+  - no fields · no return · no channels
+  - `cap[*]` **forbidden** in user code
+- **Enforcement** — project decision
+  - `off` · `loose` · `strict` in `aeris.toml`
 
 **Lineage — object-capability security**
 
-- **Dennis & Van Horn, 1966** (MIT) — coined it
-- **Mark Miller's E**, ~2003 — first practical language to use it
-- Capsicum, Genode, Pony follow — *applied engineering, not new research*
+- **Dennis & Van Horn, 1966** — coined it
+- **Mark Miller's E**, late 1990s — first practical use
+- Capsicum · Genode · Pony — *applied engineering*
 
 </div>
 </div>
@@ -640,7 +688,7 @@ fn settle(
 
 # `intent` — the *why* in the grammar
 
-> Languages keep *what the code does* in the source and *why* in commits and tickets — places **the model never sees**. Aeris pulls the *why* into the grammar.
+> The *why* lives in commits and tickets — **the model never sees them**.
 
 ```rust
 intent "rotate the leaked TLS cert" {
@@ -649,28 +697,29 @@ intent "rotate the leaked TLS cert" {
 }
 ```
 
-- **Required on every write call**
-  - code that calls `fs.write_*`, `http.post`, `kube.apply`, `audit.event` or `ai.*` without an enclosing `intent` **won't parse**
-- **It flows into the trace**
+- **Mandatory on every write**
+  - `fs.write_*` · `http.post` · `kube.apply` · `audit.event` · `ai.*`
+  - without it → **won't parse**
+- **Flows into the trace**
   - emits `intent_enter` / `intent_exit`
-  - every event inside **carries that intent** → the purpose sits above every side effect in the code
-- **What it does *not* do**
-  - it does not check that the body matches the string
-  - it makes **leaving it out impossible** — an LLM-written PR can't hide a write in silence
+  - every inner event **carries the intent**
+- **Checks presence, not truth**
+  - LLM PR can't hide a write **in silence**
 
 ---
 
 # Contracts — `requires` · `ensures` · `where`
 
-> Runtime checks on inputs, outputs and world state. **Deliberately not** solver proofs.
+> **Runtime** checks. **Not** solver proofs.
 
 - **Where they live**
-  - **`requires:`** — checked at entry
-  - **`ensures:`** — checked on every return path (`result` names the value)
-  - **`where`** — on record/model fields and `match` arms
+  - `requires:` — at **entry**
+  - `ensures:` — at **every return** (`result` = the value)
+  - `where` — on **fields** and **`match` arms**
+
 - **On violation**
-  - raises `ContractViolation` — **never silenced, not catchable by `?`**
-  - logged to the trace, exit code `64`
+  - `ContractViolation` — **fatal**, not catchable by `?`
+  - logged · **exit code 64**
 
 ---
 
@@ -701,15 +750,16 @@ policy model_budget {
 <div class="column compact">
 
 - **Clauses**
-  - **`match:`** — the cap path(s) it applies to
-  - **`deny:` / `require:`** — raise `PolicyViolation`
-  - **`limit:`** — a quota over a window
-  - **`audit:`** — extra fields in the trace
+  - `match:` — which **cap paths**
+  - `deny:` / `require:` → `PolicyViolation`
+  - `limit:` — quota over a window
+  - `audit:` — extra trace fields
 - **Activation**
-  - on import, scoped to a `fn`, or project-wide in `aeris.toml`
-- **Recorded** — a live-vs-replay divergence is a `policy_drift` event
+  - on import · per `fn` · `aeris.toml`
+- **Recorded**
+  - live ≠ replay → `policy_drift` event
 
-> Extra protection against a malicious LLM injection — the egress allow-list is enforced at the call site.
+> Defense against **malicious LLM injection**.
 
 </div>
 </div>
@@ -726,15 +776,18 @@ deploy = { source = "github.com/acmecorp/aeris-devops",
            version = "1.2.0", hash = "blake3:7e2c...c1a4" }
 ```
 
-- **Readable aliases bound to blake3 hashes**
-  - pinned in a committed manifest
-  - a hash mismatch **fails before any of the dependency's code runs**
-- **No `latest`, no `*`, no movable git tags**
-  - *"what version is in this build?"* is answerable from `aeris.toml` without running anything
-- **Native modules** (`ai`, `kube`, `docker`, …)
-  - also carry an **ed25519 registry signature**, checked before they are loaded
+- **Hash = identity**
+  - aliases bound to **blake3** hashes
+  - mismatch → **fatal before any code runs**
 
-> **Lineage:** Nix store paths (Dolstra, PhD 2006), Cargo's `Cargo.lock`, Go's `GOSUMDB`. **Known-good, applied consistently** across the whole supply chain.
+- **No `latest` · no `*` · no movable tags**
+  - "what's in this build?" → read `aeris.toml`
+
+- **Native modules**
+  - also **ed25519-signed** (Aeris registry)
+  - verified **before load**
+
+> **Lineage:** Nix store · Cargo lock · Go `GOSUMDB`.
 
 ---
 
@@ -742,23 +795,23 @@ deploy = { source = "github.com/acmecorp/aeris-devops",
 
 <p class="eyebrow">Section 5 · L3</p>
 
-# The agentic loop
+# Reversible execution
 
-> The loop **one agent** runs while acting on the world — *do the work, record it, undo on failure*. Every step is **reversible**, every run **replayable**. *(Coordinating **many** agents is L4, next.)*
+> How **a single program** acts on the world — *do the work, record it, undo on failure*. Every write step is **reversible**, every run **replayable**. *(Coordinating **many** agents is L4, next.)*
 
 ---
 
 <!-- _class: tight -->
 
-# What is the agentic loop?
+# What reversible execution means
 
-> A single agent doing real work runs the same cycle on **every step**: do it, record it, and undo it if a later step fails.
+> A program doing real work on the outside world runs the same cycle on **every write step**: do it, record it, and undo it if a later step fails.
 
 <div class="columns">
 <div class="column">
 
 <figure class="aeris-figure">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 300" role="img" aria-label="The agentic loop: do a step, record it; on success move to the next step, on failure undo the completed steps">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 300" role="img" aria-label="Reversible execution cycle: do a step, record it; on success move to the next step, on failure undo the completed steps">
 <defs>
 <marker id="lp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#1C2035"/></marker>
 <marker id="lpf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#FF7E51"/></marker>
@@ -786,17 +839,19 @@ deploy = { source = "github.com/acmecorp/aeris-devops",
 </div>
 <div class="column compact">
 
-**Why it needs the language**
+**Why the language must help**
 
-- A long-running job on the outside world **will** fail somewhere — a dropped network, a bad reply, a half-applied change
-- By hand, that leaves a **half-done mess**
+- Long-running work on the outside world **will fail**
+  - dropped network · bad reply · half-applied change
+- By hand → **half-done mess**
 
-**What the loop gives you**
+**What this layer guarantees**
 
-- Every run ends **defined** — fully done, or fully rolled back
-- The recording lets you **replay** it offline, exactly
+- Every run ends **defined**
+  - fully done, or fully rolled back
+- Recording → **exact offline replay**
 
-> Two constructs make it real: **`saga`** (do/undo + idempotency) and **trace & replay** (record + reproduce).
+> **Two constructs:** `saga` + trace & replay.
 
 </div>
 </div>
@@ -843,17 +898,18 @@ saga settle(
 <div class="column compact">
 
 - **Failure → compensation**
-  - a failed step **undoes the completed steps in reverse order**
-  - if rollback can't finish, it reports an honest **`PartialFailure`** — never a silent half-state
+  - failed step → **undo completed in reverse**
+  - rollback fails → honest **`PartialFailure`**
 - **Idempotency keys**
-  - auto-derived `blake3(trace_id, step, index)`, injected into writes
-  - replaying a half-done saga won't double-charge
+  - `blake3(trace_id, step, idx)` — auto-injected
+  - **safe replay** of a half-done saga
 
 **Lineage — the SAGA pattern**
 
 - **Garcia-Molina & Salem, 1987** (SIGMOD)
-  - for DBs that couldn't hold a long transaction; today **Temporal**, Step Functions
-- Aeris's change: **compensation is required by the syntax**, not an optional add-on
+  - DBs without long transactions
+  - today: **Temporal** · Step Functions
+- Aeris: **compensation in the syntax**, not optional
 
 </div>
 </div>
@@ -888,14 +944,17 @@ $ aeris replay 01JFE...
 </div>
 <div class="column compact">
 
-- **Every run emits a JSONL trace**
-  - one self-contained event per line, each carrying the **active `intent`**
-- **Always-on recording** (N3 / N2)
-  - `ai.*`, `clock.now`, `random.next` are always captured — not opt-in
-- **`aeris replay` re-walks the tree against the tape**
-  - **bit-for-bit identical** for the deterministic parts, fixed for the rest
-- **All of it runs offline**
-  - audit, debugging, regression, post-mortem
+- **Every run → JSONL trace**
+  - one event per line
+  - each carries the **active `intent`**
+- **Always on**
+  - `ai.*` · `clock.now` · `random.next`
+  - **no opt-in** in production
+- **`aeris replay` re-walks the tree**
+  - **bit-identical** for the deterministic part
+  - the rest **fixed by the tape**
+- **All offline**
+  - audit · debug · regression · post-mortem
 
 </div>
 </div>
@@ -912,12 +971,17 @@ $ aeris replay 01JFE...
 |---|---|
 | `ai.*` | prompt, model, response, tokens, latency |
 | `clock.now` · `random.next` | the value returned |
+| `clock.sleep` | the recorded duration (returns instantly on replay) |
 | `http.*` | url, method, status, request & response **hash** |
 | `fs.read_*` · `fs.write_*` | path, length, content **hash** |
 | `shell.exec` | argv, exit code, stdout / stderr **hash** |
 
-- **Always on** — no opt-out in production; bodies are stored as **hashes** by default (`--full-record` keeps the bytes)
-- **`aeris trace diff a b`** — aligns events by scope and reports what diverged → fast regression bisects
+- **Always on** — no opt-out
+  - bodies as **hashes** by default
+  - `--full-record` keeps the raw bytes
+- **`aeris trace diff a b`**
+  - aligns events by scope
+  - → fast **regression bisect**
 
 ---
 
@@ -958,12 +1022,14 @@ let (s2, reply) = ai.session_ask(s, "explain capabilities")
 </div>
 <div class="column compact">
 
-- **`ai.complete`** — one prompt → text; the base call
-- **`ai.decide`** — the model picks from a fixed `choices` list, **retried until the reply is valid**
-- **`ai.session` / `ai.session_ask`** — multi-turn history that **auto-compacts** past ~40 turns
-- **`ai.embed`** — text → vector, for semantic search / RAG
-- **`ai.tools`** — let the model **call your functions**, not just return text
-- **`ai.usage()`** — running tokens / cost / calls, any time
+- **`ai.complete`** — prompt → text
+- **`ai.decide`** — pick from a fixed list
+  - **retried** until valid
+- **`ai.session` / `ai.session_ask`**
+  - multi-turn, **auto-compacts** ~40 turns
+- **`ai.embed`** — text → vector (RAG)
+- **`ai.tools`** — model **calls your functions**
+- **`ai.usage()`** — tokens · cost · calls
 
 </div>
 </div>
@@ -992,10 +1058,15 @@ ai.chat("You are concise.", "./docs", port: 8080)
 </div>
 <div class="column compact">
 
-- **`ai.chat(system, dir)`** — loads `*.md` / `*.txt` / `*.yaml` … as a labelled **knowledge base**
-- **`chat.ask(p)?`** / **`chat.kb_size()`** — query it; count the files loaded
-- **`ai.chat(system, dir, port)`** — the same KB as a **chat server** — a bot in one line
-- Everything goes through the configured `[ai.backend]`; every turn is traced
+- **`ai.chat(system, dir)`**
+  - loads `*.md` / `*.txt` / `*.yaml` as a **KB**
+- **`chat.ask(p)?`** — query the KB
+- **`chat.kb_size()`** — file count
+- **`ai.chat(system, dir, port)`**
+  - same KB → **HTTP chat server**
+  - a bot in **one line**
+- Backend in `[ai.backend]`
+  - every turn **traced**
 
 </div>
 </div>
@@ -1029,11 +1100,18 @@ agent triage {
 </div>
 <div class="column compact">
 
-- **`llm:`** — the exact model, pinned so the run can replay
-- **`accept:` / `produce:`** — input and output **models**; the runtime validates both at the boundary, so a malformed reply never reaches your code
-- **`prompt:`** — your instruction; the JSON output contract is appended automatically
-- **`policy:` / `retries:`** — guardrails and bounded failure, as declared fields
-- **Call it like a function** — `triage(ticket, cap)`, with a `cap` carrying `ai.*`; every call is **tape-recorded**
+- **`llm:`** — pinned model
+  - → run is **replayable**
+- **`accept:` / `produce:`** — input/output `model@vN`
+  - validated **at the boundary**
+  - malformed reply → **never reaches your code**
+- **`prompt:`** — your instruction
+  - JSON contract **auto-appended**
+- **`policy:` / `retries:`**
+  - guardrails + bounded failure
+- **Call as a function**
+  - `triage(ticket, cap)` with `cap` carrying `ai.*`
+  - every call **tape-recorded**
 
 </div>
 </div>
@@ -1050,25 +1128,25 @@ agent triage {
 <div class="column">
 
 <figure class="aeris-figure">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" role="img" aria-label="agent_net support_desk: triage fans out to draft_reply and escalate; draft_reply feeds review; review loops back to draft_reply until approved">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" role="img" aria-label="agent_net support_desk: a DAG where triage fans out to draft_reply and escalate; draft_reply feeds review. The whole DAG is re-run until review approves the draft.">
 <defs>
 <marker id="an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#1C2035"/></marker>
 <marker id="anf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#FF7E51"/></marker>
 </defs>
 <g font-family="Inter, system-ui, sans-serif">
-<rect x="14" y="98" width="104" height="44" rx="8" fill="#FFE9C4" stroke="#1C2035" stroke-width="2"/>
-<text x="66" y="125" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">triage</text>
-<rect x="180" y="40" width="128" height="44" rx="8" fill="#FFE9C4" stroke="#1C2035" stroke-width="2"/>
-<text x="244" y="67" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">draft_reply</text>
-<rect x="180" y="156" width="128" height="44" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
-<text x="244" y="183" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">escalate</text>
-<rect x="356" y="40" width="110" height="44" rx="8" fill="#FFE9C4" stroke="#1C2035" stroke-width="2"/>
-<text x="411" y="67" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">review</text>
-<line x1="118" y1="114" x2="180" y2="70" stroke="#1C2035" stroke-width="2" marker-end="url(#an)"/>
-<line x1="118" y1="126" x2="180" y2="174" stroke="#1C2035" stroke-width="2" marker-end="url(#an)"/>
-<line x1="308" y1="62" x2="356" y2="62" stroke="#1C2035" stroke-width="2" marker-end="url(#an)"/>
-<path d="M411,84 C411,138 244,140 244,86" fill="none" stroke="#FF7E51" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#anf)"/>
-<text x="328" y="132" text-anchor="middle" font-size="13" font-style="italic" fill="#D14600">until approved</text>
+<rect x="14" y="118" width="104" height="44" rx="8" fill="#FFE9C4" stroke="#1C2035" stroke-width="2"/>
+<text x="66" y="145" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">triage</text>
+<rect x="180" y="60" width="128" height="44" rx="8" fill="#FFE9C4" stroke="#1C2035" stroke-width="2"/>
+<text x="244" y="87" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">draft_reply</text>
+<rect x="180" y="176" width="128" height="44" rx="8" fill="#F6F3F0" stroke="#1C2035" stroke-width="2"/>
+<text x="244" y="203" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">escalate</text>
+<rect x="356" y="60" width="110" height="44" rx="8" fill="#FFE9C4" stroke="#1C2035" stroke-width="2"/>
+<text x="411" y="87" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1020">review</text>
+<line x1="118" y1="134" x2="180" y2="90" stroke="#1C2035" stroke-width="2" marker-end="url(#an)"/>
+<line x1="118" y1="146" x2="180" y2="194" stroke="#1C2035" stroke-width="2" marker-end="url(#an)"/>
+<line x1="308" y1="82" x2="356" y2="82" stroke="#1C2035" stroke-width="2" marker-end="url(#an)"/>
+<path d="M411,60 C411,10 66,10 66,118" fill="none" stroke="#FF7E51" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#anf)"/>
+<text x="240" y="32" text-anchor="middle" font-size="13" font-style="italic" fill="#D14600">re-run DAG until review.approved</text>
 </g>
 </svg>
 </figure>
@@ -1093,8 +1171,13 @@ agent_net support_desk {
 }
 ```
 
-- **Typed edges** — `triage` produces `Triage@v1`, exactly what `draft_reply` & `escalate` accept; a mismatch won't route
-- **`until:`** bounds the loop; **cycles are rejected** at parse time — no runaway agents
+- **Typed edges**
+  - `triage` produces `Triage@v1`
+  - exactly what `draft_reply` & `escalate` accept
+  - mismatch → **won't route**
+- **Bounded iteration**
+  - `until:` predicate or `iterations`
+  - **cycles rejected at parse time**
 
 </div>
 </div>
@@ -1125,10 +1208,16 @@ agent_net support_desk {
 </div>
 <div class="column compact">
 
-- **Composition** — a whole `agent_net` is itself a node; reuse it inside another net (no recursion)
-- **Every edge is traced** — each crossing records the `model@vN` schema that passed
-- **Failure is bounded** — an agent burns its `retries:`, then emits `err.llm`, which **propagates to its consumers**
-- **The loop is bounded** — re-runs until `until:` holds or `iterations` is hit; otherwise `Err("agent_net exhausted")`
+- **Composition**
+  - a net is **itself a node**
+  - no recursion
+- **Every edge traced**
+  - records the `model@vN` schema
+- **Bounded failure**
+  - retries burned → `err.llm` → propagates
+- **Bounded loop**
+  - re-run until `until:` or `iterations`
+  - else → `Err("agent_net exhausted")`
 
 </div>
 </div>
@@ -1160,11 +1249,16 @@ let r = net.run(
 </div>
 <div class="column compact">
 
-- **Built at run time** — agents registered into a `var`, often loaded from a **folder** of prompt files
-- **Text-based routing** — a reply prefixed `>>NAME:` hands off; otherwise round-robin; stops at the `until` sentinel
-- **Which to use?**
-  - **`agent_net`** — typed, schema-checked edges; the agent set is **stable**
-  - **`ai.network`** — free-form text, **discovered at runtime**; lower overhead
+- **Built at run time**
+  - agents into a `var`
+  - often loaded from a **folder of prompts**
+- **Text-based routing**
+  - `>>NAME:` prefix = **hand-off**
+  - else round-robin
+  - stops at the `until` sentinel
+- **`agent_net` vs `ai.network`**
+  - typed + schema-checked  vs  free-form text
+  - **stable set**  vs  **runtime discovery**
 
 </div>
 </div>
@@ -1210,16 +1304,21 @@ let r = net.run(
 </div>
 <div class="column compact">
 
-**Why Aeris reaches all three at once**
+**Aeris reaches all three at once**
 
-- **Verifiable** — *by construction, not by proof*
-  - the signature names every effect (`cap`); `intent`, contracts and `policy` are declared and checked at parse time → the **compiler** catches a stray effect, not a reviewer
+- **Verifiable** — *by construction*
+  - `cap` · `intent` · contracts · `policy`
+  - **compiler** catches stray effects
+
 - **Readable** — *one way to say each thing*
-  - reserved keywords, one canonical form (`aeris fmt`), a familiar curly-brace surface → a signature tells you what a function does **without reading the body**
-- **Expressive** — *at the level of intentions*
-  - `saga`, `agent`, `model`, `policy` say in a few tokens what would take pages → each construct is a **whole intention**, not a mechanism
+  - reserved keywords + `aeris fmt`
+  - signature **tells the truth**
 
-> The trick is staying **small**: one construct per concept is what lets all three hold together.
+- **Expressive** — *at the level of intentions*
+  - `saga` · `agent` · `model` · `policy`
+  - each construct = **whole intention**
+
+> The trick: **stay small**. One construct per concept.
 
 </div>
 </div>
@@ -1228,56 +1327,100 @@ let r = net.run(
 
 # Designed for LLMs — *what*, not *how*
 
-> An LLM has no mental model of your program. It only has a **probability distribution over the next token** — so writing code is, for it, *inherently random*.
+> An LLM has **no mental model** — just the next token.
 
-**So the design question changes**
+**The design question shifts**
 
-- From *"how do I build this?"* to *"**what** do I want built?"*
-  - `saga`, `agent`, `intent`, `policy` are not mechanisms
-  - they are **whole intentions**, turned into first-class constructs
+- From *"how do I build this?"*
+- To *"**what** do I want built?"*
+  - `saga` · `agent` · `intent` · `policy`
+  - = **whole intentions**, not mechanisms
 
-**Why high abstraction, not low**
+**Why high abstraction (not low)**
 
-- An LLM gets code right in proportion to two things
-  - how much the code **resembles its training data**
-  - how **few valid completions** the language allows
-- High abstraction helps with both
-  - **fewer decisions → fewer failure points**
-  - **more signal per token** — `agent_net { flow a -> b }` > 50 lines of Python
+- LLMs get code right in proportion to
+  - **resemblance to training data**
+  - **fewness of valid completions**
+- High abstraction wins on both
+  - **fewer decisions → fewer failures**
+  - **more signal per token**
 
 ---
 
 # Why-as-grammar
 
-> Programs traditionally split **what the code does** (in the source) from **why it does it** (in commits, tickets, PRs). The model never sees the second half.
+> Traditional split: **what** in code, **why** in commits/tickets/PRs.
+> The model **never sees the second half**.
 
 **The cost in the agentic era**
 
-- An agent reading code without the *why* has to **reverse-engineer the purpose**
-  - every inference it makes is a fresh point of **non-determinism**
-- The *why* lives out-of-band, so the agent **re-derives it on every run** — wrong as often as right
+- Agent must **reverse-engineer purpose**
+  - every guess = fresh **non-determinism**
+- The *why* is **re-derived every run**
 
-**Aeris's move — put the *why* in the grammar**
+**Aeris's move — *why* in the grammar**
 
-- `intent`, `requires:` / `ensures:`, `policy` are **not comments**: they are enforced, traced, and machine-readable
-- the agent stops **guessing** what "right" means — the grammar states it, and the runtime rejects the omission
+- `intent` · `requires:` / `ensures:` · `policy`
+  - **not comments**
+  - **enforced** · **traced** · **machine-readable**
+- Runtime **rejects the omission**
 
-> The goal is not a language humans write better — it is one **agents run with more certainty**.
+> Not a language humans write better — one **agents run with more certainty**.
 
 ---
 
 # Three sources of non-determinism
 
-> Aeris does not *remove* non-determinism — it meets each source at a different level to make it **explicit, contained and reproducible**.
+> Aeris doesn't **remove** it — it makes each source **explicit, contained, reproducible**.
 
-- **The model** — *same prompt, different output*
-  - **Capture, don't control** — every `ai.*` call is taped (prompt, model, response, tokens); `aeris replay` re-runs from the tape, no network, **bit-identical**. Reproducible after the first run.
+- **The model** — *same prompt → different output*
+  - **Capture, don't control**
+  - every `ai.*` taped → `aeris replay` is **bit-identical**
+
 - **The grammar** — *ambiguity makes the model guess*
-  - **Reduce the choices** — reserved keywords, one construct per concept, one canonical form (`aeris fmt`), `cap` as a value → fewer valid completions, so fewer wrong guesses.
-- **The world** — *networks drop, DBs mutate, files change*
-  - **Isolate & declare** — `cap` bounds what a function can touch, `model@vN` validates data at the boundary, `requires`/`ensures` and `policy` halt on a bad state → the blast radius is small and visible.
+  - **Reduce the choices**
+  - reserved keywords · one form · `cap` as a value
 
-> Honest limits: the **first** LLM call is still unpredictable, logic inside a legitimate `cap` isn't verified, and cascading `undo` is **best-effort**.
+- **The world** — *networks drop, DBs mutate*
+  - **Isolate & declare**
+  - `cap` bounds reach · `model@vN` validates · `policy` halts
+
+> **Honest limits:** first LLM call unpredictable · logic *inside* `cap` not verified · `undo` cascade **best-effort**.
+
+---
+
+<!-- _class: tight -->
+
+<style scoped>
+  section > ul > li { font-size: 34px; line-height: 1.32; margin: 10px 0; }
+  section > ul > li > ul { padding-left: 24px; margin-top: 4px; }
+  section > ul > li > ul > li { font-size: 26px; margin: 4px 0; color: #1C2035; }
+</style>
+
+# Why Aeris over Python · Java · Rust · Go
+
+- **vs Python**
+  - skip the `langchain` + `pydantic` + `openai` + `structlog` stack — these are **language built-ins**
+  - script feel under `enforce = "off"`, ramps to **static effect + schema checks** under `"strict"`
+  - native **JSONL trace + `aeris replay`** — no `logging` + OpenTelemetry plumbing to wire
+  - `model@vN` + `where` at every boundary — no Pydantic decorators sprinkled across the codebase
+
+- **vs Java**
+  - **no JVM**, no Spring, no app server — single **8 MB binary** deployed with `scp`
+  - `agent` · `saga` · `policy` · `intent` are **language keywords**, not annotations or Spring beans
+  - `result<T>` + `?` + `catch` instead of **checked-exception ceremony** and `try/catch/throws`
+  - cold start **&lt; 50 ms** — no JIT warmup, no fat WAR / uberjar
+
+- **vs Rust / Go**
+  - **interpreted, fast iteration** — no borrow checker, no `go build` / `cargo build` cycle
+  - `saga` · `agent_net` · `model@vN` are **first-class** — not patterns to reimplement per project
+  - `cap` tracks **external effects** (HTTP, FS, K8s, LLM) — Rust's idea applied to *side effects*, not memory aliasing
+  - idempotency keys + reverse rollback come **with the saga keyword**, not as a Temporal/Conductor SDK
+
+- **vs YAML pipelines** (Airflow, dbt, Terraform)
+  - one `.aer` file replaces **YAML + Python + IaC** — pipeline, agents, governance in **one review surface**
+  - **typed values, cap-checked effects, tracing built-in** — not string templating with sigils and macros
+  - same source goes through `aeris check`, `aeris fmt`, `aeris replay` — no Jinja / Go-template indirection
 
 ---
 

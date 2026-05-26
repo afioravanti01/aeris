@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aeris — Implementation plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:           #F6F3F0;
+      --bg-alt:       #FBEFE6;
+      --ink:          #0E1020;
+      --ink-soft:     #1C2035;
+      --muted:        #5F6470;
+      --line:         rgba(28, 32, 53, 0.10);
+      --card:         #FFFFFF;
+      --orange:       #FF7E51;
+      --orange-strong:#D14600;
+      --green:        #16A34A;
+      --green-bg:     #DCFCE7;
+      --amber:        #B45309;
+      --amber-bg:     #FEF3C7;
+      --gray:         #4B5563;
+      --gray-bg:      #E5E7EB;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      font-feature-settings: "ss01","ss03","cv11";
+    }
+    code, kbd, samp, pre {
+      font-family: 'JetBrains Mono', ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    a { color: var(--orange-strong); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+
+    /* header */
+    header.site {
+      background: linear-gradient(135deg, #0E1020 0%, #1C2035 100%);
+      color: var(--bg);
+      padding: 48px 0 40px;
+      border-bottom: 4px solid var(--orange);
+    }
+    header.site .eyebrow {
+      margin: 0 0 8px;
+      font-size: 12px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--orange);
+      font-weight: 700;
+    }
+    header.site h1 {
+      margin: 0;
+      font-size: clamp(32px, 4vw, 44px);
+      font-weight: 800;
+      letter-spacing: -0.025em;
+    }
+
+    /* stats */
+    section.stats-band {
+      background: var(--bg-alt);
+      border-bottom: 1px solid var(--line);
+      padding: 24px 0;
+    }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+    .stat { text-align: center; }
+    .stat-value {
+      font-size: clamp(28px, 3.4vw, 40px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .stat-value .accent { color: var(--orange-strong); }
+    .stat-label {
+      margin-top: 6px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+    /* phase */
+    section.phase { padding: 48px 0 16px; }
+    section.phase + section.phase { border-top: 1px solid var(--line); }
+    .phase-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
+    .phase-tag {
+      padding: 4px 12px;
+      background: var(--orange);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      border-radius: 999px;
+    }
+    .phase-head h2 {
+      margin: 0;
+      font-size: clamp(24px, 2.6vw, 30px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .phase-head h2 .quiet { color: var(--muted); font-weight: 500; }
+
+    /* milestone */
+    .milestone {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      margin-bottom: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+    .milestone::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 4px;
+      background: var(--gray-bg);
+    }
+    .milestone.status-done::before     { background: var(--green); }
+    .milestone.status-partial::before  { background: #F59E0B; }
+    .milestone.status-deferred::before { background: var(--gray); }
+
+    .milestone-head {
+      padding: 14px 22px 14px 26px;
+      background: var(--bg-alt);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .milestone-head .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 13.5px;
+      background: var(--ink);
+      color: var(--bg);
+      padding: 4px 11px;
+      border-radius: 6px;
+    }
+    .milestone-head .title {
+      font-weight: 700;
+      font-size: 17px;
+      flex-grow: 1;
+      color: var(--ink);
+      line-height: 1.3;
+    }
+    .milestone-head .title code {
+      background: white;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+    }
+    .milestone-head .weeks {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      background: white;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+    }
+    .pill {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .pill-done     { background: var(--green-bg);  color: var(--green); }
+    .pill-partial  { background: var(--amber-bg);  color: var(--amber); }
+    .pill-deferred { background: var(--gray-bg);   color: var(--gray); }
+
+    /* tasks table */
+    table.tasks { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table.tasks th, table.tasks td {
+      padding: 9px 22px 9px 26px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    table.tasks tr:last-child td { border-bottom: none; }
+    table.tasks th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      font-weight: 600;
+      background: white;
+    }
+    table.tasks td.id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      font-weight: 600;
+      width: 88px;
+      color: var(--ink-soft);
+      white-space: nowrap;
+    }
+    table.tasks td.desc { line-height: 1.5; color: var(--ink-soft); }
+    table.tasks td.desc code {
+      background: var(--bg);
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: var(--ink);
+      font-size: 0.9em;
+    }
+    table.tasks td.status { width: 92px; white-space: nowrap; }
+    table.tasks tr:hover { background: rgba(251, 239, 230, 0.5); }
+
+    /* status placeholders */
+    #plan-status {
+      padding: 64px 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    #plan-status.error { color: var(--orange-strong); font-weight: 600; }
+
+    /* footer */
+    footer.site {
+      padding: 28px 0 36px;
+      border-top: 1px solid var(--line);
+      background: var(--bg-alt);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    footer.site code {
+      background: white;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site">
+    <div class="container">
+      <p class="eyebrow" id="plan-eyebrow">Aeris</p>
+      <h1 id="plan-title">Implementation plan</h1>
+    </div>
+  </header>
+
+  <section class="stats-band">
+    <div class="container">
+      <div class="stats">
+        <div class="stat"><div class="stat-value" id="stat-milestones">—</div><div class="stat-label">Milestones</div></div>
+        <div class="stat"><div class="stat-value"><span class="accent" id="stat-tasks">—</span></div><div class="stat-label">Tasks</div></div>
+        <div class="stat"><div class="stat-value" id="stat-weeks">—</div><div class="stat-label">Engineering weeks</div></div>
+        <div class="stat"><div class="stat-value" id="stat-release">—</div><div class="stat-label">Current release</div></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="plan-root">
+    <div id="plan-status">Loading <code>plan.json</code>…</div>
+  </div>
+
+  <footer class="site">
+    <div class="container">
+      Source of truth: <code id="plan-sot">docs/plan.md</code>.
+    </div>
+  </footer>
+
+  <script>
+    (async function () {
+      const root   = document.getElementById('plan-root');
+      const status = document.getElementById('plan-status');
+
+      let data;
+      try {
+        const res = await fetch('plan.json', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+      } catch (err) {
+        status.classList.add('error');
+        status.textContent = 'Failed to load plan.json — ' + err.message;
+        return;
+      }
+
+      // ── header / stats / footer ────────────────────────────────
+      if (data.eyebrow)         document.getElementById('plan-eyebrow').textContent = data.eyebrow;
+      if (data.title)           document.getElementById('plan-title').textContent   = data.title;
+      if (data.source_of_truth) document.getElementById('plan-sot').textContent     = data.source_of_truth;
+      if (data.stats) {
+        const set = (id, v) => { if (v !== undefined && v !== null) document.getElementById(id).textContent = v; };
+        set('stat-milestones', data.stats.milestones);
+        set('stat-tasks',      data.stats.tasks);
+        set('stat-weeks',      data.stats.weeks);
+        set('stat-release',    data.stats.release);
+      }
+
+      // ── render phases ──────────────────────────────────────────
+      root.innerHTML = '';
+      for (const phase of (data.phases || [])) {
+        root.appendChild(renderPhase(phase));
+      }
+
+      function renderPhase(p) {
+        const section = document.createElement('section');
+        section.className = 'phase';
+        section.id = p.id || '';
+
+        const container = document.createElement('div');
+        container.className = 'container';
+
+        const head = document.createElement('div');
+        head.className = 'phase-head';
+        head.innerHTML =
+          `<span class="phase-tag">${escAttr(p.label || '')}</span>` +
+          `<h2>${escHtml(p.title || '')} ${p.range ? `<span class="quiet">— ${escHtml(p.range)}</span>` : ''}</h2>`;
+        container.appendChild(head);
+
+        for (const m of (p.milestones || [])) {
+          container.appendChild(renderMilestone(m));
+        }
+        section.appendChild(container);
+        return section;
+      }
+
+      function renderMilestone(m) {
+        const article = document.createElement('article');
+        article.className = 'milestone status-' + (m.status || 'done');
+
+        const head = document.createElement('header');
+        head.className = 'milestone-head';
+        const label = m.status_label || m.status || 'done';
+        head.innerHTML =
+          `<span class="badge">${escHtml(m.id || '')}</span>` +
+          `<span class="title">${m.title || ''}</span>` +
+          `<span class="weeks">${escHtml(m.weeks || '')}</span>` +
+          `<span class="pill pill-${m.status || 'done'}">${escHtml(label)}</span>`;
+        article.appendChild(head);
+
+        if (m.tasks && m.tasks.length) {
+          const table = document.createElement('table');
+          table.className = 'tasks';
+          table.innerHTML = '<thead><tr><th>ID</th><th>Task</th><th>Status</th></tr></thead>';
+          const tbody = document.createElement('tbody');
+          for (const t of m.tasks) {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+              `<td class="id">${escHtml(t.id || '')}</td>` +
+              `<td class="desc">${t.desc || ''}</td>` +
+              `<td class="status"><span class="pill pill-${t.status || 'done'}">${escHtml(t.status || 'done')}</span></td>`;
+            tbody.appendChild(tr);
+          }
+          table.appendChild(tbody);
+          article.appendChild(table);
+        }
+        return article;
+      }
+
+      function escHtml(s) {
+        return String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+      function escAttr(s) {
+        return String(s).replace(/"/g, '&quot;');
+      }
+    })();
+  </script>
+
+</body>
+</html>

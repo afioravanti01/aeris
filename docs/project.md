@@ -71,7 +71,7 @@ use "github.com/acmecorp/aeris-devops" deploy@"1.2.0" // Layer 3c — GitHub
 
 L1 · AI-native syntax 
 L2 · Verifiable semantics 
-L3 · Agentic loop — long-running LLM scripts fail unpredictably. Per-step trace + scope rollback make recovery deterministic over non-deterministic execution.
+L3 · Reversible execution — long-running scripts (LLM-driven or not) fail unpredictably on the outside world. Per-step trace + scope rollback make recovery deterministic over non-deterministic execution.
 L4 · Multi-agent orchestration language
 
 Create plan, milestones table and tasks. Upon completion of each task, mark the row as completed
