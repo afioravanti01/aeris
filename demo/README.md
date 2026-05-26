@@ -13,6 +13,7 @@ input data.
 | 04 | [`04-ticket-triage`](./04-ticket-triage/) | `net.http(port)` + `ai.decide` + `policy` + explicit `cap.subset[…]`; LLM categorises inbound tickets and forwards to a sibling in-process upstream |
 | 05 | [`05-test-suite`](./05-test-suite/) | `assert_status` + `assert_json` + `assert_semantic` over a live HTTP endpoint |
 | 06 | [`06-deploy-rollback`](./06-deploy-rollback/) | `saga` with paired `do`/`undo` + automatic rollback over `kube.*` |
+| 07 | [`07-docker-deploy`](./07-docker-deploy/) | `saga` mirroring a **real** docker deploy (build → rm → run → gate) over typed `docker.*` ops, with compensating stop/rmi + `ai.complete` postmortem of a hard-to-spot mis-built image |
 
 ## Running
 
@@ -53,27 +54,31 @@ demo/<scenario>/
 
 ## What each demo covers, side by side
 
-| Feature | 01 | 02 | 03 | 04 | 05 | 06 |
-|---|---|---|---|---|---|---|
-| String interpolation `{x}` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Triple-quoted strings `"""…"""` | ✓ | ✓ | ✓ | ✓ |   | ✓ |
-| `loop`, `??`, `catch`, `defer` | ✓ |   | ✓ | ✓ |   | ✓ |
-| `ai.chat(dir:)` | ✓ |   |   |   |   |   |
-| `ai.decide` |   |   |   | ✓ |   |   |
-| `agent` + `agent_net` |   | ✓ | ✓ |   |   |   |
-| `saga` / `step` / `do` / `undo` |   |   |   |   |   | ✓ |
-| `net.http(port:)` server |   |   |   | ✓ |   |   |
-| `test "…" { … }` |   |   |   |   | ✓ |   |
-| `model X@vN` with `where:` |   | ✓ | ✓ | ✓ |   | ✓ |
-| `policy` |   |   |   | ✓ |   |   |
-| Explicit `cap[…]` + `cap.subset[…]` |   |   |   | ✓ |   |   |
-| `intent "…" { … }` |   | ✓ | ✓ | ✓ |   | ✓ |
-| `assert_status` / `assert_json` |   |   |   |   | ✓ |   |
-| `assert_semantic` |   |   |   |   | ✓ |   |
-| `kube.*` |   |   |   |   |   | ✓ |
-| `http.get` / `http.post` |   |   |   | ✓ | ✓ |   |
-| `spawn { … }` |   |   |   | ✓ |   |   |
-| Multi-file (`use "./lib/…"`) | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Feature | 01 | 02 | 03 | 04 | 05 | 06 | 07 |
+|---|---|---|---|---|---|---|---|
+| String interpolation `{x}` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Triple-quoted strings `"""…"""` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |
+| Raw strings `r"""…"""` |   |   |   |   |   |   | ✓ |
+| `loop`, `??`, `catch`, `defer` | ✓ |   | ✓ | ✓ |   | ✓ | ✓ |
+| `ai.chat(dir:)` | ✓ |   |   |   |   |   |   |
+| `ai.decide` |   |   |   | ✓ |   |   |   |
+| `ai.complete` |   |   |   |   |   |   | ✓ |
+| `agent` + `agent_net` |   | ✓ | ✓ |   |   |   |   |
+| `saga` / `step` / `do` / `undo` |   |   |   |   |   | ✓ | ✓ |
+| `net.http(port:)` server |   |   |   | ✓ |   |   |   |
+| `test "…" { … }` |   |   |   |   | ✓ |   |   |
+| `model X@vN` with `where:` |   | ✓ | ✓ | ✓ |   | ✓ | ✓ |
+| `policy` |   |   |   | ✓ |   |   |   |
+| Explicit `cap[…]` + `cap.subset[…]` |   |   |   | ✓ |   |   |   |
+| `intent "…" { … }` |   | ✓ | ✓ | ✓ |   | ✓ | ✓ |
+| `assert_status` / `assert_json` |   |   |   |   | ✓ |   |   |
+| `assert_semantic` |   |   |   |   | ✓ |   |   |
+| `kube.*` |   |   |   |   |   | ✓ |   |
+| `docker.*` (build/run/inspect/logs/stop/rm/rmi) |   |   |   |   |   |   | ✓ |
+| `audit.event` |   |   |   |   |   | ✓ | ✓ |
+| `http.get` / `http.post` |   |   |   | ✓ | ✓ |   |   |
+| `spawn { … }` |   |   |   | ✓ |   |   |   |
+| Multi-file (`use "./lib/…"`) | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## Enforcement modes used
 
@@ -85,6 +90,7 @@ demo/<scenario>/
 | 04 ticket-triage | `loose` | runtime allow-list + `intent` mandatory on writes |
 | 05 test-suite | `off` | tests need ad-hoc HTTP + AI access without ceremony |
 | 06 deploy-rollback | `off` | the saga is the story; cap discipline is voluntary here |
+| 07 docker-deploy | `off` | the saga + AI postmortem are the story; cap discipline is voluntary here |
 
 Flipping `enforce` from `off` → `loose` → `strict` is a one-line
 change in `aeris.toml`. The body of each `main.aer` does not

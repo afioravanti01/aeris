@@ -3655,6 +3655,13 @@ fn builtin_param_names(module: &str, op: &str) -> Option<&'static [&'static str]
         ("ai", "network") => &["max_rounds"],
         // audit
         ("audit", "event") => &["kind", "fields"],
+        // docker — `name`/`tag` are optional trailing args
+        ("docker", "run") => &["image", "name"],
+        ("docker", "build") => &["context", "tag"],
+        ("docker", "push") | ("docker", "pull") | ("docker", "rmi") => &["image"],
+        ("docker", "inspect") | ("docker", "logs") | ("docker", "stop") | ("docker", "rm") => {
+            &["target"]
+        }
         // minio (M30.T5 — kwargs for object-storage ergonomics)
         ("minio", "get") => &["bucket", "object"],
         ("minio", "put") => &["bucket", "object", "content"],
@@ -4506,6 +4513,10 @@ fn lookup_builtin(module: &str, op: &str) -> Option<Builtin> {
         ("docker", "push") => builtin_docker_push,
         ("docker", "pull") => builtin_docker_pull,
         ("docker", "inspect") => builtin_docker_inspect,
+        ("docker", "logs") => builtin_docker_logs,
+        ("docker", "stop") => builtin_docker_stop,
+        ("docker", "rm") => builtin_docker_rm,
+        ("docker", "rmi") => builtin_docker_rmi,
         ("mongodb", "read") => builtin_mongodb_read,
         ("mongodb", "write") => builtin_mongodb_write,
         ("minio", "get") => builtin_minio_get,
@@ -8289,17 +8300,71 @@ fn docker_simple(env: &Env, op: &str, argv: &[&str], _span: Span) -> Result<Valu
 }
 
 fn builtin_docker_run(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("docker.run", 1, args, span)?;
+    docker_arity_1_or_2("docker.run", args, span)?;
     enforce_simple_cap_or_violation(env, "docker", "run", span)?;
     let image = expect_string("docker.run image", &args[0], span)?;
-    env.l2_backends.docker.run(env, &image, span)
+    // `docker.run(image)` is ephemeral (`run --rm`); `docker.run(image,
+    // name)` is a detached, named container the caller can later stop /
+    // inspect / remove.
+    let name = if args.len() == 2 {
+        Some(expect_string("docker.run name", &args[1], span)?)
+    } else {
+        None
+    };
+    env.l2_backends.docker.run(env, &image, name.as_deref(), span)
 }
 
 fn builtin_docker_build(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
-    arity_check("docker.build", 1, args, span)?;
+    docker_arity_1_or_2("docker.build", args, span)?;
     enforce_simple_cap_or_violation(env, "docker", "build", span)?;
     let ctx = expect_string("docker.build context", &args[0], span)?;
-    env.l2_backends.docker.build(env, &ctx, span)
+    // `docker.build(context, tag)` tags the image (`build -t <tag>`) so a
+    // later `docker.run`/`docker.rmi` can address it by name.
+    let tag = if args.len() == 2 {
+        Some(expect_string("docker.build tag", &args[1], span)?)
+    } else {
+        None
+    };
+    env.l2_backends.docker.build(env, &ctx, tag.as_deref(), span)
+}
+
+fn builtin_docker_logs(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("docker.logs", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "logs", span)?;
+    let name = expect_string("docker.logs name", &args[0], span)?;
+    env.l2_backends.docker.logs(env, &name, span)
+}
+
+fn builtin_docker_stop(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("docker.stop", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "stop", span)?;
+    let name = expect_string("docker.stop name", &args[0], span)?;
+    env.l2_backends.docker.stop(env, &name, span)
+}
+
+fn builtin_docker_rm(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("docker.rm", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "rm", span)?;
+    let target = expect_string("docker.rm target", &args[0], span)?;
+    env.l2_backends.docker.rm(env, &target, span)
+}
+
+fn builtin_docker_rmi(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("docker.rmi", 1, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "rmi", span)?;
+    let image = expect_string("docker.rmi image", &args[0], span)?;
+    env.l2_backends.docker.rmi(env, &image, span)
+}
+
+/// `docker.run` / `docker.build` accept one or two positional args.
+fn docker_arity_1_or_2(name: &str, args: &[Value], span: Span) -> Result<(), EvalError> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(EvalError::new(
+            EvalErrorKind::Type(format!("{name} expects 1 or 2 arguments, got {}", args.len())),
+            span,
+        ));
+    }
+    Ok(())
 }
 
 fn builtin_docker_push(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
@@ -8334,13 +8399,29 @@ fn record_docker_trace_only(env: &Env, op: &str, target: &str) {
     record_docker_event(env, op, &[op, target]);
 }
 
-pub(crate) fn mock_docker_run(env: &Env, image: &str, _span: Span) -> Result<Value, EvalError> {
-    record_docker_trace_only(env, "run", image);
+pub(crate) fn mock_docker_run(
+    env: &Env,
+    image: &str,
+    name: Option<&str>,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    match name {
+        Some(n) => record_docker_event(env, "run", &["run", "-d", "--name", n, image]),
+        None => record_docker_event(env, "run", &["run", "--rm", image]),
+    }
     Ok(Value::ok(Value::Str(String::new())))
 }
 
-pub(crate) fn mock_docker_build(env: &Env, ctx: &str, _span: Span) -> Result<Value, EvalError> {
-    record_docker_trace_only(env, "build", ctx);
+pub(crate) fn mock_docker_build(
+    env: &Env,
+    ctx: &str,
+    tag: Option<&str>,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    match tag {
+        Some(t) => record_docker_event(env, "build", &["build", "-t", t, ctx]),
+        None => record_docker_event(env, "build", &["build", ctx]),
+    }
     Ok(Value::ok(Value::Str(String::new())))
 }
 
@@ -8363,12 +8444,48 @@ pub(crate) fn mock_docker_inspect(
     Ok(Value::ok(Value::Str(String::new())))
 }
 
-pub(crate) fn real_docker_run(env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
-    docker_simple(env, "run", &["run", "--rm", image], span)
+pub(crate) fn mock_docker_logs(env: &Env, name: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_trace_only(env, "logs", name);
+    Ok(Value::ok(Value::Str(String::new())))
 }
 
-pub(crate) fn real_docker_build(env: &Env, ctx: &str, span: Span) -> Result<Value, EvalError> {
-    docker_simple(env, "build", &["build", ctx], span)
+pub(crate) fn mock_docker_stop(env: &Env, name: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_trace_only(env, "stop", name);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_docker_rm(env: &Env, target: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_event(env, "rm", &["rm", "-f", target]);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_docker_rmi(env: &Env, image: &str, _span: Span) -> Result<Value, EvalError> {
+    record_docker_event(env, "rmi", &["rmi", "-f", image]);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn real_docker_run(
+    env: &Env,
+    image: &str,
+    name: Option<&str>,
+    span: Span,
+) -> Result<Value, EvalError> {
+    match name {
+        Some(n) => docker_simple(env, "run", &["run", "-d", "--name", n, image], span),
+        None => docker_simple(env, "run", &["run", "--rm", image], span),
+    }
+}
+
+pub(crate) fn real_docker_build(
+    env: &Env,
+    ctx: &str,
+    tag: Option<&str>,
+    span: Span,
+) -> Result<Value, EvalError> {
+    match tag {
+        Some(t) => docker_simple(env, "build", &["build", "-t", t, ctx], span),
+        None => docker_simple(env, "build", &["build", ctx], span),
+    }
 }
 
 pub(crate) fn real_docker_push(env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
@@ -8385,6 +8502,22 @@ pub(crate) fn real_docker_inspect(
     span: Span,
 ) -> Result<Value, EvalError> {
     docker_simple(env, "inspect", &["inspect", target], span)
+}
+
+pub(crate) fn real_docker_logs(env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "logs", &["logs", name], span)
+}
+
+pub(crate) fn real_docker_stop(env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "stop", &["stop", name], span)
+}
+
+pub(crate) fn real_docker_rm(env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "rm", &["rm", "-f", target], span)
+}
+
+pub(crate) fn real_docker_rmi(env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
+    docker_simple(env, "rmi", &["rmi", "-f", image], span)
 }
 
 // ---- mongodb / minio / rabbitmq stubs ------------------------------

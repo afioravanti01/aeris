@@ -1,0 +1,81 @@
+/// Per-service deploy saga against a live docker daemon, expressed in
+/// typed `docker.*` capabilities. It mirrors the real deploy process,
+/// every step paired with a compensation:
+///
+///   build  → docker.build(context, image)          undo: docker.rmi(image)
+///   run    → docker.rm(name)  (remove if present)   undo: docker.stop(name)
+///            docker.run(image, name)  (detached)
+///   verify → docker.inspect(name)  (deep gate)      undo: audit only
+///
+/// `docker.build(ctx, tag)` tags the image; `docker.run(image, name)`
+/// starts a detached, named container (1-arg `docker.run` stays the
+/// ephemeral `run --rm`). When `verify` raises, the runtime walks the
+/// completed steps' compensations in reverse: `run`'s undo runs
+/// `docker.stop` — it leaves the container STOPPED, not removed, so the
+/// failure can be inspected (docker logs / docker inspect) afterwards —
+/// and `build`'s undo removes the image. Each compensation also emits
+/// an `audit.event`.
+
+use "./models.aer"
+
+use io, docker, audit
+
+fn say(stage: string, msg: string) {
+  io.println("[deploy/{stage}] {msg}")
+}
+
+saga deploy_service(spec: ServiceSpec@v1) {
+  intent "build, run and gate a container with compensating stop and image removal on failure"
+
+  step build {
+    do {
+      say("build", "→ docker.build({spec.context}, {spec.image})")
+      docker.build(spec.context, spec.image)?
+      say("build", "✓ image {spec.image} built")
+    }
+    undo {
+      say("build", "↩ compensation: docker.rmi({spec.image})")
+      docker.rmi(spec.image)?
+      audit.event("deploy.image_removed", { image: spec.image })
+    }
+  }
+
+  step run {
+    requires: build.ok
+    do {
+      // Remove a container left running/stopped by a previous run,
+      // then start the new one detached.
+      say("run", "→ docker.rm({spec.name})  (remove if present)")
+      docker.rm(spec.name)?
+      say("run", "→ docker.run({spec.image}, {spec.name})  (detached)")
+      docker.run(spec.image, spec.name)?
+      say("run", "✓ container {spec.name} started")
+    }
+    undo {
+      // Compensation: stop the container but DO NOT remove it, so the
+      // failure can be inspected with docker logs / docker inspect.
+      say("run", "↩ compensation: docker.stop({spec.name}) (left stopped for inspection)")
+      docker.stop(spec.name)?
+      audit.event("deploy.container_stopped", { name: spec.name, image: spec.image })
+    }
+  }
+
+  step verify {
+    requires: run.ok
+    do {
+      say("verify", "→ docker.inspect({spec.name})  (deep gate)")
+      let info = docker.inspect(spec.name)?
+      // The container is up and looks healthy; the only tell that this
+      // is the wrong build lives in its config, not its behaviour.
+      if info.contains("NODE_ENV=production") {
+        say("verify", "✓ {spec.name} is a production build — promoted (live)")
+      } else {
+        say("verify", "✗ {spec.name} was NOT built for production (NODE_ENV mismatch)")
+        raise error("post-deploy gate failed: {spec.name} image is not a production build (NODE_ENV != production)")
+      }
+    }
+    undo {
+      audit.event("deploy.gate_failed", { name: spec.name, image: spec.image })
+    }
+  }
+}

@@ -132,21 +132,39 @@ impl KubeBackend for RealKube {
 // ---- docker --------------------------------------------------------
 
 pub trait DockerBackend {
-    fn run(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError>;
-    fn build(&self, env: &Env, ctx: &str, span: Span) -> Result<Value, EvalError>;
+    fn run(&self, env: &Env, image: &str, name: Option<&str>, span: Span)
+        -> Result<Value, EvalError>;
+    fn build(&self, env: &Env, ctx: &str, tag: Option<&str>, span: Span)
+        -> Result<Value, EvalError>;
     fn push(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError>;
     fn pull(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError>;
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError>;
+    fn logs(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError>;
+    fn stop(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError>;
+    fn rm(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError>;
+    fn rmi(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError>;
 }
 
 pub struct MockDocker;
 
 impl DockerBackend for MockDocker {
-    fn run(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
-        eval::mock_docker_run(env, image, span)
+    fn run(
+        &self,
+        env: &Env,
+        image: &str,
+        name: Option<&str>,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        eval::mock_docker_run(env, image, name, span)
     }
-    fn build(&self, env: &Env, ctx: &str, span: Span) -> Result<Value, EvalError> {
-        eval::mock_docker_build(env, ctx, span)
+    fn build(
+        &self,
+        env: &Env,
+        ctx: &str,
+        tag: Option<&str>,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        eval::mock_docker_build(env, ctx, tag, span)
     }
     fn push(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
         eval::mock_docker_push(env, image, span)
@@ -157,6 +175,18 @@ impl DockerBackend for MockDocker {
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
         eval::mock_docker_inspect(env, target, span)
     }
+    fn logs(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+        eval::mock_docker_logs(env, name, span)
+    }
+    fn stop(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+        eval::mock_docker_stop(env, name, span)
+    }
+    fn rm(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
+        eval::mock_docker_rm(env, target, span)
+    }
+    fn rmi(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
+        eval::mock_docker_rmi(env, image, span)
+    }
 }
 
 /// M22.T6 — real `docker.*` via the system `docker` binary. The
@@ -164,11 +194,23 @@ impl DockerBackend for MockDocker {
 pub struct RealDocker;
 
 impl DockerBackend for RealDocker {
-    fn run(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
-        eval::real_docker_run(env, image, span)
+    fn run(
+        &self,
+        env: &Env,
+        image: &str,
+        name: Option<&str>,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        eval::real_docker_run(env, image, name, span)
     }
-    fn build(&self, env: &Env, ctx: &str, span: Span) -> Result<Value, EvalError> {
-        eval::real_docker_build(env, ctx, span)
+    fn build(
+        &self,
+        env: &Env,
+        ctx: &str,
+        tag: Option<&str>,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        eval::real_docker_build(env, ctx, tag, span)
     }
     fn push(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
         eval::real_docker_push(env, image, span)
@@ -178,6 +220,18 @@ impl DockerBackend for RealDocker {
     }
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
         eval::real_docker_inspect(env, target, span)
+    }
+    fn logs(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+        eval::real_docker_logs(env, name, span)
+    }
+    fn stop(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+        eval::real_docker_stop(env, name, span)
+    }
+    fn rm(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
+        eval::real_docker_rm(env, target, span)
+    }
+    fn rmi(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
+        eval::real_docker_rmi(env, image, span)
     }
 }
 

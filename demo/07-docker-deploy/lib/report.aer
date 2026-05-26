@@ -1,0 +1,90 @@
+/// Turn a rolled-back deploy into an AI-authored postmortem.
+///
+/// Because the failed container is left STOPPED (not removed) by the
+/// saga's compensation, `analyse_failure` can pull its real evidence
+/// — `docker logs` (via shell.exec) and `docker inspect` (via the L2
+/// backend) — and feed it, with the gate error, to `ai.complete`. The
+/// reply is validated as a `FailureReport@v1`, persisted under
+/// `./reports/`, and printed.
+
+use "./models.aer"
+
+use io, ai, fs, docker
+
+const REPORTS_DIR = "./reports"
+
+const ANALYST_BRIEF = r"""You are a senior SRE writing a deploy-failure postmortem. A
+container was built and started, looked healthy, but was then
+rejected by a deploy gate and its rollout was rolled back (the
+container was stopped, not removed, so you can still inspect it).
+You are given the gate error, the container's logs, and its real
+`docker inspect` output. Find the precise ROOT CAUSE — do not stop
+at the gate's one-line message — and explain why the failure was
+easy to miss.
+
+Output GitHub-flavoured Markdown with exactly these sections, in
+this order:
+
+# Deploy failure — <service> <image>
+## What happened
+2-3 plain-language sentences.
+## Why it was hard to spot
+Which signals looked green (the container built, ran, logged ok).
+## Root cause
+The precise underlying reason, quoting the exact inspect field.
+## Fix
+The minimal concrete change to the image/build that resolves it.
+## Evidence
+A bullet list quoting the exact logs / `docker inspect` fields used.
+
+Be specific and technical. Do not write any preamble before the
+first heading.
+"""
+
+fn build_prompt(
+  spec: ServiceSpec@v1,
+  reason: string,
+  logs: string,
+  inspect_json: string,
+) -> string {
+  "{ANALYST_BRIEF}
+
+=== SERVICE ===
+service : {spec.name}
+image   : {spec.image}
+
+=== GATE ERROR (what tripped the rollback) ===
+{reason}
+
+=== docker logs {spec.name} ===
+{logs}
+
+=== docker inspect {spec.name} ===
+{inspect_json}
+"
+}
+
+pub fn analyse_failure(spec: ServiceSpec@v1, reason: string) -> result<string> {
+  io.println("[deploy] {spec.name}: analysing the failure with AI …")
+
+  let logs = docker.logs(spec.name)?
+  let inspect_json = docker.inspect(spec.name)?
+  let analysis = ai.complete(build_prompt(spec, reason, logs.trim(), inspect_json))?
+
+  let report = FailureReport@v1 {
+    service:  spec.name,
+    image:    spec.image,
+    markdown: analysis,
+  }
+
+  fs.mkdir(REPORTS_DIR)
+  let path = "{REPORTS_DIR}/{spec.name}.md"
+  intent "persist deploy-failure postmortem to disk" {
+    fs.write_text(path, report.markdown)?
+  }
+
+  io.println("[deploy] {spec.name}: postmortem written to {path}")
+  io.println("")
+  io.println(report.markdown)
+  Ok(path)
+}

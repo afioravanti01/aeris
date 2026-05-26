@@ -1,0 +1,37 @@
+/// The two services this demo rolls out, one after another. Both
+/// images are built and tagged by `build.sh` before `aeris run`.
+///
+///   checkout-web  1.8.0  — built for production; passes the gate.
+///   payments-api  2.3.1  — boots and reports `status: ok` (smoke
+///                          test passes), but the image was built
+///                          with NODE_ENV=development. Nothing at
+///                          runtime reveals it — only the deep
+///                          `docker inspect` gate catches the wrong
+///                          profile, which is what makes it hard to
+///                          spot.
+
+use "./models.aer"
+
+/// Correctly built service.
+pub fn checkout_web() -> ServiceSpec@v1 {
+  ServiceSpec@v1 {
+    name:    "checkout-web",
+    image:   "checkout-web:1.8.0",
+    context: "./services/checkout-web",
+  }
+}
+
+/// Subtly broken service: a production image carrying the
+/// development profile.
+pub fn payments_api() -> ServiceSpec@v1 {
+  ServiceSpec@v1 {
+    name:    "payments-api",
+    image:   "payments-api:2.3.1",
+    context: "./services/payments-api",
+  }
+}
+
+/// The rollout order: good service first, broken one second.
+pub fn deploy_plan() -> list<ServiceSpec@v1> {
+  [ checkout_web(), payments_api() ]
+}

@@ -1,0 +1,21 @@
+/// Models for the docker deploy demo.
+///
+/// `ServiceSpec@v1` is the deploy target: the image tag to build, the
+/// build context to build it from, and the container name to run it
+/// as. The saga builds, runs, and gates the container on its real
+/// `docker inspect`, so there is no modelled evidence here — every
+/// signal is read back from the live daemon.
+
+model ServiceSpec@v1 {
+  name:    string  where len(name) > 0     // container name
+  image:   string  where len(image) > 0    // image tag, e.g. checkout-web:1.8.0
+  context: string  where len(context) > 0  // build context (docker build -t image context)
+}
+
+/// The AI-authored postmortem. `markdown` is validated non-trivial
+/// so an empty model reply can never masquerade as a report.
+model FailureReport@v1 {
+  service:  string  where len(service) > 0
+  image:    string
+  markdown: string  where len(markdown) >= 64
+}

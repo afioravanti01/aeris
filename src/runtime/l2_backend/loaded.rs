@@ -146,11 +146,39 @@ pub struct LoadedDocker {
 }
 
 impl DockerBackend for LoadedDocker {
-    fn run(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
-        proxy_str(&self.module, env, "docker.run", "image", image, span)
+    fn run(
+        &self,
+        env: &Env,
+        image: &str,
+        name: Option<&str>,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        let args = match name {
+            Some(n) => format!(
+                "{{\"image\":\"{}\",\"name\":\"{}\"}}",
+                escape_json(image),
+                escape_json(n)
+            ),
+            None => format!("{{\"image\":\"{}\"}}", escape_json(image)),
+        };
+        proxy_raw(&self.module, env, "docker.run", &args, span)
     }
-    fn build(&self, env: &Env, ctx: &str, span: Span) -> Result<Value, EvalError> {
-        proxy_str(&self.module, env, "docker.build", "context", ctx, span)
+    fn build(
+        &self,
+        env: &Env,
+        ctx: &str,
+        tag: Option<&str>,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        let args = match tag {
+            Some(t) => format!(
+                "{{\"context\":\"{}\",\"tag\":\"{}\"}}",
+                escape_json(ctx),
+                escape_json(t)
+            ),
+            None => format!("{{\"context\":\"{}\"}}", escape_json(ctx)),
+        };
+        proxy_raw(&self.module, env, "docker.build", &args, span)
     }
     fn push(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
         proxy_str(&self.module, env, "docker.push", "image", image, span)
@@ -160,6 +188,18 @@ impl DockerBackend for LoadedDocker {
     }
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
         proxy_str(&self.module, env, "docker.inspect", "target", target, span)
+    }
+    fn logs(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+        proxy_str(&self.module, env, "docker.logs", "name", name, span)
+    }
+    fn stop(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError> {
+        proxy_str(&self.module, env, "docker.stop", "name", name, span)
+    }
+    fn rm(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
+        proxy_str(&self.module, env, "docker.rm", "target", target, span)
+    }
+    fn rmi(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
+        proxy_str(&self.module, env, "docker.rmi", "image", image, span)
     }
 }
 

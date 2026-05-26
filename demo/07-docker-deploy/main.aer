@@ -1,0 +1,61 @@
+/// Docker deploy with a saga that mirrors the real process — build,
+/// rm, run, gate — with compensating actions, plus an AI-authored
+/// postmortem. Runs against a live docker daemon.
+///
+/// For each service the saga runs:
+///   docker build -t <image> <context>
+///   docker rm -f <name>            (remove a leftover container)
+///   docker run -d --name <name> <image>
+///   docker inspect <name>          (deep gate)
+///
+///   checkout-web 1.8.0 — production build → passes the gate, live.
+///   payments-api 2.3.1 — builds, runs, logs `status: ok`, but was
+///                        built with NODE_ENV=development. The gate
+///                        catches it; the saga compensates (stops the
+///                        container — left stopped for inspection —
+///                        and removes the image) and ai.complete
+///                        writes the root-cause postmortem from the
+///                        stopped container's real logs + inspect.
+///
+/// Run from this directory (real docker required — see aeris.toml):
+///   aeris run ./main.aer
+///
+/// The postmortem needs a configured AI backend — see [ai.backend].
+/// The first run pulls alpine:3.20 to build the images.
+
+use "./lib/models.aer"
+use "./lib/specs.aer"
+use "./lib/saga.aer"
+use "./lib/report.aer"
+
+use io, ai
+
+fn roll_out(spec: ServiceSpec@v1) -> result<unit> {
+  io.println("[deploy] ── {spec.name}  ({spec.image}) ──")
+
+  let outcome = deploy_service(spec) catch err {
+    io.println("")
+    io.println("[deploy] {spec.name}: saga rolled back — container stopped, image removed")
+    io.println("[deploy]   reason: {err}")
+    analyse_failure(spec, "{err}")?
+    io.println("")
+    return Ok(())
+  }
+
+  io.println("[deploy] {spec.name}: live ✓")
+  io.println("")
+  Ok(())
+}
+
+fn main(args) -> result<unit> {
+  let plan = deploy_plan()
+  io.println("[deploy] rolling out {len(plan)} services in order")
+  io.println("")
+
+  for spec in plan {
+    roll_out(spec)?
+  }
+
+  io.println("[deploy] done — ai usage: {ai.usage()}")
+  Ok(())
+}

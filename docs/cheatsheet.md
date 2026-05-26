@@ -262,7 +262,7 @@ Resolution priority of `x.f(a)`:
 | `random` | `next` | read (recorded) | no |
 | `ai` | `complete`, `chat`, `embed`, `tools` | write (tape-recorded) | yes |
 | `kube` | `apply`, `delete`, `get`, `watch` | read+write | yes on writes |
-| `docker` | `run`, `build`, `push`, `pull`, `inspect` | read+write | yes on writes |
+| `docker` | `run`, `build`, `push`, `pull`, `inspect`, `logs`, `stop`, `rm`, `rmi` | read+write | yes on writes |
 | `mongodb` | `read`, `write` | read+write | yes on writes |
 | `minio` | `get`, `put` | read+write | yes on `put` |
 | `rabbitmq` | `publish`, `subscribe` | read+write | yes on `publish` |
@@ -570,7 +570,7 @@ surface. `aeris lock surface` records it in `.aeris/surface.lock`.
 |---|---|
 | `ai` | `ai.complete`, `ai.chat`, `ai.embed`, `ai.tools` |
 | `kube` | `kube.apply`, `kube.delete`, `kube.get`, `kube.watch` |
-| `docker` | `docker.run`, `docker.build`, `docker.push`, `docker.pull`, `docker.inspect` |
+| `docker` | `docker.run(image)` (`run --rm`) / `docker.run(image, name)` (detached, named); `docker.build(context)` / `docker.build(context, tag)` (`build -t`); `docker.push(image)`, `docker.pull(image)`, `docker.inspect(target)`, `docker.logs(name)`, `docker.stop(name)`, `docker.rm(target)` (container), `docker.rmi(image)` (image) |
 | `mongodb` | `mongodb.read`, `mongodb.write` |
 | `minio` | `minio.get(bucket, object)`, `minio.put(bucket, object, content)`, `minio.mb(bucket)`, `minio.bucket_exists(bucket) -> bool`, `minio.list(bucket) -> list<string>` |
 | `rabbitmq` | `rabbitmq.publish`, `rabbitmq.subscribe` |

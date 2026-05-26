@@ -10,4 +10,5 @@ node_modules
 demo/**/.tmp_sample/
 demo/**/kb-out/
 demo/**/postmortems/
+demo/**/reports/
 demo/**/report.md
