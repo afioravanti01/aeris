@@ -591,7 +591,7 @@ surface. `aeris lock surface` records it in `.aeris/surface.lock`.
 |---|---|
 | `ai` | `ai.complete`, `ai.chat`, `ai.embed`, `ai.tools` |
 | `kube` | `kube.apply`, `kube.delete`, `kube.get`, `kube.watch` |
-| `docker` | `docker.run(image)` (`run --rm`) / `docker.run(image, name)` (detached, named); `docker.build(context)` / `docker.build(context, tag)` (`build -t`); `docker.push(image)`, `docker.pull(image)`, `docker.inspect(target)`, `docker.logs(name)`, `docker.stop(name)`, `docker.rm(target)` (container), `docker.rmi(image)` (image) |
+| `docker` | `docker.run(image)` (`run --rm`) / `docker.run(image, name)` (detached, named); `docker.build(context)` / `docker.build(context, tag)` (`build -t`); `docker.push(image)`, `docker.pull(image)`, `docker.tag(source, target)` (re-tag an image), `docker.inspect(target)`, `docker.logs(name)`, `docker.stop(name)`, `docker.rm(target)` (container), `docker.rmi(image)` (image) |
 | `mongodb` | `mongodb.read`, `mongodb.write` |
 | `minio` | `minio.get(bucket, object)`, `minio.put(bucket, object, content)`, `minio.mb(bucket)`, `minio.bucket_exists(bucket) -> bool`, `minio.list(bucket) -> list<string>` |
 | `rabbitmq` | `rabbitmq.publish`, `rabbitmq.subscribe` |

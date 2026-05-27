@@ -849,7 +849,7 @@ rule (§ 10.1):
 | Class | Operations | Triggers V2 |
 |---|---|---|
 | **read** | `fs.{read_*, walk, stat, exists}`, `http.get`, `env.read`, `clock.now`, `random.next`, `kube.{get,watch}`, `docker.{pull,inspect,logs}`, `mongodb.read`, `minio.get`, `rabbitmq.subscribe`, `io.read_line` | no |
-| **write** | `fs.{write_*, mkdir, remove, rename}`, `http.{post,put,patch,delete}`, `shell.{exec,pipe}`, `ai.*`, `kube.{apply,delete}`, `docker.{run,build,push,stop,rm,rmi}`, `mongodb.write`, `minio.put`, `rabbitmq.publish`, `audit.event` | **yes** |
+| **write** | `fs.{write_*, mkdir, remove, rename}`, `http.{post,put,patch,delete}`, `shell.{exec,pipe}`, `ai.*`, `kube.{apply,delete}`, `docker.{run,build,push,tag,stop,rm,rmi}`, `mongodb.write`, `minio.put`, `rabbitmq.publish`, `audit.event` | **yes** |
 | **diagnostic** | `io.{print,println,eprint,eprintln}` | no |
 
 `clock.now` and `random.next` are read-classified but **always
@@ -2238,7 +2238,7 @@ universe.
 |-------------|--------------------------------|
 | `ai`        | `ai.complete`, `ai.chat`, `ai.embed`, `ai.tools` |
 | `kube`      | `kube.apply`, `kube.delete`, `kube.get`, `kube.watch` |
-| `docker`    | `docker.run`, `docker.build`, `docker.push`, `docker.pull`, `docker.inspect`, `docker.logs`, `docker.stop`, `docker.rm`, `docker.rmi` |
+| `docker`    | `docker.run`, `docker.build`, `docker.push`, `docker.pull`, `docker.tag`, `docker.inspect`, `docker.logs`, `docker.stop`, `docker.rm`, `docker.rmi` |
 | `mongodb`   | `mongodb.read`, `mongodb.write` |
 | `minio`     | `minio.get`, `minio.put` |
 | `rabbitmq`  | `rabbitmq.publish`, `rabbitmq.subscribe` |
@@ -2266,6 +2266,7 @@ two optional trailing args:
 - `docker.build(context, tag) -> result<string>` — tagged build
   (`docker build -t <tag>`), so the image is addressable by name.
 - `docker.push(image)`, `docker.pull(image)`, `docker.inspect(target)`.
+- `docker.tag(source, target) -> result<string>` — `docker tag <source> <target>`, re-tags a local image (write). Use when pushing a pulled image to an internal registry under a different path / version.
 - `docker.logs(name) -> result<string>` — container logs (read).
 - `docker.stop(name)` — stop a running container (write).
 - `docker.rm(target)` — remove a container, `docker rm -f` (write).

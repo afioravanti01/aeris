@@ -5,13 +5,18 @@ aeris = "0.3.0"
 [caps]
 enforce = "off"
 
-# This demo runs offline: the docker / kube steps go through the
-# trace-only mock backends so no daemon or cluster is needed. Post-M22
-# the default L2 backend is "real", so an offline demo must spell
-# "mock" explicitly. `audit` defaults to "real" and writes to
-# <output_dir>/audit.jsonl, so the release event is observable.
+# Real backends — this demo talks to the actual Docker daemon, the
+# Azure Container Registry and the live cluster:
+#
+#   - docker.pull / docker.push  → system `docker` binary
+#   - kube.get                   → system `kubectl` binary
+#   - shell.exec                 → `az acr login` and `docker tag`
+#
+# The host must have `docker`, `kubectl` and `az` in PATH, a working
+# kubeconfig and network reach to mitramazsplnacr001.azurecr.io.
+# Set both to "mock" to run the pipeline offline (trace only, no I/O).
 [l2.docker]
-backend = "mock"
+backend = "real"
 
 [l2.kube]
-backend = "mock"
+backend = "real"

@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nationalgw-alpine
+  labels:
+    app: nationalgw-alpine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nationalgw-alpine
+  template:
+    metadata:
+      labels:
+        app: nationalgw-alpine
+    spec:
+      containers:
+        - name: alpine
+          image: mitramazsplnacr001.azurecr.io/nationalgw/alpine:1.0.0
+          command: ["sleep", "infinity"]
+      # Uncomment if the cluster pulls from the ACR via secret instead
+      # of an attached managed identity:
+      # imagePullSecrets:
+      #   - name: acr-pull-secret

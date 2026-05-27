@@ -1,43 +1,85 @@
-/// Forward-only deploy automation with `pipeline` — the lighter
-/// sibling of `saga`. Build, push, roll out and audit a tagged release
-/// as ordered, traced steps.
+/// Real ACR push + Kubernetes rollout pipeline — wipe any previous
+/// rollout, pull a public image, log in to the internal Azure
+/// Container Registry, retag, push, apply the Deployment manifest,
+/// wait for the pod to be ready, then exec a sanity command inside
+/// it. Same forward-only shape as the saga sibling in
+/// `demo/07-docker-deploy` (§ 11):
 ///
-/// Unlike `demo/07-docker-deploy` (a saga whose every step carries a
-/// compensating `undo`), a pipeline rolls *forward*: on a step failure
-/// it stops (default) or continues, runs `on_failure`, and leaves
-/// recovery to a re-run — it never rolls back. Its accountability is
-/// the trace, not compensation (§ 11):
-///
-///   - mandatory `intent`, `cap`-gated, every stage taped
+///   - mandatory `intent`, every stage taped
 ///     (`pipeline_enter` / `step_enter` / `step_exit` / `pipeline_exit`)
 ///   - a saga-style idempotency key per step, so a forward re-run is
 ///     safe where the protocol allows
 ///   - no `do`/`undo` — use a `saga` when a step must be undone
 ///
-/// Runs offline against the trace-only mock L2 backends (see
-/// aeris.toml):
+/// Runs against the real backends (see aeris.toml):
+///
+///   [l2.docker] backend = "real"
+///   [l2.kube]   backend = "real"
+///
+/// Prerequisites on the host: `docker`, `kubectl`, `az` and `bash`
+/// in PATH, a kubeconfig pointing at the target cluster, network
+/// reach to Docker Hub and to `mitramazsplnacr001.azurecr.io`.
 ///
 ///   aeris run ./main.aer
 
-use io, docker, kube, audit
+use io, fs, strings, docker, kube, shell, audit
 
-pipeline Deploy(version: string) {
-  intent "build, push and roll a tagged release out to staging"
+/// Run a single command line through `bash -c` so the body reads as
+/// a normal shell line. `shell.exec` returns `Ok(ShellResult)` even
+/// when the process exits non-zero — the wrapper promotes a non-zero
+/// exit to `Err` so a failed CLI step actually fails the pipeline.
+fn sh(cmd: string) -> result<unit> {
+  let r = shell.exec(["bash", "-c", cmd])?
+  if r.exit != 0 {
+    return Err(error("`{cmd}` exit {r.exit}: {r.stderr}"))
+  }
+  Ok(())
+}
+
+/// Same shape as `sh`, but returns the trimmed stdout so a step (or
+/// a block) can capture an identifier (a pod name, a revision sha, …).
+fn sh_out(cmd: string) -> result<string> {
+  let r = shell.exec(["bash", "-c", cmd])?
+  if r.exit != 0 {
+    return Err(error("`{cmd}` exit {r.exit}: {r.stderr}"))
+  }
+  Ok(strings.trim(r.stdout))
+}
+
+/// `kube.apply` takes the YAML body, not a path — read the file and
+/// hand the content to the L2 call.
+fn apply_manifest(path: string) -> result<unit> {
+  let yaml = fs.read_text(path)?
+  kube.apply(yaml)
+}
+
+pipeline Deploy(image: string) {
+  intent "wipe any previous rollout, push a public image to mitramazsplnacr001.azurecr.io/nationalgw and roll it out fresh to the cluster"
   steps:
-    | "build":  docker.build(".", "app:{version}")
-    | "push":   docker.push("registry/app:{version}")
-    | "apply":  kube.apply("./k8s/staging.yaml")
-    | "audit":  audit.event("deploy.released", { version: version })
+    | "delete":    sh("kubectl delete deployment nationalgw-alpine --ignore-not-found")
+    | "pull":      docker.pull(image)
+    | "acr-login": sh("az acr login --name mitramazsplnacr001.azurecr.io")
+    | "tag":       docker.tag(image, "mitramazsplnacr001.azurecr.io/nationalgw/alpine:1.0.0")
+    | "push":      docker.push("mitramazsplnacr001.azurecr.io/nationalgw/alpine:1.0.0")
+    | "apply":     apply_manifest("./k8s/deployment.yaml")
+    | "wait":      sh("kubectl rollout status deployment/nationalgw-alpine --timeout=60s")
+    | "exec":      {
+                     let pod = sh_out(r"kubectl get pod -l app=nationalgw-alpine --sort-by=.metadata.creationTimestamp -o jsonpath={.items[-1:].metadata.name}")?
+                     let greeting = sh_out("kubectl exec {pod} -- echo Started")?
+                     { pod: pod, greeting: greeting }
+                   } as r
+    | "check":     io.println("[deploy/check] pod={r.pod} greeting={r.greeting}")
+    | "audit":     audit.event("deploy.released", { source: image, target: "mitramazsplnacr001.azurecr.io/nationalgw/alpine:1.0.0", pod: r.pod, greeting: r.greeting })
 
   on_step:    fn(name, result) { io.println("[deploy/{name}] ok") }
   on_failure: io.println("[deploy] stopped at {last_step}: {last_error}")
 }
 
 fn main(args) -> result<unit> {
-  io.println("[deploy] rolling out app:1.4.2 — forward-only, no rollback")
+  io.println("PLN - Deploy")
   io.println("")
 
-  Deploy.run(version: "1.4.2") catch err {
+  Deploy.run(image: "alpine:latest") catch err {
     io.println("[deploy] FAILED: {err}")
     return Ok(())
   }

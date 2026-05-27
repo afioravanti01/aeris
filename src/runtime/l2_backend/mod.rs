@@ -138,6 +138,13 @@ pub trait DockerBackend {
         -> Result<Value, EvalError>;
     fn push(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError>;
     fn pull(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError>;
+    fn tag(
+        &self,
+        env: &Env,
+        source: &str,
+        target: &str,
+        span: Span,
+    ) -> Result<Value, EvalError>;
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError>;
     fn logs(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError>;
     fn stop(&self, env: &Env, name: &str, span: Span) -> Result<Value, EvalError>;
@@ -171,6 +178,15 @@ impl DockerBackend for MockDocker {
     }
     fn pull(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
         eval::mock_docker_pull(env, image, span)
+    }
+    fn tag(
+        &self,
+        env: &Env,
+        source: &str,
+        target: &str,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        eval::mock_docker_tag(env, source, target, span)
     }
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
         eval::mock_docker_inspect(env, target, span)
@@ -217,6 +233,15 @@ impl DockerBackend for RealDocker {
     }
     fn pull(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
         eval::real_docker_pull(env, image, span)
+    }
+    fn tag(
+        &self,
+        env: &Env,
+        source: &str,
+        target: &str,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        eval::real_docker_tag(env, source, target, span)
     }
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
         eval::real_docker_inspect(env, target, span)

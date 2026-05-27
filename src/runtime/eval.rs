@@ -3684,6 +3684,7 @@ fn builtin_param_names(module: &str, op: &str) -> Option<&'static [&'static str]
         ("docker", "run") => &["image", "name"],
         ("docker", "build") => &["context", "tag"],
         ("docker", "push") | ("docker", "pull") | ("docker", "rmi") => &["image"],
+        ("docker", "tag") => &["source", "target"],
         ("docker", "inspect") | ("docker", "logs") | ("docker", "stop") | ("docker", "rm") => {
             &["target"]
         }
@@ -4554,6 +4555,7 @@ fn lookup_builtin(module: &str, op: &str) -> Option<Builtin> {
         ("docker", "build") => builtin_docker_build,
         ("docker", "push") => builtin_docker_push,
         ("docker", "pull") => builtin_docker_pull,
+        ("docker", "tag") => builtin_docker_tag,
         ("docker", "inspect") => builtin_docker_inspect,
         ("docker", "logs") => builtin_docker_logs,
         ("docker", "stop") => builtin_docker_stop,
@@ -8731,6 +8733,14 @@ fn builtin_docker_pull(env: &Env, args: &[Value], span: Span) -> Result<Value, E
     env.l2_backends.docker.pull(env, &image, span)
 }
 
+fn builtin_docker_tag(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
+    arity_check("docker.tag", 2, args, span)?;
+    enforce_simple_cap_or_violation(env, "docker", "tag", span)?;
+    let source = expect_string("docker.tag source", &args[0], span)?;
+    let target = expect_string("docker.tag target", &args[1], span)?;
+    env.l2_backends.docker.tag(env, &source, &target, span)
+}
+
 fn builtin_docker_inspect(env: &Env, args: &[Value], span: Span) -> Result<Value, EvalError> {
     arity_check("docker.inspect", 1, args, span)?;
     enforce_simple_cap_or_violation(env, "docker", "inspect", span)?;
@@ -8782,6 +8792,16 @@ pub(crate) fn mock_docker_push(env: &Env, image: &str, _span: Span) -> Result<Va
 
 pub(crate) fn mock_docker_pull(env: &Env, image: &str, _span: Span) -> Result<Value, EvalError> {
     record_docker_trace_only(env, "pull", image);
+    Ok(Value::ok(Value::Str(String::new())))
+}
+
+pub(crate) fn mock_docker_tag(
+    env: &Env,
+    source: &str,
+    target: &str,
+    _span: Span,
+) -> Result<Value, EvalError> {
+    record_docker_event(env, "tag", &["tag", source, target]);
     Ok(Value::ok(Value::Str(String::new())))
 }
 
@@ -8844,6 +8864,15 @@ pub(crate) fn real_docker_push(env: &Env, image: &str, span: Span) -> Result<Val
 
 pub(crate) fn real_docker_pull(env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
     docker_simple(env, "pull", &["pull", image], span)
+}
+
+pub(crate) fn real_docker_tag(
+    env: &Env,
+    source: &str,
+    target: &str,
+    span: Span,
+) -> Result<Value, EvalError> {
+    docker_simple(env, "tag", &["tag", source, target], span)
 }
 
 pub(crate) fn real_docker_inspect(

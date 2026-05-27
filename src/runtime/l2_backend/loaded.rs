@@ -186,6 +186,20 @@ impl DockerBackend for LoadedDocker {
     fn pull(&self, env: &Env, image: &str, span: Span) -> Result<Value, EvalError> {
         proxy_str(&self.module, env, "docker.pull", "image", image, span)
     }
+    fn tag(
+        &self,
+        env: &Env,
+        source: &str,
+        target: &str,
+        span: Span,
+    ) -> Result<Value, EvalError> {
+        let args = format!(
+            "{{\"source\":\"{}\",\"target\":\"{}\"}}",
+            escape_json(source),
+            escape_json(target)
+        );
+        proxy_raw(&self.module, env, "docker.tag", &args, span)
+    }
     fn inspect(&self, env: &Env, target: &str, span: Span) -> Result<Value, EvalError> {
         proxy_str(&self.module, env, "docker.inspect", "target", target, span)
     }
