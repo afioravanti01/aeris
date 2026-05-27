@@ -14,6 +14,7 @@ input data.
 | 05 | [`05-test-suite`](./05-test-suite/) | `assert_status` + `assert_json` + `assert_semantic` over a live HTTP endpoint |
 | 06 | [`06-deploy-rollback`](./06-deploy-rollback/) | `saga` with paired `do`/`undo` + automatic rollback over `kube.*` |
 | 07 | [`07-docker-deploy`](./07-docker-deploy/) | `saga` mirroring a **real** docker deploy (build → rm → run → gate) over typed `docker.*` ops, with compensating stop/rmi + `ai.complete` postmortem of a hard-to-spot mis-built image |
+| 08 | [`08-pipeline-deploy`](./08-pipeline-deploy/) | `pipeline` — the forward-only sibling of `saga`: build → push → roll out → audit as ordered, traced steps with `on_step` / `on_failure`, no rollback (roll forward + re-run) |
 
 ## Running
 

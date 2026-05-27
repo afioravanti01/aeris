@@ -817,6 +817,7 @@ fn fmt_item(i: &Item, out: &mut String, source: &str, indent: usize) {
         Item::TypeAlias(t) => fmt_type_alias(t, out, indent),
         Item::Const(c) => fmt_const(c, out, source, indent),
         Item::Saga(s) => fmt_saga(s, out, indent),
+        Item::Pipeline(p) => fmt_pipeline(p, out, indent),
         Item::Agent(a) => fmt_agent(a, out, indent),
         Item::AgentNet(n) => fmt_agent_net(n, out, indent),
         Item::Policy(p) => fmt_policy(p, out, indent),
@@ -1093,6 +1094,61 @@ fn fmt_saga_step(s: &SagaStep, out: &mut String, indent: usize) {
     match &s.undo {
         UndoForm::Block(b) => fmt_block_inline(b, out),
         UndoForm::Noop(_) => out.push_str("noop"),
+    }
+    out.push('\n');
+    push_indent(out, indent);
+    out.push('}');
+}
+
+fn fmt_pipeline(p: &crate::syntax::ast::PipelineDecl, out: &mut String, indent: usize) {
+    push_indent(out, indent);
+    fmt_visibility(p.vis, out);
+    out.push_str("pipeline ");
+    out.push_str(&p.name);
+    out.push('(');
+    for (i, param) in p.params.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        fmt_param(param, out);
+    }
+    out.push_str(") {\n");
+    push_indent(out, indent + 1);
+    out.push_str("intent \"");
+    out.push_str(&escape_str(&p.intent));
+    out.push_str("\"\n");
+    push_indent(out, indent + 1);
+    out.push_str("steps:");
+    for st in &p.steps {
+        out.push('\n');
+        push_indent(out, indent + 2);
+        out.push_str("| ");
+        if let Some(label) = &st.label {
+            out.push('"');
+            out.push_str(&escape_str(label));
+            out.push_str("\": ");
+        }
+        fmt_expr_at(&st.expr, out, 0, 0);
+        if let Some(b) = &st.binding {
+            out.push_str(" as ");
+            out.push_str(&b.name);
+            if let Some(ty) = &b.ty {
+                out.push_str(" : ");
+                fmt_type(ty, out);
+            }
+        }
+    }
+    if let Some(on_step) = &p.on_step {
+        out.push('\n');
+        push_indent(out, indent + 1);
+        out.push_str("on_step: ");
+        fmt_expr_at(on_step, out, 0, 0);
+    }
+    if let Some(on_failure) = &p.on_failure {
+        out.push('\n');
+        push_indent(out, indent + 1);
+        out.push_str("on_failure: ");
+        fmt_expr_at(on_failure, out, 0, 0);
     }
     out.push('\n');
     push_indent(out, indent);
@@ -1704,5 +1760,24 @@ mod tests {
     fn block_inline_form_uses_semicolons() {
         let s = format_expression(&parse_expression("{ let x = 1; x + 1 }").unwrap());
         assert_eq!(s, "{ let x = 1; x + 1 }");
+    }
+
+    // ----------------- M46.T2: pipeline round-trips through fmt -----------------
+
+    #[test]
+    fn pipeline_formats_idempotently_and_reparses() {
+        module_idempotent(
+            r#"
+            pipeline Deploy(version: string, cap: cap[docker.build, kube.apply @ ["prod"]]) {
+                intent "deploy a tagged build to prod"
+                steps:
+                    | "build": docker.build(".", "app:{version}") as img
+                    | "apply": kube.apply("./k8s/", "prod")
+                    | docker.push("app")
+                on_step: fn(name, result) { io.println("[{name}] ok") }
+                on_failure: io.println("stopped")
+            }
+        "#,
+        );
     }
 }

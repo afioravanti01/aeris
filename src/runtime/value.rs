@@ -78,6 +78,12 @@ pub enum Value {
     /// (M10.T6). Invocation runs the DAG to convergence, validating
     /// schemas at every edge crossing (§ 14).
     AgentNet(std::rc::Rc<AgentNetInstance>),
+    /// A `pipeline` declaration captured as a callable value (M46).
+    /// The forward-only sibling of a saga: `Name.run(...)` runs the
+    /// ordered steps under a single intent, stopping on the first
+    /// error (or continuing under `on_error: "continue"`), with no
+    /// rollback. Every step is taped (§ 11 / § 11.13 of `plan.md`).
+    Pipeline(std::rc::Rc<PipelineInstance>),
 }
 
 /// Runtime representation of an `agent_net` declaration. Composition
@@ -205,6 +211,56 @@ impl std::fmt::Debug for SagaInstance {
 }
 
 impl PartialEq for SagaInstance {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+/// Runtime representation of a `pipeline` declaration (M46). Carries
+/// the same environment snapshot as a `SagaInstance` (so step bodies
+/// dispatch through the same module scope, tracer, AI backend and L2
+/// backend table) plus the two optional hooks. There is no `undo` —
+/// the steps run forward only.
+#[derive(Clone)]
+pub struct PipelineInstance {
+    pub name: String,
+    pub params: Vec<String>,
+    pub intent: String,
+    pub steps: Vec<crate::syntax::ast::PipelineStep>,
+    /// `on_step: fn(name, result) { ... }` — run after each successful
+    /// step. A `Closure` value once evaluated; stored as the source
+    /// `Expr` so it closes over the pipeline scope at run time.
+    pub on_step: Option<crate::syntax::ast::Expr>,
+    /// `on_failure: <expr>` — evaluated when a step fails.
+    pub on_failure: Option<crate::syntax::ast::Expr>,
+    pub module: Option<ModuleScope>,
+    pub tracer: Option<crate::runtime::trace::Tracer>,
+    pub stdin: Option<std::rc::Rc<std::cell::RefCell<std::collections::VecDeque<String>>>>,
+    pub record_decls:
+        Option<std::rc::Rc<std::collections::HashMap<String, crate::syntax::ast::RecordDecl>>>,
+    pub model_decls: Option<
+        std::rc::Rc<std::collections::HashMap<(String, u32), crate::syntax::ast::ModelDecl>>,
+    >,
+    pub policies: Option<std::rc::Rc<Vec<crate::syntax::ast::PolicyDecl>>>,
+    pub ai_backend: Option<std::rc::Rc<crate::manifest::AiBackend>>,
+    pub replay_tape: Option<crate::runtime::replay::TapeHandle>,
+    pub full_record: bool,
+    /// M33: module names brought into scope by `use` (see `SagaInstance`).
+    pub imported_modules: std::rc::Rc<std::collections::HashSet<String>>,
+    /// M22.T1: per-family L2 backend table snapshot.
+    pub l2_backends: std::rc::Rc<crate::runtime::l2_backend::L2Backends>,
+}
+
+impl std::fmt::Debug for PipelineInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PipelineInstance")
+            .field("name", &self.name)
+            .field("steps", &self.steps.len())
+            .finish()
+    }
+}
+
+impl PartialEq for PipelineInstance {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }

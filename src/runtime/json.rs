@@ -289,6 +289,15 @@ fn write_value(v: &Value, out: &mut String) {
             write_json_string(&n.name, out);
             out.push_str("}}");
         }
+        Value::Pipeline(p) => {
+            // Pipeline values reference an opaque AST and are not
+            // round-trippable through JSON; record the public shape.
+            out.push_str("{\"pipeline\":{\"name\":");
+            write_json_string(&p.name, out);
+            out.push_str(",\"steps\":");
+            out.push_str(&p.steps.len().to_string());
+            out.push_str("}}");
+        }
         Value::Cap(c) => {
             // Cap values carry effect-shape metadata; the JSON form
             // is human-debuggable but not round-trippable.

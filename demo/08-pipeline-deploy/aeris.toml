@@ -1,0 +1,17 @@
+[project]
+name  = "pipeline-deploy"
+aeris = "0.3.0"
+
+[caps]
+enforce = "off"
+
+# This demo runs offline: the docker / kube steps go through the
+# trace-only mock backends so no daemon or cluster is needed. Post-M22
+# the default L2 backend is "real", so an offline demo must spell
+# "mock" explicitly. `audit` defaults to "real" and writes to
+# <output_dir>/audit.jsonl, so the release event is observable.
+[l2.docker]
+backend = "mock"
+
+[l2.kube]
+backend = "mock"

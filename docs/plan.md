@@ -146,6 +146,7 @@ Module responsibilities (one-liners):
 | M42 | v0.3 — Unified `cmd_run` entry — `[ai.backend]` + `[l2.*]` survive `[policies] active = [..]` | The CLI had two parallel code paths for `aeris run`: with or without `[policies] active = [..]`. The active-policies path (`run_main_with_active_policies_argv`) **silently dropped** `ai_backend`, `replay_tape`, `full_record` and `l2_backends`, passing `None`/defaults everywhere. Effect: a project like `demo/05-webhook-router` that declared a real `[ai.backend] kind = "cli"` *and* `[policies] active = [...]` was running the mock echo backend, producing 71-token "responses" in zero milliseconds and a trace whose `ai_call` events all had identical sub-ms timestamps. M42 collapses the two paths: new `run_main_with_full_cfg_argv_full` carries `active_policy_names: Option<&[String]>` alongside every other config; `build_module_env_full` applies `select_active_policies` only when the filter is set, otherwise keeps every declared policy. `cmd_run` always takes that single entry, with `Some(policies)` if non-empty | New unit test `m42_ai_backend_survives_active_policies_filter` asserts `env.ai_backend.kind == "cli"` under both `active_policy_names: None` and `Some(["budget"])`. Existing 3 tests using `run_main_with_active_policies` still pass (the function is now a thin wrapper) | § 8.5 / § 13.2 / § 15.3 | done |
 | M43 | v0.3 — `aeris test` reads the manifest, threads `cap` + `[ai.backend]` + `[l2.*]` + `[policies] active = [..]` into every test body | Mirror of the M42 problem on the `aeris test` side: `run_test` called `eval_module_env(m)` directly, so test bodies had **no `cap` in scope**, no `[ai.backend]`, no `[l2.*]`. Every cap-gated call (`http.*`, `ai.*`, `assert_semantic`, every L2 builtin) inside a `test "..."` raised `PolicyViolation` — the demo test suite under `demo/05-test-suite` was unrunnable. M43 introduces `runtime::eval::TestConfig`, `runtime::eval::run_test_with_cfg`, and `test_harness::SuiteConfig` / `run_suites_explicit_with_cfg`; the CLI's `cmd_test` parses `aeris.toml` from the cwd and threads the synthesised cap, the AI backend, and the L2 backend table into every test body. The cfg path is sequential (`SuiteConfig` holds `Rc`-typed handles that aren't `Send`); the historical parallel `run_suites_explicit` survives for the no-cfg case | `aeris test` against `demo/05-test-suite` returns 4/4 passing (each `test` body sees the synthesised `cap[*]` from `enforce = "off"` and the `[ai.backend] kind = "cli"` from the manifest); `cargo test --lib test_harness` stays at 36/36 | § 8.5 / § 21 | done |
 | M45 | v0.3 — Native L2 modules as signed dynamic `.so` extensions of the stdlib | Restores the `project.md`-original vision: L2 modules (`mongodb`, `minio`, `rabbitmq`, `kube`, `docker`, `audit`) ship as native shared libraries loaded at startup, not compiled into `aeris-core`. Each module exposes a stable 4-function C ABI (`aeris_module_api_version`, `aeris_module_metadata`, `aeris_module_call`, `aeris_module_free`); calls cross the boundary as JSON strings. The loader (`src/runtime/l2_module.rs`) verifies blake3 hash against the consumer's `aeris.toml [modules.<family>] hash`, then a detached ed25519 signature against the Aeris registry public key embedded in the runtime. The bridge (`src/runtime/l2_backend/loaded.rs`) wraps the loaded module behind the same `MinioBackend` / `MongoBackend` / … traits the in-tree Mock/Real impls use, so the dispatch site (`builtin_*` in `eval.rs`) doesn't know whether the implementation is in-tree or loaded. Tooling: `aeris-module-sign` bin signs a `.so` with the dev key derived from `AERIS_DEV_KEY_SEED`; `aeris module list` / `aeris module verify` inspect a project's manifest. POC: a separate crate `modules/aeris-mongo-mock/` produces a `cdylib` that implements `mongodb.read` / `mongodb.write` via JSONL on disk; `tests/m45_loaded_module.rs` builds it, signs it, and exercises both the happy path (round-trips 2 docs) and the tamper-detection path (an appended byte makes the loader reject with `hash mismatch` before user code runs). § 9.6 of `thesis.md` is rewritten to describe the new model; `language.md § 23` documents the `[modules.<family>]` shape; `cheatsheet.md § 16.1` lists it next to `[ai.backend]` and `[l2.<family>]` | `cargo test`: 1003 lib + 16 integration green (M45's two integration tests passing under `tests/m45_loaded_module.rs`) | § 9.6 / § 23 | done |
+| M46 | v0.3 — `pipeline` — forward-only traced automation | Re-imports the v0.1 `pipeline` as the forward-only sibling of `saga`: ordered, labelled / `as`-bound `steps` under a mandatory `intent` and a `cap` parameter; `on_step` / `on_failure` hooks; `last_step` / `last_error` / `last_output` implicits; `.run(..., on_error = "stop" \| "continue")`. **No `do`/`undo`** — accountability is the trace, not compensation: every stage is taped (`pipeline_enter` / `step_enter` / `step_exit` / `pipeline_exit`), carries the active `intent`, gets a saga-style idempotency key, and replays bit-identically. Fills the section `language.md § 11` reserved for "a stage-tracing sugar over sequences" (§ 11.13) | 2 | M5, M6, M9, M11 | done |
 
 **v0.2 total**: 48 engineering-weeks (M0–M15). Critical path M0 → M1 → M2 → M3 → M4 → M5 → M6 → M9 → M10 → M14 = 30 weeks.
 
@@ -773,6 +774,41 @@ sagas, agents, and agent_nets all see the binding.
 
 ---
 
+### 5.30 M46 — `pipeline`: forward-only traced automation (2 weeks)
+
+`language.md § 11` rejected a `pipeline` keyword on the grounds that a
+write-effectful pipeline either duplicates `saga` (with undo) or
+contradicts the thesis (without undo) — but the same section reserved
+its number "if a future revision introduces a stage-tracing sugar over
+read-only sequences". M46 fills that slot. The resolution (§ 11.13):
+`pipeline` is the **forward-only** sibling of `saga`. It keeps three of
+`saga`'s four guarantees — `cap`, mandatory `intent`, full step-level
+tracing (plus idempotency keys) — and deliberately drops the fourth
+(`undo`). The write-without-undo a `saga` refuses is admitted in a
+`pipeline` precisely because the `pipeline` makes **no compensation
+promise** and instead **tapes every step**: its accountability is the
+trace, not reversibility. The author picks `saga` when a failed run
+must roll *back*, `pipeline` when it rolls *forward* (deploy / ops
+automation). The two are structurally distinct — a `saga` step is a
+`do`/`undo` pair, a `pipeline` step is a single forward expression —
+so neither can masquerade as the other.
+
+| ID | Task | Acceptance | Refs | Status |
+|---|---|---|---|---|
+| M46.T1 | Lexer: reserve `pipeline` as the 52nd keyword (un-freezing the § 2.3 set: 51 → 52). `steps:`, `on_step:`, `on_failure:` are **structural-block field markers** (LHS of `key:` inside a `pipeline { }` block), not global keywords — same treatment as `do`/`undo`/`llm:`/`match:` | `tokenize("pipeline")` returns `Keyword`; a user `let pipeline = 1` is a syntax error; `steps` / `on_step` stay ordinary identifiers outside the block | § 2.3 | done |
+| M46.T2 | Parser: `pipeline Name(params, cap: cap[..]) { intent "..."; steps: \| "label": expr as binder : Type \| expr ...; on_step: fn(name, result) { .. }; on_failure: expr }`. New AST node `PipelineDecl` with `Vec<PipelineStep { label: Option<String>, expr, binding: Option<(String, Option<Type>)> }>`, optional `on_step` closure, optional `on_failure` expr. Labels optional; `as binder` optional; type annotation after `as` is parsed and ignored | One golden AST per shape: labelled step, anonymous step, `as`-bound step, `on_step` present, `on_failure` present, all combined | § 11 | done |
+| M46.T3 | Static check: exactly one `intent`, **mandatory** (a `pipeline` is write-classified, § 10.1) → missing/duplicate raises E66-class. The pipeline `cap` is subject to cap-narrowing (E65) and lockset allow-list intersection (E71); each step expression's `<module>.<op>(...)` resolves against the pipeline `cap` (§ 8.2); the single `intent` covers every step's writes (V2) | positive fixture (build/push/apply under one intent); negatives: no `intent` (E66), step op outside `cap` (E65), allow-list broader than lockset (E71) | § 8.2 / § 8.3 / § 10.1 | done |
+| M46.T4 | Static check: the saga-vs-pipeline disambiguation. A `pipeline` step is a **single forward expression** — a `do`/`undo` pair inside a `pipeline` step is rejected with a diagnostic that points at `saga` (and § 11). Conversely the parser already forbids `steps:` / `on_failure` inside a `saga`. The two constructs share no surface | negative fixture: `do { .. } undo { .. }` inside a `pipeline` step → rejected, message names `saga`; positive: the same logic as two distinct constructs both type-check | § 11 / § 12.2 | done |
+| M46.T5 | Runtime: forward sequential execution. After each successful step update the implicits `last_output`, `last_step` (label or `step_N`), and run `on_step(name, result)` if present. `as binder` binds the step result into the scope visible to every later step expression and to `on_failure`. No step runs concurrently | 6 happy-path fixtures: anonymous steps, labelled steps, `as`-chaining between steps, `on_step` side effect, implicits readable, empty pipeline is a no-op | § 11 | done |
+| M46.T6 | Runtime: error handling + invocation. `Name.run(..)` returns `result<unit>`. `on_error: "stop"` (default) — first error stops execution, sets `last_error`, evaluates `on_failure` (if any), then propagates `Err` to the caller (composes with `catch`). `on_error: "continue"` — the failed step is skipped, `last_error` updated, execution continues, **no** error propagated. `return`/`break`/`continue` propagate normally, never intercepted. `ContractViolation` / `PolicyViolation` stay fatal (§ 18.4) | stop fixture (Err reaches `catch`), continue fixture (later steps still run, `.run()` is `Ok`), `on_failure` observed exactly once, contract/policy still fatal | § 11 / § 18.4 | done (`return`/`break`/`continue` at step top level surface as errors — there is no enclosing loop/fn frame for a step expression) |
+| M46.T7 | Trace: `pipeline_enter` (with `pipeline`, `intent`, `trace_id`), `step_enter` / `step_exit` (scope `pipeline.<step>`, `outcome: ok\|err`, `err` on failure), `pipeline_exit` (`outcome: ok\|stopped\|completed_with_skips`, `skipped: [..]` under `continue`). Every inner event carries the active `intent`. `on_step` / `on_failure` side effects are traced under the pipeline scope | 3 golden JSONL: clean run, mid-failure `stop` (→ `stopped`), mid-failure `continue` (→ `completed_with_skips` + `skipped`) | § 20.1 / § 12.5 | done (asserted on the in-memory tracer event stream rather than checked-in golden files, matching the M6 saga trace tests) |
+| M46.T8 | Idempotency (N1, mirrors § 12.3): each step invocation derives `blake3(trace_id ‖ step_name ‖ index)` and injects it into write caps (`http.*` `Idempotency-Key`, `kube.apply` annotation, `docker.*` n/a, `audit.event` `idempotency_key`, `mongodb`/`rabbitmq` as in saga). Forward re-runs of a partially-completed pipeline are no-ops where the protocol allows — this is what makes "roll forward and re-run" safe | per-backend test: the same `pipeline` re-run from the same `trace_id` produces the same key on each write event | § 12.3 | done (HTTP `Idempotency-Key` injection proven end-to-end; key derivation deterministic per `(trace_id, step, index)` — shares the saga `Env::idempotency_key` mechanism, so K8s/AMQP/Mongo/audit injection rides the same path) |
+| M46.T9 | Replay parity: a recorded `pipeline` run replays **bit-identical** for the deterministic subset. `ai.*` / `clock.*` / `random.*` inside steps are tape-driven; the step structure re-walks identically; `on_error: "continue"` decisions are reconstructed from the recorded step outcomes | `aeris replay <trace_id>` of a pipeline trace re-emits an identical trace (deterministic subset); replay fixture under `aeris-tests/replay/` | § 20.3 | done (unit test: a pipeline with a `clock.now()` step records, then replays with an identical event-kind sequence and the clock value pinned to the tape — the pipeline threads `replay_tape` through its step env exactly as a saga does) |
+| M46.T10 | Demo `demo/08-pipeline-deploy`: `docker.build` → `docker.push` → `kube.apply` → `http.get` health-check as a single `pipeline`, with `on_step` logging and `on_failure` reporting. Runs against the mock L2 backends; contrasts with `demo/07-docker-deploy` (the `saga` version) in its README | `aeris check demo/08-pipeline-deploy/main.aer` exits 0; the run emits `pipeline_*` trace events and no `shell_exec`; README states the roll-forward-vs-roll-back trade-off | § 23 / § 11 | done (build → push → kube.apply → audit under one intent, mock L2 backends, runs offline; trace shows `pipeline_enter`/`step_*`/`pipeline_exit` and zero `shell_exec`) |
+| M46.T11 | Docs: rewrite `language.md § 11` (reusing the reserved number) to define `pipeline` — form, `on_step` / `on_failure` / implicits / `as` binding / `on_error`, the trace shape, and the saga-vs-pipeline decision table. Add `pipeline` to the § 2.3 frozen keyword list and its "v0.3 additions" note. `cheatsheet.md § 1.1` (keyword) + a new `pipeline` row under § 7 + § 14.1 trace events (`pipeline_enter` / `pipeline_exit`) updated. `project.md` already names `pipeline` as a domain construct — now realised, no change needed | `language.md`, `cheatsheet.md` cross-referenced and in sync; `cargo test` + `aeris check` on every demo stay clean | § 11 / § 2.3 / § 23 | done (`language.md § 11` rewritten to define `pipeline` + the saga-vs-pipeline table; `pipeline` added to the § 2.3 keyword grid; `cheatsheet.md` § 1.1 / § 7.3.1 / § 14.1 / § 17 updated; `project.md` already named `pipeline` as a domain construct — now realised) |
+
+---
+
 ## 6. Test artifacts
 
 The implementation MUST ship with the following artifacts. Their
@@ -1123,6 +1159,53 @@ A v0.3 tag (`v0.3.0`) requires:
   exercises one fixture per v0.3 construct and asserts it desugars to
   the expected v0.2 AST. This is the gate that proves no construct
   escapes the principles.
+
+### 11.13 `pipeline` — forward-only traced automation (M46)
+
+**Tension.** `language.md § 11` argued a `pipeline` keyword carries no
+expressive weight: a pipeline that writes *with* undo duplicates
+`saga`, one that writes *without* undo contradicts the thesis § 8.2
+rule that pairs every write capability with a compensation. So v0.2 /
+early-v0.3 shipped without it. The same section, however, left the
+door open: it reserved its number "if a future revision introduces a
+stage-tracing sugar over read-only sequences".
+
+**Resolution.** Admit `pipeline` as the **forward-only** sibling of
+`saga`, and resolve the tension exactly as the brief puts it — *the
+write-without-undo is admissible because it is fully traced*. A
+`pipeline` keeps three of `saga`'s four guarantees:
+
+- **`cap`** — the same typed authority parameter; the same narrowing
+  (E65) and lockset-intersection (E71) checks.
+- **`intent`** — mandatory and single, so why-as-grammar (§ 10) holds
+  for every write even though reversibility does not.
+- **Tracing** — `pipeline_enter` / `step_enter` / `step_exit` /
+  `pipeline_exit`, each carrying the active `intent`, plus a saga-style
+  idempotency key per step. The run is replay-identical.
+
+It deliberately drops the fourth — **`undo`**. That is the whole point:
+a `pipeline` makes *no compensation promise*. Its safety story is
+observability + idempotent re-run, not rollback. This is an explicit,
+documented relaxation of the thesis § 8.2 do/undo rule, scoped to a
+construct that announces it: a reader who sees `pipeline` (not `saga`)
+knows the recovery model is *roll forward and re-run*, and the trace
+shows exactly which steps ran.
+
+The two constructs are kept structurally disjoint so neither hides
+inside the other:
+
+| | `saga` (§ 12) | `pipeline` (§ 11) |
+|---|---|---|
+| step shape | `do` / `undo` pair | single forward expression |
+| on failure | reverse-order `undo`, else `PartialFailure` | `on_failure` hook, stop or `continue` |
+| recovery model | roll **back** | roll **forward** + re-run |
+| `intent` · `cap` · trace · idempotency | yes | yes |
+| compensation guarantee | **yes** | **no** (by design) |
+
+The compiler rejects a `do`/`undo` block inside a `pipeline` step
+(pointing the author at `saga`) and a missing `intent` — so the choice
+between rolling back and rolling forward is made in the source, in the
+open, where review and the trace can both see it.
 
 ---
 

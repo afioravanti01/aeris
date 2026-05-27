@@ -14,7 +14,7 @@
 |---|---|
 | Declarations | `fn`, `record`, `enum`, `model`, `type`, `const`, `let`, `var`, `pub`, `use`, `from`, `as`, `test`, `property` |
 | Capability / intent / policy | `cap`, `intent`, `policy`, `deny`, `require`, `limit`, `audit`, `when`, `match` (structural key) |
-| Saga / agent | `saga`, `step`, `do`, `undo`, `agent`, `agent_net`, `flow`, `until` |
+| Saga / pipeline / agent | `saga`, `pipeline`, `step`, `do`, `undo`, `agent`, `agent_net`, `flow`, `until` |
 | Control flow | `if`, `else`, `match`, `for`, `in`, `while`, `loop`, `break`, `continue`, `return`, `raise` |
 | Errors / time (v0.3) | `catch`, `defer`, `every`, `retry`, `timeout` |
 | Types / generics | `is`, `await`, `spawn`, `with`, `where`, `extends` (v0.3) |
@@ -368,6 +368,27 @@ are rejected outside an enclosing `intent` (E66) under `loose` and
 Trace events: `saga_enter`, `step_enter`, `step_exit`, `undo_enter`,
 `undo_exit`, `saga_exit`.
 
+### 7.3.1 Pipelines (§ 11)
+
+Forward-only sibling of `saga`: same `intent` + `cap` + tracing +
+idempotency key, **no `do`/`undo`**. Rolls forward, not back.
+
+| Construct | Form | § |
+|---|---|---|
+| Pipeline | `pipeline Deploy(version, cap: cap[…]) { intent "…" steps: … }` | 11.1 |
+| Step | `\| "label": <expr>` (label optional; anonymous = `step_N`) | 11.1 |
+| Output binding | `\| "load": fs.read_file(p) as raw : string` (visible to later steps + `on_failure`) | 11.1 |
+| `on_step` | `on_step: fn(name, result) { … }` — after each success | 11.2 |
+| `on_failure` | `on_failure: <expr>` — on a step failure | 11.2 |
+| Implicits | `last_step`, `last_output`, `last_error` | 11.2 |
+| Run | `Deploy.run(version: "1.4.2") catch err { … }` → `result<unit>` | 11.3 |
+| `on_error` | `"stop"` (default) / `"continue"` (skip + proceed) | 11.3 |
+| Outcomes | `ok` / `stopped` / `completed_with_skips` (+ `skipped`) | 11.4 |
+| `do`/`undo` in a step | rejected — use a `saga` | 11 |
+
+Trace events: `pipeline_enter`, `step_enter`, `step_exit`,
+`pipeline_exit`.
+
 ### 7.4 Agents (§ 13)
 
 | Field | Type / value | § |
@@ -614,6 +635,7 @@ surface. `aeris lock surface` records it in `.aeris/surface.lock`.
 | `shell.exec` | `argv`, `env_pruned`, `exit`, `stdout_hash`, `stderr_hash` |
 | `intent` | `intent_enter`, `intent_exit` (`outcome`) |
 | `saga` | `saga_enter`, `step_enter`, `step_exit`, `undo_enter`, `undo_exit`, `saga_exit` |
+| `pipeline` | `pipeline_enter`, `step_enter`, `step_exit`, `pipeline_exit` (`outcome`: `ok` / `stopped` / `completed_with_skips`) |
 | `agent_net` | `net_enter`, `edge`, `agent_call`, `net_exit` |
 | `policy` | `policy_eval`, `policy_drift` (in replay) |
 
@@ -721,6 +743,7 @@ diff appears as the first hunk in review).
 | Modes `enforce = off \| loose \| strict` | M15B | 8.4.1 |
 | `"""..."""` at top-level, `main(args)` argv, subscript `x[k]` on map/record | M34 | 2.4 / 5.5 / 25.5 |
 | `ai.chat(system, dir, port)` integrated HTTP server | M35 | 23 |
+| `pipeline` — forward-only traced automation | M46 | 11 |
 
 ---
 

@@ -1,0 +1,48 @@
+/// Forward-only deploy automation with `pipeline` — the lighter
+/// sibling of `saga`. Build, push, roll out and audit a tagged release
+/// as ordered, traced steps.
+///
+/// Unlike `demo/07-docker-deploy` (a saga whose every step carries a
+/// compensating `undo`), a pipeline rolls *forward*: on a step failure
+/// it stops (default) or continues, runs `on_failure`, and leaves
+/// recovery to a re-run — it never rolls back. Its accountability is
+/// the trace, not compensation (§ 11):
+///
+///   - mandatory `intent`, `cap`-gated, every stage taped
+///     (`pipeline_enter` / `step_enter` / `step_exit` / `pipeline_exit`)
+///   - a saga-style idempotency key per step, so a forward re-run is
+///     safe where the protocol allows
+///   - no `do`/`undo` — use a `saga` when a step must be undone
+///
+/// Runs offline against the trace-only mock L2 backends (see
+/// aeris.toml):
+///
+///   aeris run ./main.aer
+
+use io, docker, kube, audit
+
+pipeline Deploy(version: string) {
+  intent "build, push and roll a tagged release out to staging"
+  steps:
+    | "build":  docker.build(".", "app:{version}")
+    | "push":   docker.push("registry/app:{version}")
+    | "apply":  kube.apply("./k8s/staging.yaml")
+    | "audit":  audit.event("deploy.released", { version: version })
+
+  on_step:    fn(name, result) { io.println("[deploy/{name}] ok") }
+  on_failure: io.println("[deploy] stopped at {last_step}: {last_error}")
+}
+
+fn main(args) -> result<unit> {
+  io.println("[deploy] rolling out app:1.4.2 — forward-only, no rollback")
+  io.println("")
+
+  Deploy.run(version: "1.4.2") catch err {
+    io.println("[deploy] FAILED: {err}")
+    return Ok(())
+  }
+
+  io.println("")
+  io.println("[deploy] live")
+  Ok(())
+}

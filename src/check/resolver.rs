@@ -18,8 +18,8 @@ use std::collections::{HashMap, HashSet};
 use super::effects;
 use super::error::{CapEscapeVector, CheckError, CheckErrorKind, NonExhaustiveReason};
 use crate::syntax::ast::{
-    AgentNetDecl, ConstDecl, EnumDecl, FlowStage, Item, ModelDecl, Module, RecordDecl, RecordField,
-    SagaDecl, Type, TypeAliasDecl, UndoForm, VariantData,
+    AgentNetDecl, Block, CapEntry, ConstDecl, EnumDecl, FlowStage, Item, ModelDecl, Module,
+    RecordDecl, RecordField, SagaDecl, Stmt, Type, TypeAliasDecl, UndoForm, VariantData,
 };
 use crate::syntax::token::Span;
 
@@ -221,6 +221,7 @@ impl Cx {
                 Item::Fn(f) => self.check_fn_signature(f),
                 Item::AgentNet(n) => self.check_agent_net(n),
                 Item::Saga(s) => self.check_saga(s),
+                Item::Pipeline(p) => self.check_pipeline(p),
                 Item::Agent(a) => self.check_agent(a),
                 Item::Policy(_) => {
                     // M8 wires policy semantics; field-presence is
@@ -274,6 +275,49 @@ impl Cx {
                     step.span,
                 );
             }
+        }
+    }
+
+    fn check_pipeline(&mut self, p: &crate::syntax::ast::PipelineDecl) {
+        // The parser already enforces the structural invariants a
+        // pipeline shares with a saga: a single mandatory `intent`
+        // (§ 10.1) and forward-only steps (no `do`/`undo` pair, which
+        // `parse_expr` cannot produce).
+        //
+        // M46.T3 — type-check every parameter (this rejects a user-written
+        // `cap[*]` via M2.T5) and run body-resolution (E65) over the step
+        // expressions and the `on_step` / `on_failure` hooks against the
+        // pipeline's `cap`. V2 (E66) is satisfied structurally: the
+        // mandatory pipeline `intent` wraps every step and hook, so a
+        // write inside one is always under an active intent.
+        for param in &p.params {
+            self.check_type(&param.ty, &[]);
+        }
+        // Build a synthetic body from the step expressions plus the two
+        // optional hooks, then reuse the fn-body collectors.
+        let mut stmts: Vec<Stmt> = p.steps.iter().map(|s| Stmt::Expr(s.expr.clone())).collect();
+        if let Some(e) = &p.on_step {
+            stmts.push(Stmt::Expr(e.clone()));
+        }
+        if let Some(e) = &p.on_failure {
+            stmts.push(Stmt::Expr(e.clone()));
+        }
+        let body = Block {
+            stmts,
+            tail: None,
+            span: p.span,
+        };
+        let cap_set = pipeline_cap_paths(p);
+        for r in effects::collect_cap_resolution_errors(&body, Some(&cap_set)) {
+            let kind = match r.kind {
+                effects::CapResolutionKind::NoCapInScope => {
+                    CheckErrorKind::NoCapInScope { op: r.op }
+                }
+                effects::CapResolutionKind::OpNotInCap => {
+                    CheckErrorKind::OpNotInCapSignature { op: r.op }
+                }
+            };
+            self.err(kind, r.span);
         }
     }
 
@@ -752,6 +796,13 @@ fn extract_cap_paths(
         out.insert(("*".to_string(), "*".to_string()));
         return Some(out);
     }
+    Some(cap_paths_from_entries(entries))
+}
+
+/// Shared core of body-resolution cap-set extraction (§ 8.3): turn the
+/// `cap[...]` entries of a parameter list into the `(module, op)` set the
+/// body may call. A bare `<module>` entry becomes `(module, "*")`.
+fn cap_paths_from_entries(entries: &[CapEntry]) -> std::collections::HashSet<(String, String)> {
     let mut out: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     for e in entries {
         match e.path.segments.as_slice() {
@@ -769,7 +820,23 @@ fn extract_cap_paths(
             _ => {}
         }
     }
-    Some(out)
+    out
+}
+
+/// Body-resolution cap set for a `pipeline` (M46.T3) — the `cap`
+/// parameter's entries, or an empty set when there is none (every cap
+/// op then resolves to `NoCapInScope`, exactly as for a fn).
+fn pipeline_cap_paths(
+    p: &crate::syntax::ast::PipelineDecl,
+) -> std::collections::HashSet<(String, String)> {
+    let cap_param = match p.params.iter().find(|pp| pp.name == "cap") {
+        Some(pp) => pp,
+        None => return std::collections::HashSet::new(),
+    };
+    match &cap_param.ty {
+        Type::Cap { entries, .. } => cap_paths_from_entries(entries),
+        _ => std::collections::HashSet::new(),
+    }
 }
 
 fn stage_names(s: &FlowStage) -> Vec<String> {

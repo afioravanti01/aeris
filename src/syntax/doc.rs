@@ -116,6 +116,7 @@ fn is_item_kw(kw: Keyword) -> bool {
             | Keyword::Type
             | Keyword::Const
             | Keyword::Saga
+            | Keyword::Pipeline
             | Keyword::Agent
             | Keyword::AgentNet
             | Keyword::Policy
@@ -133,6 +134,7 @@ fn item_kw_str(kw: Keyword) -> &'static str {
         Keyword::Type => "type",
         Keyword::Const => "const",
         Keyword::Saga => "saga",
+        Keyword::Pipeline => "pipeline",
         Keyword::Agent => "agent",
         Keyword::AgentNet => "agent_net",
         Keyword::Policy => "policy",

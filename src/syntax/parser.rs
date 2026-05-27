@@ -10,9 +10,10 @@
 use super::ast::{
     AgentDecl, AgentNetDecl, AssignOp, BinOp, Block, CallArg, CapEntry, CapNarrowKind, CapPath,
     ConstDecl, DeclField, ElseBranch, EnumDecl, EnumVariant, Expr, FlowDecl, FlowStage, FnDecl,
-    Item, LambdaParam, ListPatElem, MatchArm, ModelDecl, Module, Param, Pattern, PolicyDecl,
-    RawSpan, RecordDecl, RecordField, RecordLit, RecordLitField, RecordPatField, SagaDecl,
-    SagaStep, Stmt, Type, TypeAliasDecl, UnOp, UndoForm, UseDecl, VariantData, Visibility,
+    Item, LambdaParam, ListPatElem, MatchArm, ModelDecl, Module, Param, Pattern, PipelineBinding,
+    PipelineDecl, PipelineStep, PolicyDecl, RawSpan, RecordDecl, RecordField, RecordLit,
+    RecordLitField, RecordPatField, SagaDecl, SagaStep, Stmt, Type, TypeAliasDecl, UnOp, UndoForm,
+    UseDecl, VariantData, Visibility,
 };
 use super::lexer::{tokenize, LexError};
 use super::token::{Keyword, Span, Token, TokenKind};
@@ -117,6 +118,12 @@ struct Parser {
     /// the `{` belongs to a surrounding control-flow head. Mirrors
     /// Rust's parsing-context rule for `if`, `while`, `for`, `match`.
     allow_struct_lit: bool,
+    /// When true, a leading `|` terminates the current expression
+    /// instead of being read as the bitwise-or operator (M46). Set only
+    /// while parsing a `pipeline` step expression, where `|` is the
+    /// step separator. A bitwise-or *inside* a step expression is
+    /// therefore not available — compute it in a prior `let` (§ 11).
+    in_pipeline_step: bool,
 }
 
 impl Parser {
@@ -125,6 +132,7 @@ impl Parser {
             tokens,
             pos: 0,
             allow_struct_lit: true,
+            in_pipeline_step: false,
         }
     }
 
@@ -458,6 +466,9 @@ impl Parser {
             TokenKind::Keyword(Keyword::Type) => self.parse_type_alias(vis).map(Item::TypeAlias),
             TokenKind::Keyword(Keyword::Const) => self.parse_const(vis).map(Item::Const),
             TokenKind::Keyword(Keyword::Saga) => self.parse_saga(vis).map(Item::Saga),
+            TokenKind::Keyword(Keyword::Pipeline) => {
+                self.parse_pipeline(vis).map(Item::Pipeline)
+            }
             TokenKind::Keyword(Keyword::Agent) => self.parse_agent(vis).map(Item::Agent),
             TokenKind::Keyword(Keyword::AgentNet) => self.parse_agent_net(vis).map(Item::AgentNet),
             TokenKind::Keyword(Keyword::Policy) => self.parse_policy(vis).map(Item::Policy),
@@ -483,7 +494,7 @@ impl Parser {
                 self.parse_top_stmt().map(|s| Item::TopStmt(Box::new(s)))
             }
             _ => Err(self.err(ParseErrorKind::Expected(
-                "fn / record / enum / model / type / const / saga / agent / agent_net / policy / test / property"
+                "fn / record / enum / model / type / const / saga / pipeline / agent / agent_net / policy / test / property"
                     .into(),
             ))),
         }
@@ -1099,6 +1110,142 @@ impl Parser {
             requires,
             do_block,
             undo,
+            span: Self::span_join(start, end),
+        })
+    }
+
+    // -------- pipeline (M46.T2) --------
+
+    fn at_ident(&self, name: &str) -> bool {
+        matches!(self.peek(), TokenKind::Ident(s) if s == name)
+    }
+
+    fn parse_pipeline(&mut self, vis: Visibility) -> Result<PipelineDecl, ParseError> {
+        let start = self.expect_kw(Keyword::Pipeline)?.span;
+        let (name, _) = self.expect_ident()?;
+        self.expect_kind(&TokenKind::LParen)?;
+        let mut params = Vec::new();
+        if !matches!(self.peek(), TokenKind::RParen) {
+            params.push(self.parse_param()?);
+            while matches!(self.peek(), TokenKind::Comma) {
+                self.advance();
+                if matches!(self.peek(), TokenKind::RParen) {
+                    break;
+                }
+                params.push(self.parse_param()?);
+            }
+        }
+        self.expect_kind(&TokenKind::RParen)?;
+        self.expect_kind(&TokenKind::LBrace)?;
+        // Pipeline-level intent — mandatory, exactly one (§ 10.1).
+        self.expect_kw(Keyword::Intent)?;
+        let intent = self.expect_string_literal()?;
+        // `steps:` — a structural-block field marker, not a keyword.
+        if !self.at_ident("steps") {
+            return Err(self.err(ParseErrorKind::Expected("`steps:`".into())));
+        }
+        self.advance();
+        self.expect_kind(&TokenKind::Colon)?;
+        let mut steps = Vec::new();
+        while matches!(self.peek(), TokenKind::Pipe) {
+            steps.push(self.parse_pipeline_step()?);
+        }
+        // Optional `on_step:` / `on_failure:` hooks, either order.
+        let mut on_step: Option<Expr> = None;
+        let mut on_failure: Option<Expr> = None;
+        loop {
+            if self.at_ident("on_step") {
+                self.advance();
+                self.expect_kind(&TokenKind::Colon)?;
+                on_step = Some(self.parse_expr()?);
+            } else if self.at_ident("on_failure") {
+                self.advance();
+                self.expect_kind(&TokenKind::Colon)?;
+                on_failure = Some(self.parse_expr()?);
+            } else {
+                break;
+            }
+        }
+        let end = self.expect_kind(&TokenKind::RBrace)?.span;
+        Ok(PipelineDecl {
+            vis,
+            name,
+            params,
+            intent,
+            steps,
+            on_step,
+            on_failure,
+            span: Self::span_join(start, end),
+        })
+    }
+
+    fn parse_pipeline_step(&mut self) -> Result<PipelineStep, ParseError> {
+        let start = self.expect_kind(&TokenKind::Pipe)?.span;
+        // Optional `"label":` — a string literal immediately followed by
+        // a colon. A bare string with no colon is the step expression.
+        let label = if matches!(self.peek(), TokenKind::Str(_))
+            && matches!(self.peek_at(1), Some(TokenKind::Colon))
+        {
+            let tok = self.advance();
+            let s = match tok.kind {
+                TokenKind::Str(s) => s,
+                _ => unreachable!(),
+            };
+            self.expect_kind(&TokenKind::Colon)?;
+            Some(s)
+        } else {
+            None
+        };
+        // M46.T4 — a `pipeline` step is a single forward expression. A
+        // `do`/`undo` pair is the *saga* shape; reject it here with a
+        // diagnostic that names `saga`, so the two constructs can never
+        // masquerade as one another (§ 11).
+        if matches!(
+            self.peek(),
+            TokenKind::Keyword(Keyword::Do) | TokenKind::Keyword(Keyword::Undo)
+        ) {
+            return Err(self.err(ParseErrorKind::Expected(
+                "a step expression — a `pipeline` step is forward-only and has no `do`/`undo`; use a `saga` when a step needs a compensation (§ 11)"
+                    .into(),
+            )));
+        }
+        // The step expression. `|` is suppressed as bitwise-or so the
+        // next step's separator terminates this expression; a trailing
+        // `as <Type>` is parsed as a cast and unwrapped below into the
+        // output binding (`as <binder>`), matching the v0.1 surface.
+        let prev = self.in_pipeline_step;
+        self.in_pipeline_step = true;
+        let expr = self.parse_expr();
+        self.in_pipeline_step = prev;
+        let expr = expr?;
+        let (expr, mut binding) = match expr {
+            Expr::Cast {
+                expr: inner,
+                ty: Type::Named { name, span },
+                ..
+            } => (
+                *inner,
+                Some(PipelineBinding {
+                    name,
+                    ty: None,
+                    span,
+                }),
+            ),
+            other => (other, None),
+        };
+        // Optional `: <Type>` annotation after the binder (`as raw : List`).
+        if binding.is_some() && matches!(self.peek(), TokenKind::Colon) {
+            self.advance();
+            let ty = self.parse_type()?;
+            if let Some(b) = binding.as_mut() {
+                b.ty = Some(ty);
+            }
+        }
+        let end = self.tokens[self.pos.saturating_sub(1)].span;
+        Ok(PipelineStep {
+            label,
+            expr,
+            binding,
             span: Self::span_join(start, end),
         })
     }
@@ -1870,6 +2017,11 @@ impl Parser {
     fn parse_bitops(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_shift()?;
         loop {
+            // M46: inside a `pipeline` step expression a `|` is the step
+            // separator, not bitwise-or — stop so the step parser sees it.
+            if self.in_pipeline_step && matches!(self.peek(), TokenKind::Pipe) {
+                break;
+            }
             let op = match self.peek() {
                 TokenKind::Amp => BinOp::BitAnd,
                 TokenKind::Pipe => BinOp::BitOr,
@@ -3136,6 +3288,7 @@ fn is_item_start_keyword(kw: Keyword) -> bool {
             | Keyword::Const
             | Keyword::Use
             | Keyword::Saga
+            | Keyword::Pipeline
             | Keyword::Agent
             | Keyword::AgentNet
             | Keyword::Policy
@@ -3168,6 +3321,7 @@ mod tests {
             Item::TypeAlias(_) => "type",
             Item::Const(_) => "const",
             Item::Saga(_) => "saga",
+            Item::Pipeline(_) => "pipeline",
             Item::Agent(_) => "agent",
             Item::AgentNet(_) => "agent_net",
             Item::Policy(_) => "policy",
@@ -3757,6 +3911,140 @@ mod top_level_tests {
         // saga with no `intent "..."` after `{` is a parse error per § 12.2.
         let src = r#"saga r(cap: cap[]) { step a { do {} undo noop } }"#;
         assert!(parse(src).is_err());
+    }
+
+    // ---------- pipeline (M46.T2) ----------
+
+    #[test]
+    fn pipeline_full_shape() {
+        // Labelled steps, an anonymous step, an `as` output binding,
+        // and both hooks. The intent is a plain string (interpolation in
+        // intent labels is not supported anywhere — § 10.2).
+        let src = r#"
+            pipeline Deploy(
+                version: string,
+                cap: cap[docker.build, docker.push, kube.apply @ ["prod"], http.get @ ["prod"]],
+            ) {
+                intent "deploy a tagged build to prod"
+                steps:
+                    | "build":  docker.build(".", "app:{version}") as img
+                    | "push":   docker.push("registry/app:{version}")
+                    | "apply":  kube.apply("./k8s/", "prod")
+                    | http.get("https://prod/health")
+                on_step:    fn(name, result) { io.println("[{name}] ok") }
+                on_failure: io.println("stopped at {last_step}")
+            }
+        "#;
+        let p = match parse_one(src) {
+            Item::Pipeline(p) => p,
+            other => panic!("expected pipeline, got {other:?}"),
+        };
+        assert_eq!(p.name, "Deploy");
+        assert_eq!(p.intent, "deploy a tagged build to prod");
+        assert_eq!(p.params.len(), 2);
+        assert_eq!(p.params[1].name, "cap");
+        assert_eq!(p.steps.len(), 4);
+        // labelled + bound
+        assert_eq!(p.steps[0].label.as_deref(), Some("build"));
+        assert_eq!(
+            p.steps[0].binding.as_ref().map(|b| b.name.as_str()),
+            Some("img")
+        );
+        assert!(matches!(p.steps[0].expr, Expr::Call { .. }));
+        // labelled, unbound
+        assert_eq!(p.steps[1].label.as_deref(), Some("push"));
+        assert!(p.steps[1].binding.is_none());
+        // anonymous step
+        assert_eq!(p.steps[3].label, None);
+        assert!(p.steps[3].binding.is_none());
+        assert!(p.on_step.is_some());
+        assert!(p.on_failure.is_some());
+    }
+
+    #[test]
+    fn pipeline_binding_with_type_annotation() {
+        // `as raw : List` — the type annotation is parsed (and ignored).
+        let src = r#"
+            pipeline P(cap: cap[fs.read_file @ ["./x"]]) {
+                intent "load"
+                steps:
+                    | "load": fs.read_file("./x") as raw : string
+            }
+        "#;
+        let p = match parse_one(src) {
+            Item::Pipeline(p) => p,
+            other => panic!("expected pipeline, got {other:?}"),
+        };
+        let b = p.steps[0].binding.as_ref().expect("binding");
+        assert_eq!(b.name, "raw");
+        assert!(matches!(b.ty, Some(Type::Named { .. })));
+    }
+
+    #[test]
+    fn pipeline_anonymous_steps_only() {
+        let src = r#"
+            pipeline P(cap: cap[docker.build, docker.push]) {
+                intent "build and push"
+                steps:
+                    | docker.build(".")
+                    | docker.push("app")
+            }
+        "#;
+        let p = match parse_one(src) {
+            Item::Pipeline(p) => p,
+            other => panic!("expected pipeline, got {other:?}"),
+        };
+        assert_eq!(p.steps.len(), 2);
+        assert!(p.steps.iter().all(|s| s.label.is_none()));
+        assert!(p.on_step.is_none() && p.on_failure.is_none());
+    }
+
+    #[test]
+    fn pipeline_missing_intent_fails() {
+        // Like a saga, the mandatory `intent` is enforced at parse time.
+        let src = r#"pipeline P(cap: cap[]) { steps: | x() }"#;
+        assert!(parse(src).is_err());
+    }
+
+    #[test]
+    fn pipeline_step_with_do_undo_is_rejected_towards_saga() {
+        // M46.T4 — the saga `do`/`undo` shape inside a pipeline step is
+        // rejected with a diagnostic that names `saga`.
+        let src = r#"
+            pipeline P(cap: cap[http.post @ ["x"]]) {
+                intent "x"
+                steps:
+                    | "charge": do { http.post("/c", "b") } undo { http.post("/r", "b") }
+            }
+        "#;
+        let err = parse(src).expect_err("do/undo in a pipeline step must be rejected");
+        match err.kind {
+            ParseErrorKind::Expected(msg) => assert!(
+                msg.contains("saga"),
+                "diagnostic should point at `saga`, got {msg:?}"
+            ),
+            other => panic!("expected an `Expected` diagnostic, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn saga_and_pipeline_are_distinct_constructs() {
+        // The same module can hold both; the saga keeps do/undo, the
+        // pipeline is forward-only. Both parse.
+        let src = r#"
+            saga s(cap: cap[http.post @ ["x"]]) {
+                intent "settle"
+                step a { do { http.post("/c", "b")? } undo { http.post("/r", "b")? } }
+            }
+            pipeline p(cap: cap[http.post @ ["x"]]) {
+                intent "roll forward"
+                steps:
+                    | http.post("/c", "b")
+            }
+        "#;
+        let m = parse(src).expect("both constructs parse");
+        assert!(matches!(m.items[0], Item::Saga(_)));
+        assert!(matches!(m.items[1], Item::Pipeline(_)));
     }
 
     // ---------- agent ----------

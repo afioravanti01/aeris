@@ -138,15 +138,15 @@ cap        catch      const      continue   defer      deny
 do         else       ensures    enum       every      extends
 false      flow       fn         for        from       if
 in         intent     is         let        limit      loop
-match      model      not        or         policy     property
-pub        raise      record     require    requires   retry
-return     saga       spawn      step       test       timeout
-true       type       undo       until      use        var
-when       where      while      with
+match      model      not        or         pipeline   policy
+property   pub        raise      record     require    requires
+retry      return     saga       spawn      step       test
+timeout    true       type       undo       until      use
+var        when       where      while      with
 ```
 
 The v0.3 additions over v0.2 are `catch`, `defer`, `every`, `extends`,
-`loop`, `retry`, `timeout`.
+`loop`, `retry`, `timeout`, and `pipeline` (M46).
 
 **No soft keywords.** A user variable named `step` is a syntax error;
 the developer writes `q` or `s` instead. This is a deliberate cost —
@@ -1287,39 +1287,121 @@ correct.
 
 ---
 
-## 11. Sequencing — without a dedicated keyword
+## 11. Sequencing — `pipeline` and `saga`
 
-Aeris v0.2 has **no `pipeline` construct**. Sequencing is expressed
-two ways:
+Aeris has two constructs for multi-step work. Read-only sequencing
+needs neither — it is a chain of `let` bindings inside a regular
+function, and the trace already records the outer `intent_enter` /
+`intent_exit` and the leaf capability calls:
 
-- **Read-only sequencing** is a chain of `let` bindings inside a
-  regular function. The trace records the outer function's
-  `intent_enter` / `intent_exit` and the leaf capability calls. No
-  further structure is needed.
-
-  ```aeris
-  fn ingest_users(source: string, cap: cap[fs.read_file @ ["./data/**"]]) -> result<list<User@v1>>
-  {
-    intent "ingest {source} users for offline analysis" {
-      let bytes      = fs.read_file(source)?
-      let parsed     = json.decode<list<User@v1>>(bytes)?
-      let normalised = parsed.map(canonicalise)
-      Ok(normalised)
-    }
+```aeris
+fn ingest_users(source: string, cap: cap[fs.read_file @ ["./data/**"]]) -> result<list<User@v1>>
+{
+  intent "ingest users for offline analysis" {
+    let bytes      = fs.read_file(source)?
+    let parsed     = json.decode<list<User@v1>>(bytes)?
+    let normalised = parsed.map(canonicalise)
+    Ok(normalised)
   }
-  ```
+}
+```
 
-- **Write-effectful sequencing** is a `saga` (§ 12). The thesis
-  commitment § 8.2 makes paired `do`/`undo` mandatory on every step
-  that touches a write capability — a "pipeline that writes without
-  undo" is exactly what the language refuses by construction. Adding
-  a separate `pipeline` keyword would either duplicate `saga` (with
-  undo) or contradict the thesis (without undo); either way it would
-  carry no expressive weight. So it is not in the language.
+For **write-effectful** sequencing the choice is between a `pipeline`
+(this section) and a `saga` (§ 12). They share three guarantees — a
+single mandatory `intent`, a `cap` parameter, and a fully taped run
+with a per-step idempotency key. They differ in one: a `saga` step
+carries a compensating `undo` and rolls **back** on failure; a
+`pipeline` step is a single forward expression and rolls **forward**.
 
-If a future revision introduces a stage-tracing sugar over read-only
-sequences, it will reuse this section number; until then, plain
-functions and `saga` cover the design space.
+| | `saga` (§ 12) | `pipeline` (§ 11) |
+|---|---|---|
+| step shape | `do` / `undo` pair | single forward expression |
+| on failure | reverse-order `undo`, else `PartialFailure` | `on_failure` hook, then stop or `continue` |
+| recovery model | roll **back** | roll **forward** + re-run |
+| compensation | guaranteed | none, by design |
+
+A `pipeline` admits a write without an `undo` precisely because it
+makes no compensation promise: its accountability is the trace, not
+reversibility. Reach for a `saga` when a failed run must be undone, a
+`pipeline` when recovery is *fix and re-run* (deploys, ops
+automation). The compiler keeps them disjoint — a `do`/`undo` block
+inside a `pipeline` step is rejected and points back at `saga`.
+
+### 11.1 Form
+
+```aeris
+pipeline Deploy(version: string, cap: cap[docker.build, docker.push, kube.apply @ ["prod-eu-1"]]) {
+  intent "build, push and roll a tagged release out to prod-eu-1"
+
+  steps:
+    | "build":  docker.build(".", "app:{version}")   as image
+    | "push":   docker.push("registry/app:{version}")
+    | "apply":  kube.apply("./k8s/prod-eu-1.yaml")
+
+  on_step:    fn(name, result) { io.println("[{name}] ok") }
+  on_failure: io.println("stopped at {last_step}: {last_error}")
+}
+
+Deploy.run(version: "1.4.2") catch err { alert(err) }   // stop (default)
+Deploy.run(version: "1.4.2", on_error: "continue")       // roll past failures
+```
+
+- **`intent`** — mandatory, exactly one; it wraps every step (and the
+  hooks), so V2 (§ 10.1) is satisfied for the whole pipeline.
+- **`cap`** — narrowed and lockset-checked exactly as for a `fn` or
+  `saga` (§ 8.3). A `pipeline` is an automation entry point, so a `cap`
+  parameter that `.run(...)` does not pass is supplied from the cap in
+  scope at the call site.
+- **`steps:`** — one `| <expr>` per line, in order. Each step may carry
+  a `"label"` (used in the trace and in `last_step`; anonymous steps
+  are `step_1`, `step_2`, …) and an `as <binder>[: Type]` output
+  binding visible to every later step and to `on_failure`. The type
+  annotation is parsed and ignored at runtime.
+
+### 11.2 Hooks and implicit variables
+
+- `on_step: fn(name, result) { ... }` — optional closure run after each
+  **successful** step, with the step's label and result value.
+- `on_failure: <expr>` — optional expression evaluated when a step
+  fails (before the error propagates under `on_error: "stop"`).
+
+| Variable | Content |
+|---|---|
+| `last_step` | label of the most recent step (or `step_N`) |
+| `last_output` | result of the last successfully completed step |
+| `last_error` | message of the step that failed |
+
+### 11.3 Running — `Name.run(...)` and `on_error`
+
+A pipeline is invoked with `Name.run(<args>)`, which returns
+`result<unit>` and composes with `catch`. The args bind to the
+declared parameters (positional or kwargs). One reserved kwarg
+controls failure handling:
+
+| `on_error` | Behaviour |
+|---|---|
+| `"stop"` *(default)* | stop at the first failed step, run `on_failure`, return `Err` to the caller |
+| `"continue"` | skip the failed step, update `last_error`, continue; never propagate |
+
+`ContractViolation` and `PolicyViolation` remain fatal (§ 18.4); they
+are not turned into step failures by either mode.
+
+### 11.4 Trace shape
+
+```json
+{ "kind": "pipeline_enter", "pipeline": "Deploy", "intent": "...", "trace_id": "..." }
+{ "kind": "step_enter", "step": "build", "idempotency": "..." }
+{ "kind": "step_exit",  "step": "build", "outcome": "ok" }
+{ "kind": "step_exit",  "step": "push", "outcome": "err", "reason": "..." }
+{ "kind": "pipeline_exit", "pipeline": "Deploy", "outcome": "stopped" }
+```
+
+`pipeline_exit.outcome` is `ok`, `stopped` (a step failed under
+`"stop"`), or `completed_with_skips` (one or more steps failed under
+`"continue"`, listed in a `skipped` field). Every inner event carries
+the active `intent`, and each step's idempotency key is
+`blake3(trace_id ‖ step ‖ index)` (§ 12.3) — so a forward re-run is a
+no-op where the protocol allows.
 
 ---
 

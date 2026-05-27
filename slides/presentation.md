@@ -56,7 +56,7 @@ A small interpreted language.
 |---|---|---|
 | **1** | **Aeris at a glance** | the problem, the shape, the four layers |
 | **2** | **How an interpreted language works** | lexer → parser → AST → tree-walk |
-| **3** | **L1 · The core language** | values, functions, pattern matching, models, libraries |
+| **3** | **L1 · The core language** | values, functions, pattern matching, models, libraries, automation |
 | **4** | **L2 · Verifiability & governance** | `cap`, `intent`, contracts, `policy`, supply chain |
 | **5** | **L3 · Reversible execution** | `saga`, trace & replay |
 | **6** | **L4 · AI & agents** | `ai.*`, `agent`, `agent_net` |
@@ -602,6 +602,61 @@ use deploy from
 - **external libraries** — third-party `.aer`
   - **blake3 hash** in `aeris.toml`
   - **no** `latest` · `*` · movable tags
+
+</div>
+</div>
+
+---
+
+<!-- _class: tight -->
+
+# `pipeline` — automation that rolls forward, fully traced
+
+> When the right move on failure is **roll forward, not back**, a `pipeline` runs ordered steps over `docker` / `kube` / `http`, **stops on the first error**, and **tapes every stage** — the lighter sibling of `saga` for deploys and ops.
+
+<div class="columns">
+<div class="column">
+
+```rust
+use docker, kube, http, io
+
+pipeline Deploy(
+  version: string,
+  cap: cap[
+    docker.build, docker.push,
+    kube.apply @ ["prod-eu-1"],
+    http.get   @ ["prod.acme.com"],
+  ],
+) {
+  intent "roll a tagged build out to prod-eu-1"   // mandatory
+  steps:
+    | "build":  docker.build(".", "app:{version}") as img
+    | "push":   docker.push("registry/app:{version}")
+    | "apply":  kube.apply("./k8s/prod-eu-1.yaml")
+    | "health": http.get("https://prod.acme.com/health")
+
+  on_step:    fn(name, result) { io.println("[{name}] ok") }
+  on_failure: io.println("stopped at {last_step}: {last_error}")
+}
+
+Deploy.run(version: "1.4.2") catch err { alert(err) }
+Deploy.run(version: "1.4.2", on_error: "continue")  // roll past
+```
+
+</div>
+<div class="column compact">
+
+- **Ordered steps** — labelled or anonymous
+  - `as` binds a result for later steps
+- **Stops on first error** → `on_failure`
+  - or `on_error: "continue"` to roll past
+- **Still `cap`-checked + `intent`-gated**
+  - the writes are **declared, never hidden**
+- **Every stage taped**
+  - `pipeline_enter` · `step_exit` · `pipeline_exit`
+  - idempotency key per step → **safe re-run**
+
+> **`saga` vs `pipeline`** — undo & roll **back** · vs · trace & roll **forward**.
 
 </div>
 </div>

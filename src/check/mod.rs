@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn agent_net_acyclic_dag_is_accepted() {
         ok(r#"
-            agent_net pipeline {
+            agent_net ingest_net {
                 flow extract -> classify -> route_or_alert
                 flow route_or_alert -> { route, alert }
                 flow route -> persist
@@ -1273,6 +1273,72 @@ mod tests {
                 spawn { worker(cap.subset[http.get @ ["api.x.com"]]) }
             }
         "#);
+    }
+
+    // ----------------- M46.T3 — pipeline cap/intent checks -----------------
+
+    #[test]
+    fn pipeline_steps_resolve_against_pipeline_cap() {
+        // A valid pipeline: every step op is covered by `cap`, all under
+        // the single mandatory `intent`. No errors.
+        ok(r#"
+            pipeline Deploy(
+                cap: cap[docker.build, docker.push, kube.apply @ ["prod"]],
+            ) {
+                intent "deploy a tagged build to prod"
+                steps:
+                    | "build": docker.build(".", "app:1")
+                    | "push":  docker.push("app:1")
+                    | "apply": kube.apply("./k8s/", "prod")
+            }
+        "#);
+    }
+
+    #[test]
+    fn pipeline_step_op_outside_cap_is_65() {
+        // `kube.apply` is called but the pipeline's cap only carries
+        // docker ops — body-resolution rejects it with exit 65.
+        let es = errs(r#"
+            pipeline P(cap: cap[docker.build]) {
+                intent "build then deploy"
+                steps:
+                    | docker.build(".")
+                    | kube.apply("./k8s/", "prod")
+            }
+        "#);
+        assert!(
+            es.iter().any(|e| {
+                e.exit_code() == 65
+                    && matches!(
+                        &e.kind,
+                        CheckErrorKind::OpNotInCapSignature { op } | CheckErrorKind::NoCapInScope { op }
+                        if op == "kube.apply"
+                    )
+            }),
+            "expected a 65 for kube.apply, got {es:#?}"
+        );
+    }
+
+    #[test]
+    fn pipeline_on_failure_hook_is_also_cap_checked() {
+        // The `on_failure` hook runs under the pipeline cap too — a cap
+        // op there that is not authorised is still a 65.
+        let es = errs(r#"
+            pipeline P(cap: cap[docker.build]) {
+                intent "build"
+                steps:
+                    | docker.build(".")
+                on_failure: audit.event("failed")
+            }
+        "#);
+        assert!(
+            es.iter()
+                .any(|e| e.exit_code() == 65
+                    && matches!(&e.kind,
+                        CheckErrorKind::OpNotInCapSignature { op } | CheckErrorKind::NoCapInScope { op }
+                        if op == "audit.event")),
+            "expected a 65 for audit.event in on_failure, got {es:#?}"
+        );
     }
 
     // ----------------- M2.T2 — match exhaustiveness -----------------

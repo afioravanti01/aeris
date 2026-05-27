@@ -39,6 +39,7 @@ pub enum Item {
     TypeAlias(TypeAliasDecl),
     Const(ConstDecl),
     Saga(SagaDecl),
+    Pipeline(PipelineDecl),
     Agent(AgentDecl),
     AgentNet(AgentNetDecl),
     Policy(PolicyDecl),
@@ -242,6 +243,52 @@ pub struct SagaStep {
 pub enum UndoForm {
     Block(Block),
     Noop(Span),
+}
+
+/// `pipeline <name>(<params>) { intent "..." steps: | ... on_step? on_failure? }`
+/// (§ 11, M46). The forward-only sibling of `saga`: ordered steps, a
+/// mandatory single `intent`, a `cap` parameter, full tracing — but no
+/// `do`/`undo`. Accountability is the trace, not compensation (§ 11.13
+/// of `plan.md`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipelineDecl {
+    pub vis: Visibility,
+    pub name: String,
+    pub params: Vec<Param>,
+    /// Pipeline-level intent string (mandatory, exactly one — § 10.1).
+    pub intent: String,
+    pub steps: Vec<PipelineStep>,
+    /// `on_step: fn(name, result) { ... }` — optional closure run after
+    /// every *successful* step. Parsed as a `Lambda` expression.
+    pub on_step: Option<Expr>,
+    /// `on_failure: <expr>` — optional expression evaluated when a step
+    /// fails (before propagation under `on_error: "stop"`).
+    pub on_failure: Option<Expr>,
+    pub span: Span,
+}
+
+/// One step of a `pipeline`: a single forward expression, with an
+/// optional `"label"` and an optional `as <binder>[: Type]` output
+/// binding. There is no `do`/`undo` pair — that is what distinguishes
+/// a pipeline step from a saga step (M46.T4).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipelineStep {
+    /// `"build"` label, or `None` for an anonymous step (named
+    /// `step_<N>` at runtime).
+    pub label: Option<String>,
+    pub expr: Expr,
+    /// `as <name>[: <Type>]` — binds the step result into the scope
+    /// visible to later steps and to `on_failure`. The type annotation
+    /// is parsed and ignored at runtime.
+    pub binding: Option<PipelineBinding>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipelineBinding {
+    pub name: String,
+    pub ty: Option<Type>,
+    pub span: Span,
 }
 
 /// `agent <name> { <field>+ }` (§ 13.1). Field semantics are validated

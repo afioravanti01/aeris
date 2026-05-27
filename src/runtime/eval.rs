@@ -15,8 +15,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use super::value::{
-    CapEntryValue, CapNarrowError, CapValue, Closure, EnumValue, ModuleScope, RecordValue,
-    SagaInstance, Value, VariantValue,
+    CapEntryValue, CapNarrowError, CapValue, Closure, EnumValue, ModuleScope, PipelineInstance,
+    RecordValue, SagaInstance, Value, VariantValue,
 };
 use crate::syntax::ast::{
     AssignOp, BinOp, Block, CallArg, CapEntry, CapNarrowKind, ElseBranch, Expr, Item, ListPatElem,
@@ -739,6 +739,30 @@ fn register_decls(
                 module
                     .borrow_mut()
                     .insert(n.name.clone(), Value::AgentNet(net));
+            }
+            Item::Pipeline(p) => {
+                let pipeline = Rc::new(super::value::PipelineInstance {
+                    name: p.name.clone(),
+                    params: p.params.iter().map(|pp| pp.name.clone()).collect(),
+                    intent: p.intent.clone(),
+                    steps: p.steps.clone(),
+                    on_step: p.on_step.clone(),
+                    on_failure: p.on_failure.clone(),
+                    module: Some(module.clone()),
+                    tracer: tracer.clone(),
+                    stdin: stdin.clone(),
+                    record_decls: Some(records.clone()),
+                    model_decls: Some(models.clone()),
+                    policies: Some(policies.clone()),
+                    ai_backend: ai_backend.clone(),
+                    replay_tape: replay_tape.clone(),
+                    full_record,
+                    imported_modules: imported_modules.clone(),
+                    l2_backends: l2_backends.clone(),
+                });
+                module
+                    .borrow_mut()
+                    .insert(p.name.clone(), Value::Pipeline(pipeline));
             }
             _ => {}
         }
@@ -2978,6 +3002,7 @@ pub(crate) fn value_kind(v: &Value) -> &'static str {
         Value::Saga(_) => "saga",
         Value::Agent(_) => "agent",
         Value::AgentNet(_) => "agent_net",
+        Value::Pipeline(_) => "pipeline",
     }
 }
 
@@ -3845,6 +3870,23 @@ fn builtin_method_dispatch(
     env: &mut Env,
     span: Span,
 ) -> Result<Option<Value>, EvalError> {
+    // M46 — a `pipeline` value is run with `Name.run(...)`. Intercept
+    // before the kwarg reorder below, which is keyed on a static
+    // parameter table: a pipeline's parameters are user-declared, so
+    // its `.run` does its own positional/kwarg binding.
+    if let Value::Pipeline(p) = recv {
+        if name == "run" {
+            let p = p.clone();
+            return invoke_pipeline_run(&p, args, env, span).map(Some);
+        }
+        return Err(EvalError::new(
+            EvalErrorKind::Type(format!(
+                "pipeline `{}` has no method `{name}` — run it with `.run(...)`",
+                p.name
+            )),
+            span,
+        ));
+    }
     let recv_name = match recv {
         Value::Record(r) => r.name.as_deref(),
         _ => None,
@@ -5830,7 +5872,8 @@ fn value_to_natural_json(v: &Value) -> String {
         | Value::Cap(_)
         | Value::Saga(_)
         | Value::Agent(_)
-        | Value::AgentNet(_) => "\"<unrenderable>\"".into(),
+        | Value::AgentNet(_)
+        | Value::Pipeline(_) => "\"<unrenderable>\"".into(),
     }
 }
 
@@ -6537,6 +6580,313 @@ fn run_undo_with_retries(
         }
     }
     Err(())
+}
+
+// ---- pipeline (M46) ----------------------------------------------
+
+/// Bind a `pipeline.run(...)` argument list to the pipeline's declared
+/// parameters (positional + kwargs, mixed as for any call). A `cap`
+/// parameter that the caller does not supply is auto-filled from the
+/// `cap` in scope at the call site — a `pipeline` is an automation
+/// entry point, so `Name.run(version: "1.4.2")` works without
+/// re-threading the ambient capability (§ 11).
+fn bind_pipeline_args(
+    name: &str,
+    params: &[String],
+    args: &[&CallArg],
+    env: &mut Env,
+    span: Span,
+) -> Result<Vec<Value>, EvalError> {
+    let mut slots: Vec<Option<Value>> = vec![None; params.len()];
+    let mut next_pos = 0usize;
+    for a in args {
+        match &a.name {
+            Some(n) => {
+                let idx = params.iter().position(|p| p == n).ok_or_else(|| {
+                    EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "{name}.run: unknown parameter `{n}` (expected one of {params:?})"
+                        )),
+                        span,
+                    )
+                })?;
+                if slots[idx].is_some() {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!("{name}.run: duplicate argument `{n}`")),
+                        span,
+                    ));
+                }
+                slots[idx] = Some(eval_value(&a.value, env)?);
+            }
+            None => {
+                while next_pos < params.len() && slots[next_pos].is_some() {
+                    next_pos += 1;
+                }
+                if next_pos >= params.len() {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Arity {
+                            name: format!("{name}.run"),
+                            expected: params.len(),
+                            found: args.len(),
+                        },
+                        span,
+                    ));
+                }
+                slots[next_pos] = Some(eval_value(&a.value, env)?);
+                next_pos += 1;
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(params.len());
+    for (i, slot) in slots.into_iter().enumerate() {
+        match slot {
+            Some(v) => out.push(v),
+            None if params[i] == "cap" => match env.lookup("cap") {
+                Some(v) => out.push(v),
+                None => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Arity {
+                            name: format!("{name}.run"),
+                            expected: params.len(),
+                            found: args.len(),
+                        },
+                        span,
+                    ))
+                }
+            },
+            None => {
+                return Err(EvalError::new(
+                    EvalErrorKind::Arity {
+                        name: format!("{name}.run"),
+                        expected: params.len(),
+                        found: args.len(),
+                    },
+                    span,
+                ))
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// `Name.run(...)` — bind args, read the optional `on_error` knob, then
+/// run the pipeline (M46.T6).
+fn invoke_pipeline_run(
+    pipeline: &PipelineInstance,
+    args: &[CallArg],
+    env: &mut Env,
+    span: Span,
+) -> Result<Value, EvalError> {
+    let mut on_error_continue = false;
+    let mut rest: Vec<&CallArg> = Vec::with_capacity(args.len());
+    for a in args {
+        if a.name.as_deref() == Some("on_error") {
+            let v = eval_value(&a.value, env)?;
+            let s = expect_string("on_error", &v, span)?;
+            on_error_continue = match s.as_str() {
+                "continue" => true,
+                "stop" => false,
+                other => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Type(format!(
+                            "on_error must be \"stop\" or \"continue\", got {other:?}"
+                        )),
+                        span,
+                    ))
+                }
+            };
+        } else {
+            rest.push(a);
+        }
+    }
+    let bound = bind_pipeline_args(&pipeline.name, &pipeline.params, &rest, env, span)?;
+    invoke_pipeline(pipeline, &bound, on_error_continue, span)
+}
+
+/// Run a `pipeline` forward (M46.T5 / M46.T6). Steps execute in order
+/// under the single pipeline `intent`; each is taped. On the first
+/// failure, `on_error: "stop"` (default) runs `on_failure` and returns
+/// `Err`; `on_error: "continue"` skips the step and proceeds. There is
+/// no rollback — that is what separates a pipeline from a saga.
+fn invoke_pipeline(
+    pipeline: &PipelineInstance,
+    args: &[Value],
+    on_error_continue: bool,
+    span: Span,
+) -> Result<Value, EvalError> {
+    if pipeline.params.len() != args.len() {
+        return Err(EvalError::new(
+            EvalErrorKind::Arity {
+                name: pipeline.name.clone(),
+                expected: pipeline.params.len(),
+                found: args.len(),
+            },
+            span,
+        ));
+    }
+    // Pipeline-scope env — same snapshot a saga inherits, so step
+    // bodies dispatch through the same module scope (and thus the same
+    // ambient `cap`), tracer, AI backend and L2 backend table.
+    let mut pl_env = Env::new();
+    pl_env.module.clone_from(&pipeline.module);
+    pl_env.tracer.clone_from(&pipeline.tracer);
+    pl_env.stdin.clone_from(&pipeline.stdin);
+    pl_env.record_decls.clone_from(&pipeline.record_decls);
+    pl_env.model_decls.clone_from(&pipeline.model_decls);
+    pl_env.policies.clone_from(&pipeline.policies);
+    pl_env.ai_backend.clone_from(&pipeline.ai_backend);
+    pl_env.replay_tape.clone_from(&pipeline.replay_tape);
+    pl_env.full_record = pipeline.full_record;
+    pl_env.imported_modules = pipeline.imported_modules.clone();
+    pl_env.l2_backends = pipeline.l2_backends.clone();
+    pl_env.push_scope();
+    for (name, val) in pipeline.params.iter().zip(args) {
+        pl_env.bind_let(name, val.clone());
+    }
+    let trace_id = pipeline
+        .tracer
+        .as_ref()
+        .map(|t| t.trace_id())
+        .unwrap_or_else(|| "00000000000000000000000000".into());
+    if let Some(t) = &pipeline.tracer {
+        t.intent_enter(&pipeline.intent, Some(&pipeline.name));
+        t.record(
+            "pipeline_enter",
+            None,
+            vec![("pipeline".into(), format!("\"{}\"", pipeline.name))],
+        );
+    }
+    let mut skipped: Vec<String> = Vec::new();
+    let mut stopped: Option<String> = None;
+    for (i, step) in pipeline.steps.iter().enumerate() {
+        let label = step
+            .label
+            .clone()
+            .unwrap_or_else(|| format!("step_{}", i + 1));
+        let key = idempotency_key(&trace_id, &label, i as u64);
+        pl_env.bind_let("last_step", Value::Str(label.clone()));
+        let mut step_env = pl_env.clone();
+        step_env.push_scope();
+        step_env.idempotency_key = Some(std::rc::Rc::new(key.clone()));
+        if let Some(t) = &pipeline.tracer {
+            t.record(
+                "step_enter",
+                None,
+                vec![
+                    ("step".into(), format!("\"{label}\"")),
+                    ("idempotency".into(), format!("\"{key}\"")),
+                ],
+            );
+        }
+        let outcome = eval_value(&step.expr, &mut step_env);
+        let reason = match &outcome {
+            Ok(Value::Result(Err(inner))) => Some(value_as_display(inner)),
+            Err(e) => Some(match &e.kind {
+                EvalErrorKind::Raised(v) => value_as_display(v),
+                other => format!("{other:?}"),
+            }),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            if let Some(t) = &pipeline.tracer {
+                t.record(
+                    "step_exit",
+                    None,
+                    vec![
+                        ("step".into(), format!("\"{label}\"")),
+                        ("outcome".into(), "\"err\"".into()),
+                        (
+                            "reason".into(),
+                            crate::runtime::trace::json_string_field(&reason),
+                        ),
+                    ],
+                );
+            }
+            pl_env.bind_let("last_error", Value::Str(reason.clone()));
+            if on_error_continue {
+                skipped.push(label.clone());
+                continue;
+            }
+            stopped = Some(reason);
+            break;
+        }
+        // Success — bind the `as` output, update `last_output`, fire
+        // the `on_step` hook.
+        let value = outcome.expect("non-failure outcome is Ok");
+        if let Some(b) = &step.binding {
+            pl_env.bind_let(&b.name, value.clone());
+        }
+        pl_env.bind_let("last_output", value.clone());
+        if let Some(t) = &pipeline.tracer {
+            t.record(
+                "step_exit",
+                None,
+                vec![
+                    ("step".into(), format!("\"{label}\"")),
+                    ("outcome".into(), "\"ok\"".into()),
+                ],
+            );
+        }
+        if let Some(hook) = &pipeline.on_step {
+            let mut hook_env = pl_env.clone();
+            hook_env.push_scope();
+            let cl = eval_value(hook, &mut hook_env)?;
+            invoke_value(&cl, &[Value::Str(label.clone()), value], span)?;
+        }
+    }
+    // On a stop-failure, run `on_failure` (it sees `last_error` /
+    // `last_step`), tape the outcome, and return `Err` to the caller.
+    if let Some(reason) = stopped {
+        if let Some(hook) = &pipeline.on_failure {
+            let mut hook_env = pl_env.clone();
+            hook_env.push_scope();
+            eval_value(hook, &mut hook_env)?;
+        }
+        if let Some(t) = &pipeline.tracer {
+            t.record(
+                "pipeline_exit",
+                None,
+                vec![
+                    ("pipeline".into(), format!("\"{}\"", pipeline.name)),
+                    ("outcome".into(), "\"stopped\"".into()),
+                ],
+            );
+            t.intent_exit("stopped");
+        }
+        return Ok(Value::err(Value::Str(format!(
+            "pipeline `{}` stopped at step `{}`: {reason}",
+            pipeline.name,
+            pl_env
+                .lookup("last_step")
+                .and_then(|v| match v {
+                    Value::Str(s) => Some(s),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+        ))));
+    }
+    let outcome_str = if skipped.is_empty() {
+        "ok"
+    } else {
+        "completed_with_skips"
+    };
+    if let Some(t) = &pipeline.tracer {
+        let mut fields = vec![
+            ("pipeline".into(), format!("\"{}\"", pipeline.name)),
+            ("outcome".into(), format!("\"{outcome_str}\"")),
+        ];
+        if !skipped.is_empty() {
+            let list = skipped
+                .iter()
+                .map(|s| format!("\"{s}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            fields.push(("skipped".into(), format!("[{list}]")));
+        }
+        t.record("pipeline_exit", None, fields);
+        t.intent_exit(outcome_str);
+    }
+    Ok(Value::ok(Value::Unit))
 }
 
 fn fnv1a_64(bytes: &[u8]) -> u64 {
@@ -15108,6 +15458,256 @@ mod tests {
         assert!(evs.iter().any(|e| e.kind == "partial_failure"));
     }
 
+    // ---- M46 — pipeline (forward-only traced automation) ----
+
+    fn run_pipeline(src: &str) -> Result<Value, EvalError> {
+        let m = crate::syntax::parse(src).unwrap();
+        run_main(&m)
+    }
+
+    fn run_pipeline_with_tracer(src: &str) -> (Result<Value, EvalError>, Vec<TraceEvent>) {
+        let m = crate::syntax::parse(src).unwrap();
+        let tracer = Tracer::in_memory();
+        let r = super::run_main_with(&m, Some(tracer.clone()));
+        (r, tracer.events())
+    }
+
+    fn step_labels_entered(evs: &[TraceEvent]) -> Vec<String> {
+        evs.iter()
+            .filter(|e| e.kind == "step_enter")
+            .map(|e| {
+                e.fields
+                    .iter()
+                    .find(|(k, _)| k == "step")
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pipeline_p01_runs_steps_in_order_and_tapes_enter_exit() {
+        let src = r#"
+            pipeline Deploy() {
+                intent "deploy"
+                steps:
+                    | "build": 1
+                    | "ship":  2
+            }
+            fn main(cap: cap[]) -> result<unit> { Deploy.run() }
+        "#;
+        let (r, evs) = run_pipeline_with_tracer(src);
+        assert_eq!(r.unwrap(), Value::ok(Value::Unit));
+        let kinds = trace_kind_seq(&evs);
+        assert!(kinds.contains(&"pipeline_enter".to_string()));
+        assert!(kinds.contains(&"pipeline_exit".to_string()));
+        assert_eq!(step_labels_entered(&evs), vec!["\"build\"", "\"ship\""]);
+        let exit = evs.iter().find(|e| e.kind == "pipeline_exit").unwrap();
+        assert!(exit
+            .fields
+            .iter()
+            .any(|(k, v)| k == "outcome" && v == "\"ok\""));
+    }
+
+    #[test]
+    fn pipeline_p02_anonymous_steps_named_step_n() {
+        let src = r#"
+            pipeline P() { intent "x" steps: | 1 | 2 }
+            fn main(cap: cap[]) -> result<unit> { P.run() }
+        "#;
+        let (r, evs) = run_pipeline_with_tracer(src);
+        r.unwrap();
+        assert_eq!(step_labels_entered(&evs), vec!["\"step_1\"", "\"step_2\""]);
+    }
+
+    #[test]
+    fn pipeline_p03_as_binding_visible_to_later_steps() {
+        // If `base` were not bound the second step raises `UndefinedVar`
+        // and fails; a clean `Ok(unit)` proves the binding is in scope.
+        let src = r#"
+            pipeline P() {
+                intent "x"
+                steps:
+                    | 41 as base
+                    | base + 1
+            }
+            fn main(cap: cap[]) -> result<unit> { P.run() }
+        "#;
+        assert_eq!(run_pipeline(src).unwrap(), Value::ok(Value::Unit));
+    }
+
+    #[test]
+    fn pipeline_p04_on_step_fires_after_each_successful_step() {
+        // The hook raises when it sees step "b" — surfacing as an error
+        // proves it ran for the completed step.
+        let src = r#"
+            pipeline P() {
+                intent "x"
+                steps:
+                    | "a": 1
+                    | "b": 2
+                on_step: fn(name, result) { if name == "b" { raise error("hook saw b") } else { 0 } }
+            }
+            fn main(cap: cap[]) -> result<unit> { P.run() }
+        "#;
+        assert!(run_pipeline(src).is_err());
+    }
+
+    #[test]
+    fn pipeline_p05_stop_runs_on_failure_skips_rest_and_returns_err() {
+        let src = r#"
+            pipeline P() {
+                intent "x"
+                steps:
+                    | "a": 1
+                    | "b": Err("boom")
+                    | "c": 3
+                on_failure: "{last_step}-{last_error}"
+            }
+            fn main(cap: cap[]) -> result<unit> { P.run() }
+        "#;
+        let (r, evs) = run_pipeline_with_tracer(src);
+        // Stop returns a `result` Err value (not a raw EvalError); the
+        // fact that `on_failure` — which reads `last_step`/`last_error`
+        // — did not raise proves both implicits were in scope.
+        assert!(matches!(r.unwrap(), Value::Result(Err(_))));
+        // `c` never ran.
+        assert_eq!(step_labels_entered(&evs), vec!["\"a\"", "\"b\""]);
+        let exit = evs.iter().find(|e| e.kind == "pipeline_exit").unwrap();
+        assert!(exit
+            .fields
+            .iter()
+            .any(|(k, v)| k == "outcome" && v == "\"stopped\""));
+    }
+
+    #[test]
+    fn pipeline_p06_continue_skips_failed_and_proceeds() {
+        let src = r#"
+            pipeline P() {
+                intent "x"
+                steps:
+                    | "a": 1
+                    | "b": Err("boom")
+                    | "c": 3
+            }
+            fn main(cap: cap[]) -> result<unit> { P.run(on_error: "continue") }
+        "#;
+        let (r, evs) = run_pipeline_with_tracer(src);
+        // No propagation under "continue".
+        assert_eq!(r.unwrap(), Value::ok(Value::Unit));
+        // All three steps were entered — `c` ran despite `b` failing.
+        assert_eq!(
+            step_labels_entered(&evs),
+            vec!["\"a\"", "\"b\"", "\"c\""]
+        );
+        let exit = evs.iter().find(|e| e.kind == "pipeline_exit").unwrap();
+        assert!(exit
+            .fields
+            .iter()
+            .any(|(k, v)| k == "outcome" && v == "\"completed_with_skips\""));
+        assert!(exit
+            .fields
+            .iter()
+            .any(|(k, v)| k == "skipped" && v.contains("\"b\"")));
+    }
+
+    #[test]
+    fn pipeline_run_rejects_unknown_on_error_value() {
+        let src = r#"
+            pipeline P() { intent "x" steps: | 1 }
+            fn main(cap: cap[]) -> result<unit> { P.run(on_error: "maybe") }
+        "#;
+        assert!(run_pipeline(src).is_err());
+    }
+
+    #[test]
+    fn pipeline_p07_step_enter_carries_idempotency_key() {
+        let src = r#"
+            pipeline P() { intent "x" steps: | 1 | 2 }
+            fn main(cap: cap[]) -> result<unit> { P.run() }
+        "#;
+        let (_, evs) = run_pipeline_with_tracer(src);
+        for e in evs.iter().filter(|e| e.kind == "step_enter") {
+            assert!(e
+                .fields
+                .iter()
+                .any(|(k, v)| k == "idempotency" && v.len() > 2));
+        }
+    }
+
+    #[test]
+    fn pipeline_p08_intent_propagated_to_step_events() {
+        // M46.T7 — every inner event carries the active pipeline intent.
+        let src = r#"
+            pipeline P() { intent "roll forward to prod" steps: | 1 }
+            fn main(cap: cap[]) -> result<unit> { P.run() }
+        "#;
+        let (_, evs) = run_pipeline_with_tracer(src);
+        let step = evs.iter().find(|e| e.kind == "step_enter").unwrap();
+        assert_eq!(step.intent.as_deref(), Some("roll forward to prod"));
+    }
+
+    #[test]
+    fn pipeline_p09_step_keys_are_derived_from_trace_id_step_and_index() {
+        // M46.T8 — a pipeline step derives the same saga-style key as a
+        // saga: `blake3(trace_id ‖ step ‖ index)`. Deterministic for a
+        // fixed trace_id (so a forward re-run is safe), distinct per
+        // step/index. The runtime sets exactly this on each step_env.
+        let trace_id = "01ABC";
+        assert_eq!(
+            idempotency_key(trace_id, "build", 0),
+            idempotency_key(trace_id, "build", 0)
+        );
+        assert_ne!(
+            idempotency_key(trace_id, "build", 0),
+            idempotency_key(trace_id, "push", 1)
+        );
+    }
+
+    #[test]
+    fn pipeline_p10_replay_is_deterministic_for_a_clock_step() {
+        // M46.T9 — a recorded pipeline replays bit-identically for the
+        // deterministic subset: the step structure re-walks the same and
+        // a `clock.now()` inside a step is pinned to the recorded value.
+        let src = r#"
+            use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+            pipeline P() {
+                intent "x"
+                steps:
+                    | "now": clock.now()
+                    | "two": 2
+            }
+            fn main(cap: cap[clock.now]) -> result<unit> { P.run() }
+        "#;
+        let m = crate::syntax::parse(src).unwrap();
+        let star = match cap(vec![], true) {
+            Value::Cap(c) => (*c).clone(),
+            _ => unreachable!(),
+        };
+        // Record a live run.
+        let t1 = Tracer::in_memory();
+        super::run_main_with_full_cfg(&m, star.clone(), Some(t1.clone()), None, None, true).unwrap();
+        let rec = t1.events();
+        // Replay against the recorded tape.
+        let tape = crate::runtime::replay::handle_from_events(
+            rec.clone(),
+            crate::runtime::replay::ReplayMode::FromFixtures,
+        );
+        let t2 = Tracer::in_memory();
+        super::run_main_with_full_cfg(&m, star, Some(t2.clone()), None, Some(tape), false).unwrap();
+        let rep = t2.events();
+        // Identical event-kind structure across the two runs.
+        assert_eq!(trace_kind_seq(&rec), trace_kind_seq(&rep));
+        // The clock value is pinned to the recording.
+        let clock_value = |evs: &[TraceEvent]| {
+            evs.iter()
+                .find(|e| e.kind == "clock_now")
+                .and_then(|e| e.fields.iter().find(|(k, _)| k == "value").map(|(_, v)| v.clone()))
+        };
+        assert!(clock_value(&rec).is_some(), "recording must tape clock.now");
+        assert_eq!(clock_value(&rec), clock_value(&rep));
+    }
+
     // -- M6.T4 idempotency injection (1 wired backend: HTTP) --
     //
     // K8s annotations / AMQP message-id / mongodb sentinel /
@@ -15131,6 +15731,38 @@ mod tests {
                 }}
                 fn main(cap: cap[http.post @ ["127.0.0.1"]]) -> result<unit> {{
                     charge(cap)
+                }}
+            "#
+        );
+        let m = crate::syntax::parse(&src).unwrap();
+        let _ = run_main(&m).unwrap();
+        let raw = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("mock saw request");
+        let req = String::from_utf8_lossy(&raw).into_owned();
+        assert!(
+            req.contains("Idempotency-Key:"),
+            "expected `Idempotency-Key` header, got:\n{req}"
+        );
+    }
+
+    #[test]
+    fn http_inside_pipeline_step_injects_idempotency_header() {
+        // M46.T8 — a write cap inside a pipeline step gets the same
+        // saga-style idempotency key injected on the wire, so a forward
+        // re-run is a no-op where the protocol allows.
+        let (port, rx) = capture_request_with_port("HTTP/1.1 200 OK\r\n\r\n");
+        let url = format!("http://127.0.0.1:{port}/charge");
+        let src = format!(
+            r#"
+            use io, fs, http, shell, env, clock, random, strings, date, json, yaml, net, ai, kube, docker, mongodb, minio, rabbitmq, audit
+                pipeline charge(cap: cap[http.post @ ["127.0.0.1"]]) {{
+                    intent "ship"
+                    steps:
+                        | "pay": http.post("{url}", "body")
+                }}
+                fn main(cap: cap[http.post @ ["127.0.0.1"]]) -> result<unit> {{
+                    charge.run()
                 }}
             "#
         );
