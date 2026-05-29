@@ -65,6 +65,11 @@ enum Command {
     Version,
     /// Scaffold a new Aeris project in the current directory
     Init,
+    /// Install a project under `$HOME/.aeris/projects/<name>`.
+    /// `<path>` is a directory holding an `aeris.toml`; the
+    /// `[project] name` value becomes the install directory name.
+    /// Re-installing the same name replaces the previous copy.
+    Install { path: String },
     /// Compile and run an .aer file. Trailing arguments after the
     /// file path are forwarded to `main` as a `list<string>` when
     /// `main` declares a non-`cap` parameter (M34.T2).
@@ -162,6 +167,7 @@ pub fn run() -> ExitCode {
     match cli.command {
         Command::Version => cmd_version(),
         Command::Init => cmd_init(),
+        Command::Install { path } => cmd_install(&path),
         Command::Check { file, explain } => match (explain, file) {
             (Some(code), _) => cmd_check_explain(code),
             (None, Some(path)) => cmd_check(&path),
@@ -746,6 +752,140 @@ fn cmd_init() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// `aeris install <path>` — copy a project directory into the user's
+/// shared store at `$HOME/.aeris/projects/<name>`, where `<name>` is
+/// the `[project] name` declared in `<path>/aeris.toml`. Re-installing
+/// the same name replaces the previous copy. Exit codes: 69 on any
+/// manifest problem (missing/unreadable/invalid `aeris.toml`, unsafe
+/// name), 1 on a filesystem error.
+fn cmd_install(path: &str) -> ExitCode {
+    let home = match std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        Some(h) => std::path::PathBuf::from(h),
+        None => {
+            eprintln!("aeris: cannot resolve $HOME");
+            return ExitCode::from(1);
+        }
+    };
+    let projects_root = home.join(".aeris").join("projects");
+    match install_project(Path::new(path), &projects_root) {
+        Ok(dest) => {
+            println!("aeris: installed `{}`", dest.display());
+            ExitCode::SUCCESS
+        }
+        Err(InstallError::Manifest(msg)) => {
+            eprintln!("aeris: {msg}");
+            ExitCode::from(crate::manifest::EXIT_MANIFEST_ERROR)
+        }
+        Err(InstallError::Io(msg)) => {
+            eprintln!("aeris: {msg}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[derive(Debug)]
+enum InstallError {
+    /// Bad input: missing/unreadable/invalid `aeris.toml`, unsafe name.
+    Manifest(String),
+    /// Filesystem failure while copying or replacing the install dir.
+    Io(String),
+}
+
+/// Testable core of `aeris install`. Reads `<source>/aeris.toml`, takes
+/// `[project] name`, and copies `source` to `<projects_root>/<name>`,
+/// replacing any previous install of the same name. Returns the
+/// destination path on success.
+fn install_project(
+    source: &Path,
+    projects_root: &Path,
+) -> Result<std::path::PathBuf, InstallError> {
+    if !source.is_dir() {
+        return Err(InstallError::Manifest(format!(
+            "`{}` is not a directory",
+            source.display()
+        )));
+    }
+    let manifest_path = source.join("aeris.toml");
+    let body = fs::read_to_string(&manifest_path).map_err(|e| {
+        InstallError::Manifest(format!("cannot read {}: {e}", manifest_path.display()))
+    })?;
+    let manifest = crate::manifest::parse_manifest(&body)
+        .map_err(|e| InstallError::Manifest(format!("manifest error: {e}")))?;
+    let name = manifest.project.name.trim();
+    validate_project_name(name).map_err(InstallError::Manifest)?;
+
+    let dest = projects_root.join(name);
+
+    // Guard against installing a directory onto itself (e.g. running
+    // `aeris install` on an already-installed project), which would
+    // wipe the source before the copy.
+    if let (Ok(s), Ok(d)) = (source.canonicalize(), dest.canonicalize()) {
+        if s == d {
+            return Err(InstallError::Io(format!(
+                "source and destination are the same directory ({})",
+                d.display()
+            )));
+        }
+    }
+
+    if dest.exists() {
+        fs::remove_dir_all(&dest).map_err(|e| {
+            InstallError::Io(format!("cannot replace {}: {e}", dest.display()))
+        })?;
+    }
+    fs::create_dir_all(&dest)
+        .map_err(|e| InstallError::Io(format!("cannot create {}: {e}", dest.display())))?;
+    copy_dir_recursive(source, &dest).map_err(InstallError::Io)?;
+    Ok(dest)
+}
+
+/// The install name becomes a single directory under
+/// `$HOME/.aeris/projects`, so it must be exactly one safe path
+/// component — no separators, no `.`/`..` traversal, not empty.
+fn validate_project_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("`[project] name` is empty".into());
+    }
+    if name == "." || name == ".." {
+        return Err(format!("`[project] name` cannot be `{name}`"));
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return Err(format!(
+            "`[project] name` `{name}` contains a path separator"
+        ));
+    }
+    // Belt and braces: the name must resolve to exactly one normal
+    // component, never an absolute root, prefix, or parent ref.
+    let mut comps = Path::new(name).components();
+    match (comps.next(), comps.next()) {
+        (Some(std::path::Component::Normal(_)), None) => Ok(()),
+        _ => Err(format!("`[project] name` `{name}` is not a valid directory name")),
+    }
+}
+
+/// Recursively copy `src` into the already-existing directory `dst`.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    let rd = fs::read_dir(src).map_err(|e| format!("cannot read {}: {e}", src.display()))?;
+    for entry in rd {
+        let entry = entry.map_err(|e| format!("cannot read entry in {}: {e}", src.display()))?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        let ft = entry
+            .file_type()
+            .map_err(|e| format!("cannot stat {}: {e}", from.display()))?;
+        if ft.is_dir() {
+            fs::create_dir_all(&to)
+                .map_err(|e| format!("cannot create {}: {e}", to.display()))?;
+            copy_dir_recursive(&from, &to)?;
+        } else {
+            fs::copy(&from, &to).map_err(|e| {
+                format!("cannot copy {} to {}: {e}", from.display(), to.display())
+            })?;
+        }
+    }
+    Ok(())
 }
 
 /// `aeris run <file>` — pure-interpreter driver (M3.T6). Exit codes
@@ -1554,5 +1694,80 @@ mod tests {
         let input = "fn main() -> int { let r = R { x: 1 }; r.x }";
         let out = super::migrate_backslash_paren(input).unwrap();
         assert_eq!(out, input);
+    }
+
+    // ---- `aeris install` ----
+
+    fn write_project(dir: &Path, name: &str) {
+        fs::write(
+            dir.join("aeris.toml"),
+            format!("[project]\nname = \"{name}\"\naeris = \"0.3.0\"\n"),
+        )
+        .unwrap();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/main.aer"), "fn main(cap) {}\n").unwrap();
+    }
+
+    #[test]
+    fn install_copies_under_name_from_manifest() {
+        let source = unique_dir("install-src");
+        let projects = unique_dir("install-projects");
+        write_project(&source, "demo-app");
+
+        let dest = super::install_project(&source, &projects).expect("install ok");
+        assert_eq!(dest, projects.join("demo-app"));
+        assert!(dest.join("aeris.toml").is_file());
+        assert!(dest.join("src/main.aer").is_file());
+    }
+
+    #[test]
+    fn install_replaces_previous_copy() {
+        let source = unique_dir("install-src");
+        let projects = unique_dir("install-projects");
+        write_project(&source, "demo-app");
+
+        super::install_project(&source, &projects).expect("first install");
+        // Add a stray file to the destination; a re-install must wipe it.
+        let dest = projects.join("demo-app");
+        fs::write(dest.join("stale.txt"), "old").unwrap();
+        super::install_project(&source, &projects).expect("re-install");
+        assert!(!dest.join("stale.txt").exists());
+        assert!(dest.join("aeris.toml").is_file());
+    }
+
+    #[test]
+    fn install_rejects_missing_manifest() {
+        let source = unique_dir("install-src");
+        let projects = unique_dir("install-projects");
+        // No aeris.toml written.
+        let err = super::install_project(&source, &projects);
+        assert!(matches!(err, Err(super::InstallError::Manifest(_))));
+    }
+
+    #[test]
+    fn install_rejects_path_traversal_name() {
+        let source = unique_dir("install-src");
+        let projects = unique_dir("install-projects");
+        write_project(&source, "../escape");
+        let err = super::install_project(&source, &projects);
+        assert!(matches!(err, Err(super::InstallError::Manifest(_))));
+        assert!(!projects.parent().unwrap().join("escape").exists());
+    }
+
+    #[test]
+    fn validate_project_name_accepts_simple_names() {
+        assert!(super::validate_project_name("demo").is_ok());
+        assert!(super::validate_project_name("my-aeris-project").is_ok());
+        assert!(super::validate_project_name("app_2").is_ok());
+    }
+
+    #[test]
+    fn validate_project_name_rejects_unsafe_names() {
+        assert!(super::validate_project_name("").is_err());
+        assert!(super::validate_project_name(".").is_err());
+        assert!(super::validate_project_name("..").is_err());
+        assert!(super::validate_project_name("a/b").is_err());
+        assert!(super::validate_project_name("../x").is_err());
+        assert!(super::validate_project_name("/abs").is_err());
     }
 }

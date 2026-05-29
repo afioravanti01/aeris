@@ -35,6 +35,8 @@ pub fn categorise(
   intent "categorise the inbound support ticket" {
     let full_prompt = "{TRIAGE_PROMPT}\n\nTicket:\n{payload}"
     io.println("[router]   ai.decide → calling claude-sonnet-4-6 (choices: billing|bug|feature|spam)")
+    
+    // Calls AI.DECIDE to get the right category
     let category = ai.decide(prompt: full_prompt, choices: CATEGORIES, retries: 3)
     io.println("[router]   ai.decide ← {category}")
     Ok(category)

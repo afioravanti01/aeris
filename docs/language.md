@@ -2517,6 +2517,7 @@ aeris replay <trace_id> [--live]          # re-run from recorded trace
 aeris trace tail [<trace_id>]             # follow a trace
 aeris trace diff <a> <b>                  # diff two traces
 aeris init                                # scaffold a project skeleton
+aeris install <dir>                       # copy a project into $HOME/.aeris/projects/<name>
 aeris version
 ```
 
@@ -2572,6 +2573,30 @@ binding rule is driven by `main`'s parameter list:
 The CLI is permissive on the trailing slice — no schema, no flag
 parsing. `aeris run ./serve.aer 3000 --verbose` passes `["3000",
 "--verbose"]` to `main`'s `args`.
+
+### 25.6 `aeris install` — the user project store
+
+`aeris install <dir>` copies a project directory into the per-user
+store at `$HOME/.aeris/projects/<name>`. The `<dir>` argument must hold
+an `aeris.toml`; its `[project] name` value is the install directory
+name.
+
+```
+$ aeris install ./myproj          # [project] name = "hello-aeris"
+aeris: installed `/home/me/.aeris/projects/hello-aeris`
+```
+
+Rules:
+
+- The whole directory is copied recursively. Re-installing the same
+  `name` replaces the previous copy atomically (the old directory is
+  removed first, never merged).
+- `name` must be a single safe path component — empty, `.`, `..`, and
+  any value containing a path separator are rejected, so a manifest can
+  never write outside the store.
+- `$HOME` must resolve. Missing or unreadable `aeris.toml`, an invalid
+  manifest, or an unsafe `name` exit `69` (manifest error, § 25.3);
+  filesystem failures exit `1`.
 
 ---
 

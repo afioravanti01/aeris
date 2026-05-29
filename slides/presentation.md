@@ -96,7 +96,7 @@ A small interpreted language.
   - **`thesis.md`** — the *rationale*
   - **`language.md`** — the *spec*
   - **`project.md`** — the *constraints*
-  - **`plan.md / plan.json`** — **~50 milestones** ([→ full plan](plan.html))
+  - **`plan.md / plan.json`** — **~45 milestones** ([→ full plan](plan.html))
 
 - **The loop**
   - **read** the plan
@@ -109,7 +109,7 @@ A small interpreted language.
 
 # Change of perspective
 
-> The author of code is now an **LLM** — no mental model, just the next token.
+> The author of code is now an **LLM** — no mental model, just the next token. Human (still) in the loop.
 
 - **Two problems** the language must answer
 
@@ -131,7 +131,7 @@ A small interpreted language.
 
 # What today's defences miss
 
-> No existing tool answers: **which function can touch which resource?**
+> Opacity: **which function can touch which resource?**
 
 | Tool | What it **checks** | What it **misses** |
 |---|---|---|
@@ -269,7 +269,7 @@ A small interpreted language.
 
 # Tree-walking, concretely
 
-> Each node is either a **statement** (changes the environment) or an **expression** (returns a value). Evaluation is a depth-first walk: children first, then the parent.
+> Each node is either a **statement** (changes the environment) or an **expression** (returns a value). Evaluation is a `depth-first walk`: children first, then the parent.
 
 <div class="columns">
 <div class="column">
@@ -352,7 +352,7 @@ A small interpreted language.
 
 # Surface, values, types
 
-> Expressions everywhere, immutable by default, **one construct per concept**. Every keyword is reserved, so `grep saga` finds every saga.
+> Expressions everywhere, immutable by default, **one construct per concept**. Every keyword is reserved.
 
 <div class="columns">
 <div class="column">
@@ -727,7 +727,8 @@ fn settle(
 - **`cap` cannot escape**
   - no fields · no return · no channels
   - `cap[*]` **forbidden** in user code
-- **Enforcement** — project decision
+
+**Enforcement** — project decision
   - `off` · `loose` · `strict` in `aeris.toml`
 
 **Lineage — object-capability security**
@@ -823,7 +824,7 @@ policy model_budget {
 
 # Content-addressed supply chain
 
-> Every external dependency is identified by **the hash of its bytes**. Change the bytes and **none** of its code runs.
+> Every external dependency is identified by **the hash of its bytes**.
 
 ```toml
 [deps]
@@ -852,7 +853,7 @@ deploy = { source = "github.com/acmecorp/aeris-devops",
 
 # Reversible execution
 
-> How **a single program** acts on the world — *do the work, record it, undo on failure*. Every write step is **reversible**, every run **replayable**. *(Coordinating **many** agents is L4, next.)*
+> How **a single program** acts on the world — *do the work, record it, undo on failure*. Every write step is **reversible**, every run **replayable**.
 
 ---
 
@@ -1359,7 +1360,7 @@ let r = net.run(
 </div>
 <div class="column compact">
 
-**Aeris reaches all three at once**
+**Current status:**
 
 - **Verifiable** — *by construction*
   - `cap` · `intent` · contracts · `policy`
@@ -1389,7 +1390,7 @@ let r = net.run(
 - From *"how do I build this?"*
 - To *"**what** do I want built?"*
   - `saga` · `agent` · `intent` · `policy`
-  - = **whole intentions**, not mechanisms
+  - **whole intentions**, not mechanisms
 
 **Why high abstraction (not low)**
 
@@ -1413,7 +1414,7 @@ let r = net.run(
   - every guess = fresh **non-determinism**
 - The *why* is **re-derived every run**
 
-**Aeris's move — *why* in the grammar**
+***why* in the grammar**
 
 - `intent` · `requires:` / `ensures:` · `policy`
   - **not comments**
@@ -1426,7 +1427,7 @@ let r = net.run(
 
 # Three sources of non-determinism
 
-> Aeris doesn't **remove** it — it makes each source **explicit, contained, reproducible**.
+> Aeris tries to make each source **explicit, contained, reproducible**.
 
 - **The model** — *same prompt → different output*
   - **Capture, don't control**
@@ -1452,7 +1453,7 @@ let r = net.run(
   section > ul > li > ul > li { font-size: 26px; margin: 4px 0; color: #1C2035; }
 </style>
 
-# Why Aeris over Python · Java · Rust · Go
+# Why ?
 
 - **vs Python**
   - skip the `langchain` + `pydantic` + `openai` + `structlog` stack — these are **language built-ins**
@@ -1479,8 +1480,23 @@ let r = net.run(
 
 ---
 
+# Next steps
+
+> Two directions, both open.
+
+- **Build something *with* it**
+  - a deploy, a triage flow, a chatbot grounded on your docs — one `.aer` file each
+  - `enforce = "off"` to prototype, ramp to `"strict"` when the shape stabilises
+
+- **Build something *on* it**
+  - bug fixing :)
+  - new L2 libraries, new *ai* features, improvements
+  - the spec lives in `docs/{thesis,language,project,plan}.md`; the runtime is one Rust crate
+
+---
+
 <!-- _class: divider -->
 
 # Thank you
 
-> **Aeris is open source** — questions, feedback and contributions welcome.
+> *Questions, feedback and contributions are welcome.*

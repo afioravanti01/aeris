@@ -672,6 +672,7 @@ Always on. `--full-record` enables byte-level body capture.
 | `aeris trace tail [<trace_id>]` | follow |
 | `aeris trace diff <a> <b>` | trace differ |
 | `aeris init` | scaffold a project (default `enforce = "off"`) |
+| `aeris install <dir>` | copy a project into `$HOME/.aeris/projects/<name>` (`name` from `[project]`); re-install replaces (§ 25.6) |
 | `aeris version` | prints `aeris 0.3.0` |
 
 ### 15.2 Exit codes (§ 25.3)
